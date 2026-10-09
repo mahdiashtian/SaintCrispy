@@ -17,6 +17,7 @@ dependencies = [
     "yt-dlp[default]==2026.8.19",
     "bgutil-ytdlp-pot-provider==2.0.2",
     "psutil>=7,<9",
+    "python-dotenv>=1,<2",
 ]
 
 [project.optional-dependencies]

@@ -8,6 +8,7 @@ services:
       POSTGRES_PASSWORD: ${DEV_DB_PASSWORD:?Set DEV_DB_PASSWORD in .env}
     ports:
       - target: 5432
+        published: ${POSTGRES_PORT:?Run python tools/setup_services.py to configure POSTGRES_PORT}
         host_ip: 127.0.0.1
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -21,6 +22,7 @@ services:
     restart: unless-stopped
     ports:
       - target: 6379
+        published: ${REDIS_PORT:?Run python tools/setup_services.py to configure REDIS_PORT}
         host_ip: 127.0.0.1
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
@@ -28,34 +30,5 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-  bot:
-    profiles: ["bot"]
-    build: .
-    stop_grace_period: 45s
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://downloader:${DEV_DB_PASSWORD}@postgres:5432/downloader
-      REDIS_URL: redis://redis:6379/0
-      FFMPEG_PATH: ffmpeg
-    volumes:
-      - bot_logs:/app/logs
-    logging:
-      driver: json-file
-      options:
-        max-size: "20m"
-        max-file: "3"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-  youtube-pot:
-    profiles: ["youtube-pot"]
-    image: brainicism/bgutil-ytdlp-pot-provider:2.0.2
-    restart: unless-stopped
-    init: true
-    # Internal token generation only; no public port and no media proxy.
 volumes:
   postgres_data:
-  bot_logs:

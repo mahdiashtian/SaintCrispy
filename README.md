@@ -17,123 +17,140 @@ The transfer pipeline does not store complete media files on local disk. Unknown
 
 ## Requirements
 
-For the recommended Docker deployment:
+The bot runs directly on the host with `python main.py`. Docker Compose runs **only PostgreSQL and Redis**.
 
-- Docker Engine or Docker Desktop with Docker Compose v2.
-- A Telegram API ID and API hash from [my.telegram.org](https://my.telegram.org), and a bot token created through [BotFather](https://t.me/BotFather).
-- Network access to Telegram and the original websites/CDNs.
+- Python **3.12 or newer**, with a virtual environment.
+- Docker Engine/Desktop and Docker Compose v2 with support for `up --wait`.
+- FFmpeg installed on the host.
+- Node.js **22 or newer**, or Deno **2.3 or newer**, for YouTube's JavaScript challenges.
+- A Telegram API ID/hash from [my.telegram.org](https://my.telegram.org), and a bot token from [BotFather](https://t.me/BotFather).
+- Network access to Telegram and the source websites/CDNs.
 
-Docker includes Python 3.12, Node.js and FFmpeg. For a native installation, install Python **3.12 or newer**, FFmpeg, and Node.js **22 or newer** or Deno **2.3 or newer** for YouTube's JavaScript challenges. PostgreSQL and Redis can run in Docker or be managed separately. Redis is optional for native deployments; PostgreSQL is required.
+## Installation and manual startup on Ubuntu
 
-## Quick start with Docker
+These commands assume an Ubuntu release whose Python is at least 3.12, and an already installed Docker Engine/Compose. Use `sudo` for package installation when not logged in as root.
 
-Clone the repository:
+```bash
+apt-get update
+apt-get install -y git python3 python3-venv ffmpeg curl ca-certificates
+python3 --version
+```
+
+Install a compatible Node.js runtime if one is not already installed. This uses the [nvm project's installer](https://github.com/nvm-sh/nvm#installing-and-updating):
+
+```bash
+export NVM_DIR="$HOME/.nvm"
+curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh | bash
+. "$NVM_DIR/nvm.sh"
+nvm install 24
+node --version
+```
+
+Clone and install the application:
 
 ```bash
 git clone https://github.com/mahdiashtian/SaintCrispy.git
 cd SaintCrispy
-cp .env.example .env
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e .
+test -f .env || cp .env.example .env
+nano .env
 ```
 
-Edit `.env` and fill in:
+Set your credentials in `.env`. Keep password values single-quoted so dollar signs and comment characters remain literal:
 
 ```dotenv
 API_ID=your_numeric_api_id
 API_HASH=your_api_hash
 BOT_TOKEN=your_bot_token
-DEV_DB_PASSWORD=replace_with_a_long_random_hex_password
+DEV_DB_PASSWORD='your_database_password'
+POSTGRES_PORT=
+REDIS_PORT=
 ```
 
-Use a long alphanumeric/hex value for `DEV_DB_PASSWORD`: Compose interpolates it into the internal PostgreSQL URL. You can generate a value with `openssl rand -hex 32`. Keep the resulting `.env` private.
+If a database already exists, keep its current password. PostgreSQL applies `POSTGRES_PASSWORD` when initializing a new data directory; editing `.env` does not change a password stored in an existing database.
 
-Start the application:
+Configure the ports and start the databases, then launch the bot manually:
 
 ```bash
-docker compose -p saintcrispy --profile bot up -d --build
+python tools/setup_services.py
+python main.py
 ```
 
-Compose starts PostgreSQL and Redis, waits for their health checks, then starts the bot. It supplies the internal database/cache addresses and `FFMPEG_PATH=ffmpeg`; the host-side `DATABASE_URL`, `REDIS_URL` and `FFMPEG_PATH` entries may remain empty for this deployment.
+The setup command chooses a free localhost port for each blank port setting, then saves the exact `POSTGRES_PORT` and `REDIS_PORT` in `.env`. Subsequent runs keep those numbers. You can enter your own free port numbers before setup. Existing localhost connection URLs also supply their previous ports during migration. Docker binds both services to `127.0.0.1` using the saved ports.
 
-Inspect or stop services:
+The same setup writes explicit `DATABASE_URL` and `REDIS_URL` values containing `127.0.0.1` and those ports. PostgreSQL's Docker container reads `DEV_DB_PASSWORD` from `.env`; the URL password is percent-encoded for Python, including `@`, `/`, `#`, `?` and dollar signs. If the password is blank or still `YOUR_PASSWORD`, setup generates a random hex password. Setup waits for both database health checks and prints only their addresses, not credentials.
+
+`main.py` reads the `.env` next to itself automatically. Values in that file take precedence over stale shell exports and are loaded without variable expansion. It runs with the repository as its working directory, so relative log/cookie paths remain consistent. The bot is ready to receive `/start` when the console emits `bot_ready`; earlier `runtime_started` only means that the process has begun initialization. Press Ctrl+C for normal cleanup.
+
+Run the same foreground command in later sessions:
 
 ```bash
-docker compose -p saintcrispy --profile bot ps
-docker compose -p saintcrispy logs --tail 100 -f bot
-docker compose -p saintcrispy --profile bot stop bot
-docker compose -p saintcrispy --profile bot down
+cd ~/SaintCrispy
+. .venv/bin/activate
+python main.py
 ```
 
-PostgreSQL data and performance logs live in the project's named Docker volumes. `down` keeps those volumes; `down -v` deletes them. Keep the same Compose project name to retain the same database and logs. Redis is a disposable cache and does not persist its contents.
+The foreground bot follows the terminal session's lifetime. To keep a manually launched process through SSH disconnections, run it in a persistent terminal session or configure a process supervisor separately.
 
-After pulling updates, rebuild the bot with:
+## Updating an existing server
+
+From the existing repository, keeping its `.env` and Compose project name:
 
 ```bash
 git pull --ff-only
-docker compose -p saintcrispy --profile bot up -d --build bot
-```
-
-Database schema additions are applied at startup. Back up PostgreSQL separately before upgrades; copying the source folder does not back up its Docker volume.
-
-## Native installation on Linux/macOS
-
-Create a virtual environment and install the package:
-
-```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e '.[dev]'
-cp .env.example .env
+python -m pip install -e .
+python tools/setup_services.py
+python main.py
 ```
 
-Install FFmpeg and Node.js with your system's package manager. If using the included Compose services, start them and discover their randomly assigned localhost ports:
+Stop the current native bot before replacing it. Setup uses project `saintcrispy` by default, keeps its PostgreSQL named volume, and removes obsolete bot/helper containers belonging to that same project. It runs only the two database services. No application image is built.
+
+## Database service management
+
+After initial setup has populated `.env`:
 
 ```bash
-docker compose -p saintcrispy up -d postgres redis
+docker compose -p saintcrispy up -d --wait postgres redis
+docker compose -p saintcrispy ps
+docker compose -p saintcrispy logs --tail 100 postgres redis
 docker compose -p saintcrispy port postgres 5432
 docker compose -p saintcrispy port redis 6379
+docker compose -p saintcrispy stop postgres redis
 ```
 
-Set `DATABASE_URL` to `postgresql://downloader:PASSWORD@127.0.0.1:POSTGRES_PORT/downloader` and `REDIS_URL` to `redis://127.0.0.1:REDIS_PORT/0`. Use the password in `.env`; URL-encode special characters when constructing a connection URL for an external database. An empty `REDIS_URL` disables Redis.
+Internal container ports remain 5432 and 6379; the native Python bot uses the published localhost ports in `.env`. PostgreSQL data lives in `saintcrispy_postgres_data`. `docker compose -p saintcrispy down` preserves the volume; `down -v` deletes it. Redis is a disposable cache with persistence disabled. Back up PostgreSQL separately before upgrades.
 
-The Python entry point reads process environment variables. It does not automatically read `.env`. For a trusted, shell-compatible `.env`, export the values before starting:
+After changing a port or password setting, rerun `python tools/setup_services.py` to refresh the explicit URLs and Compose configuration. Setup manages a local database named `downloader` and user `downloader`. For an externally managed database/cache, supply your own `DATABASE_URL`/`REDIS_URL` and run `python main.py` directly without the local setup command. An empty `REDIS_URL` disables Redis.
 
-```bash
-set -a
-. ./.env
-set +a
-python -m downloader_bot
-```
+## Windows development
 
-Use `FFMPEG_PATH=ffmpeg` for a binary on `PATH`, or set its absolute path. Stop any existing bot coordinator before starting another copy for the same bot account.
-
-## Native installation on Windows
-
-From PowerShell in the repository folder:
+Install Python 3.12+, FFmpeg and a compatible Node.js runtime on Windows. Run in PowerShell:
 
 ```powershell
 py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-Copy-Item .env.example .env
-# Edit .env and set API_ID, API_HASH and BOT_TOKEN.
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+notepad .env
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-services.ps1
+.\.venv\Scripts\python.exe main.py
+```
+
+Adjust the Python launcher version if needed. The setup wrapper uses Docker Desktop when available, otherwise Docker in WSL distribution `Ubuntu` with user `root`. Choose another installed distribution/user explicitly:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-services.ps1 -WslDistribution Ubuntu-24.04 -WslUser root
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run.ps1
 ```
 
-Python 3.12+ is supported; adjust the launcher version to match your installation. The setup script starts only PostgreSQL/Redis, generates a database password if needed, discovers their host ports, and writes the connection URLs to `.env`. It finds FFmpeg on `PATH` or through the installed development dependency instead of assuming a fixed binary version.
-
-If Docker Desktop is unavailable, the setup script can use Docker inside WSL. Its default distribution is `Ubuntu-24.04`; select your installed distribution explicitly when different:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-services.ps1 -WslDistribution Ubuntu
-```
-
-Docker must be installed and accessible to your WSL user. The helper keeps that distribution alive while this project's services are needed. After stopping the services, stop only this project's helper with:
+Windows setup uses Compose project `downloader-bot-dev` and delegates port/password/URL configuration to the same Python setup tool. The WSL user must be able to run Docker. A hidden keepalive helper keeps WSL available while the native Windows bot runs; stop it when finished:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\keep-wsl-alive.ps1 -Stop
 ```
-
-Execution-policy bypass above applies only to that PowerShell process. The scripts load `.env` before starting the asynchronous Python process.
 
 ## Configuration
 
@@ -164,15 +181,7 @@ Execution-policy bypass above applies only to that PowerShell process. The scrip
 - **YouTube:** `YOUTUBE_COOKIES_FILE` is an optional writable Netscape cookie-file path, `YOUTUBE_PROXY` is an optional HTTP proxy, and `YOUTUBE_JS_RUNTIME` selects Node/Deno. Empty proxy means direct egress for extraction and transfer. Cookies/tokens do not guarantee that the current network is accepted by YouTube.
 - **Multiple accounts:** the `site_accounts` table stores account labels and environment-variable names, not credentials. Add rows for `soundcloud`, `instagram` or `youtube`, then define the referenced credential variables in the bot's environment. Each account has a separate HTTP/cookie session or YouTube cookie-file lock.
 
-For YouTube cookies in Docker, mount the cookie file with a Compose override at the path named by `YOUTUBE_COOKIES_FILE`. Ensure the container's `bot` user can read/write it; never copy it into the image or commit it.
-
-An optional local PO-token helper is provided by the `youtube-pot` profile:
-
-```bash
-docker compose -p saintcrispy --profile youtube-pot up -d youtube-pot
-```
-
-Set `YOUTUBE_POT_BASE_URL=http://youtube-pot:4416` for the Docker bot and rebuild/recreate the bot after changing configuration. The helper is internal and does not proxy media. Player-client overrides and Instagram GraphQL document IDs are documented in `.env.example`; leave the maintained defaults unless a provider change requires an override.
+Cookie-file paths are host paths. The account running `python main.py` needs read/write access to a YouTube cookie file. Keep cookies outside source control. An optional independently managed PO-token helper can be configured with a host-reachable `YOUTUBE_POT_BASE_URL`, such as `http://127.0.0.1:4416`; it is not started by the database Compose file. Player-client overrides and Instagram GraphQL document IDs are documented in `.env.example`.
 
 ## Data and concurrency model
 
@@ -200,7 +209,7 @@ Performance logging is enabled by default. Events are JSON Lines: one JSON objec
 | `METRICS_INTERVAL_SECONDS` | `30` | Resource/network summaries and active transfer progress; range 1-3600. |
 | `METRICS_NETWORK_INTERFACE` | empty | Sample all non-loopback interfaces, or select an interface such as `eth0`. |
 
-Defaults retain roughly 220 MiB of file logs. The oldest backup is removed during rotation. Docker persists `/app/logs` in `bot_logs` and separately caps its stdout driver at three 20 MB files. Use a shorter metrics interval, such as 1-5 seconds, during load measurements; a 30-second sample can miss a short CPU/RAM peak. A failed disk or full queue increments `log_write_errors`/`log_records_dropped` in subsequent summaries. Retained events can therefore be incomplete; cumulative in-memory counters continue advancing. Normal shutdown drains the queue with a bounded wait. A forced process kill cannot guarantee a final summary or every queued event. Linux SIGTERM performs normal cleanup; Compose allows 45 seconds before forcing termination.
+Defaults retain roughly 220 MiB of file logs. The oldest backup is removed during rotation. Logs are stored on the host in the repository's `logs/` directory. Use a shorter metrics interval, such as 1-5 seconds, during load measurements; a 30-second sample can miss a short CPU/RAM peak. A failed disk or full queue increments `log_write_errors`/`log_records_dropped` in subsequent summaries. Retained events can therefore be incomplete; cumulative in-memory counters continue advancing. Normal shutdown drains the queue with a bounded wait. A forced process kill cannot guarantee a final summary or every queued event. Linux SIGTERM and Ctrl+C perform normal cleanup. A separately configured supervisor should allow sufficient time for that cleanup.
 
 The main events are:
 
@@ -209,7 +218,7 @@ The main events are:
 - `external_fallback`: the reason Telegram URL fetching fell back to streaming.
 - `batch_started` / `batch_finished`: a continuous wave from the first active transfer until no transfers remain. The result records N started/completed requests, peak concurrency, payload totals and the wave's wall time. Cache sends are counted as requests; deduplicated downloads still count their actual bytes only once.
 - `metrics_interval`: active/peak transfers, counts and traffic since startup and in the latest interval, bytes/second, completions/second, recent latency p95, per-site outcomes, process/child RSS, process/system CPU, event-loop scheduling delay and log health. Latency p95 uses the latest 2048 completed transfers.
-- `runtime_started`, `runtime_configured`, `runtime_stopped` and safe runtime/task failure events.
+- `runtime_started`, `runtime_configured`, `startup_progress`, `bot_ready`, `runtime_stopped` and safe runtime/task failure events. Telegram connection retries and login cooldowns include their requested wait duration.
 - `request_rejected`, admission failures and cancellation events: capacity/rate rejections, safe failures before a transfer, and accepted/protected Stop requests. Job reservation/running counts are included in interval summaries.
 
 `stages_seconds` separates resource waits, resolution, source-size probing, Telegram URL fetching, streaming, Telegram cooldowns/publication and database/history writes. `download_seconds` spans source acquisition through valid EOF; `upload_seconds` spans the first part RPC through final acknowledgement/cleanup. Download and upload overlap, and include backpressure/waits within their spans. Do not add them to calculate elapsed time. `upload_rpc` is cumulative time across concurrent RPCs and may exceed wall time. External URL fetching exposes only `external_fetch` duration and final file size; Telegram does not expose separate download/upload timing. Reused files have no local media transfer, so both times are null.
@@ -223,17 +232,10 @@ Traffic fields have different scopes:
 - `delivered_file_bytes`: logical file sizes delivered successfully, including external fetches and cache reuse. Cached files can have a large logical size while producing no local media payload traffic.
 - `network_received_bytes` / `network_sent_bytes` / `network_traffic_bytes`: OS counters on the selected interfaces, including metadata requests, FFmpeg input, database/control traffic and protocol overhead. They are sampled session-wide, not attributed to individual transfers. In Docker they cover the container's network namespace; native deployment includes other traffic on the host's selected interfaces. Select the primary interface to avoid counting the same host traffic through multiple bridges/interfaces. `system.network_interfaces` and `network_available` identify the measurement scope. These counters do not measure traffic between Telegram's servers and an origin.
 
-Inspect running Docker logs or export the retained JSON files:
+Inspect the live host log or summarize its retained rotated files:
 
 ```bash
-docker compose -p saintcrispy logs --tail 100 -f bot
-mkdir -p logs
-docker compose -p saintcrispy cp bot:/app/logs/. ./logs/
-```
-
-Analyze all retained files, the first N matching completed requests, or a provider/time range:
-
-```bash
+tail -f logs/performance.jsonl
 python tools/summarize_logs.py 'logs/performance.jsonl*'
 python tools/summarize_logs.py 'logs/performance.jsonl*' --files 1000
 python tools/summarize_logs.py 'logs/performance.jsonl*' --site youtube --since '2026-10-09T00:00:00Z'
@@ -253,6 +255,8 @@ This benchmark downloads real localhost HTTP bodies while simulating Telegram. I
 ## Project structure and provider boundaries
 
 ```text
+main.py                    # Host entry point and automatic .env loading
+compose.yaml               # PostgreSQL and Redis only
 src/downloader_bot/
   __main__.py              # Composition and lifecycle
   config.py                # Environment configuration
@@ -274,9 +278,9 @@ src/downloader_bot/
       downloader.py        # Direct inspect/resolve implementation
       handler.py           # Provider link/menu handler
       urls.py              # Provider URL rules
-scripts/                    # Windows development setup
+scripts/                   # Windows development setup
 tests/                     # Unit, architecture, real DB and FFmpeg tests
-tools/                     # Optional diagnostics and local load tests
+tools/                     # Database setup, diagnostics and local load tests
 ```
 
 Each provider owns those six files. Providers do not import another provider, a shared concrete extractor or the generic transfer implementation. Shared models and the abstract contract are deliberately small. Similar extraction/HLS code is kept inside its owning provider because site behavior can diverge. DRY applies within each provider and to generic infrastructure; it does not override this isolation rule. Storage and delivery are injected through structural interfaces so the service can be tested independently.
@@ -287,8 +291,8 @@ To add a provider, create the same six files, subclass `Downloader`, implement `
 
 ```bash
 python -m pip install -e '.[dev]'
-python -m ruff check src tests tools
-python -m ruff format --check src tests tools
+python -m ruff check main.py src tests tools
+python -m ruff format --check main.py src tests tools
 python -m pytest -q
 ```
 
@@ -315,12 +319,13 @@ Live provider probes use the current network and optional account settings. `--t
 
 ## Troubleshooting
 
-- **Missing environment variables:** export the configured values before native startup, or use `scripts/run.ps1`. Docker loads `.env` itself.
+- **Missing environment variables:** fill `.env` in the repository root and launch `python main.py`, which reads it automatically.
 - **FFmpeg cannot start:** verify `ffmpeg -version` and `FFMPEG_PATH`; YouTube separate streams and HLS require FFmpeg.
 - **YouTube login/bot challenge:** use an authorized session and an accepted network route. PO tokens do not grant access to private or unavailable content.
 - **No available quality or HTTP 429:** source availability, authentication and rate limits apply. Provider cooldowns prevent repeated bursts against a rejected origin.
 - **Telegram rejects an external URL:** the bot falls back to streaming when safe. An instant link from another downloader can be that service's proxy or merged output, not necessarily an origin URL usable by Telegram.
 - **Another coordinator is running:** stop the existing process/container for that bot before starting a replacement.
-- **Database connection fails:** check service health, the password and the current published ports. Docker-native bot connections use `postgres`/`redis`, not Windows host ports.
+- **Database connection fails:** run `python tools/setup_services.py` and check `docker compose -p saintcrispy ps`. Native URLs must use `127.0.0.1` and the saved host ports. A `gaierror` indicates name resolution failed; setup replaces Docker-only hostnames and safely encodes password characters. Keep an existing database's actual password.
+- **No response to `/start`:** look for `bot_ready`, the latest `startup_progress` stage, safe error events, and Telegram retry/login-wait events in `logs/performance.jsonl`. `runtime_started` alone is not readiness.
 
 Local `.env`, Telegram sessions, cookie files, runtime state, raw research and Persian reports are intentionally excluded from Git. The previous Persian README is preserved locally under `.local-docs/README.fa.md`; it is not part of the public repository.

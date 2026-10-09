@@ -50,23 +50,29 @@ async def create_provider_session(stack: AsyncExitStack) -> httpx.AsyncClient:
     )
 
 
-async def sign_in_bot(client, bot_token: str):
+async def sign_in_bot(client, bot_token: str, telemetry=None):
     """Honor Telegram's login cooldown without restarting or blocking the event loop."""
     while True:
         try:
             return await client.sign_in(bot_token=bot_token)
         except errors.FloodWaitError as error:
+            if telemetry is not None:
+                telemetry.emit("telegram_login_wait", wait_seconds=max(1, error.seconds))
             await asyncio.sleep(max(1, error.seconds))
 
 
-async def connect_bot(client):
-    """Keep the process alive during network outages; avoid Docker restart/login loops."""
+async def connect_bot(client, telemetry=None):
+    """Keep the process alive during network outages with a bounded async backoff."""
     delay = 2
     while True:
         try:
             await client.connect()
             return
-        except (OSError, TimeoutError):
+        except (OSError, TimeoutError) as error:
+            if telemetry is not None:
+                telemetry.emit(
+                    "telegram_connection_retry", wait_seconds=delay, **error_fields(error)
+                )
             await asyncio.sleep(delay)
             delay = min(30, delay * 2)
 
@@ -109,6 +115,7 @@ async def main() -> None:
             max_file_bytes=settings.max_file_bytes,
             transfer_timeout_seconds=settings.transfer_timeout,
         )
+        telemetry.emit("startup_progress", stage="database_connecting")
         pool = await stack.enter_async_context(
             await asyncpg.create_pool(
                 settings.database_url,
@@ -145,9 +152,12 @@ async def main() -> None:
             flood_sleep_threshold=0,
         )
         stack.push_async_callback(client.disconnect)
-        await connect_bot(client)
-        await sign_in_bot(client, settings.bot_token)
+        telemetry.emit("startup_progress", stage="telegram_connecting")
+        await connect_bot(client, telemetry)
+        telemetry.emit("startup_progress", stage="telegram_authenticating")
+        await sign_in_bot(client, settings.bot_token, telemetry)
         bot = await client.get_me()
+        telemetry.emit("startup_progress", stage="database_initializing")
         # Enforce one coordinator per bot; conversion workers do not own database/cache writes.
         coordinator = await stack.enter_async_context(pool.acquire())
         if not await coordinator.fetchval("SELECT pg_try_advisory_lock($1)", bot.id):
@@ -236,6 +246,7 @@ async def main() -> None:
         menus = MenuStore(limit=max(2048, settings.max_requests))
         limits = RequestLimiter(settings.request_interval, repository, telemetry=telemetry)
         register_handlers(client, service, menus, jobs, limits)
+        telemetry.emit("bot_ready", bot_username=bot.username)
         await client.run_until_disconnected()
 
 
