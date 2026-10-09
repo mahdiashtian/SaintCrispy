@@ -247,7 +247,9 @@ def read_media(data: dict, identity: str) -> Media:
         raise DownloadError("پخش زنده یا ویدیوی در حال آماده‌سازی هنوز پشتیبانی نمی‌شود.")
     choices = selections(data)
     if not choices:
-        raise DownloadError("کیفیت کامل و بدون DRM برای این ویدیو پیدا نشد.")
+        raise DownloadError(
+            "کیفیت کامل و بدون DRM برای این ویدیو پیدا نشد.", code="youtube_no_complete_formats"
+        )
     return Media(
         "youtube",
         identity,

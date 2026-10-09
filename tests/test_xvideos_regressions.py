@@ -172,7 +172,8 @@ def test_invalid_hls_resolution_cannot_crash_or_offer_a_misidentified_quality(re
     assert read_hls_variants(master, "https://cdn.example/master.m3u8") == ()
 
 
-async def test_a_working_alternative_of_the_same_hls_quality_is_preserved():
+@pytest.mark.parametrize("failure", ["404", "timeout"])
+async def test_a_working_alternative_of_the_same_hls_quality_is_preserved(failure):
     master = """#EXTM3U
 #EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720,CODECS="avc1.4d401f,mp4a.40.2"
 broken.m3u8
@@ -186,6 +187,8 @@ working.m3u8
         if request.url.path.endswith("master.m3u8"):
             return httpx.Response(200, text=master)
         if request.url.path.endswith("broken.m3u8"):
+            if failure == "timeout":
+                raise httpx.ConnectTimeout("temporary CDN failure")
             return httpx.Response(404)
         return (
             httpx.Response(200, content=TS)

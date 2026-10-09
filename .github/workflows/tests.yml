@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      audit_providers:
+        description: Run public origin/CDN checks for all six providers
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -54,3 +59,16 @@ jobs:
         run: python -m ruff format --check main.py src tests tools
       - name: Run tests
         run: python -m pytest -q
+      - name: Install Node for optional live provider checks
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_providers
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Check public origins and CDN samples
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_providers
+        run: >-
+          python tools/audit_providers.py
+          --url soundcloud=https://soundcloud.com/quavoofficial/away
+          --url soundcloud=https://soundcloud.com/octobersveryown/quebec
+          --url soundcloud=https://soundcloud.com/gdaal/mojezeh
+          --output '${{ runner.temp }}/provider-audit.json'

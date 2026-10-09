@@ -33,7 +33,10 @@ class PinterestDownloader(Downloader):
         media = read_pin(await self.client.pin(identity), identity)
         formats = await self._formats(media.qualities)
         if not formats:
-            raise DownloadError("رسانهٔ کامل و قابل دریافت برای این پین پیدا نشد.")
+            raise DownloadError(
+                "رسانهٔ کامل و قابل دریافت برای این پین پیدا نشد.",
+                code="pinterest_no_playable_format",
+            )
         if len(formats) > 80:
             raise DownloadError("تعداد کیفیت‌های این پین بیش از سقف پشتیبانی است.")
         return replace(media, qualities=tuple(quality for quality, _ in formats))

@@ -97,7 +97,7 @@ async def test_thousand_failed_followers_do_not_restart_the_same_origin_request(
     assert calls == 1 and len(service._failures) == 1
     # An expired cooldown admits a later attempt and is not a permanent failure cache.
     key = next(iter(service._failures))
-    service._failures[key] = 0, "expired"
+    service._failures[key] = 0, "expired", None
     with pytest.raises(DownloadError):
         await request()
     assert calls == 2

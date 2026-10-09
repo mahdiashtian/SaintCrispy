@@ -218,6 +218,28 @@ async def test_new_graphql_flow_refreshes_signed_urls_and_does_not_leak_cookies(
         assert len([r for r in calls if r.url.path == "/api/graphql"]) == 2
 
 
+async def test_unavailable_optional_apis_do_not_hide_the_working_shortcode_query():
+    queried = []
+
+    def respond(request):
+        queried.append(request.url.path)
+        if request.url.host.endswith("cdninstagram.com"):
+            return httpx.Response(206, content=sample_mp4(audio=False))
+        if request.url.path.startswith("/p/"):
+            return httpx.Response(200, text="<html></html>")
+        if request.url.path.endswith("get_ruling_for_content/"):
+            return httpx.Response(503)
+        if request.url.path == "/api/graphql":
+            return httpx.Response(403)
+        assert request.url.path == "/graphql/query"
+        return httpx.Response(200, json=fixture())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        media = await InstagramDownloader(InstagramClient(http)).inspect(PAGE)
+    assert media.content_id == "Chunk8-jurw" and media.qualities
+    assert "/graphql/query" in queried
+
+
 async def test_rate_limit_has_cooldown_and_no_recursive_retry_storm():
     calls = []
 

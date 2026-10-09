@@ -242,12 +242,14 @@ def test_placeholder_does_not_hide_the_later_real_player_url():
     assert info["high"] == "https://cdn.example/video.mp4"
 
 
-@pytest.mark.parametrize("broken", ["html", "404", "partial_hls"])
+@pytest.mark.parametrize("broken", ["html", "404", "timeout", "partial_hls"])
 async def test_broken_sources_are_excluded_without_hiding_a_working_quality(broken):
     def respond(request):
         if request.url.host != "cdn.example":
             return httpx.Response(200, text=PAGE)
         if request.url.path == "/high.mp4":
+            if broken == "timeout":
+                raise httpx.ConnectTimeout("temporary CDN failure")
             return (
                 httpx.Response(404)
                 if broken == "404"

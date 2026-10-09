@@ -7,9 +7,9 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from downloader_bot.models import DownloadError
+from downloader_bot.models import DownloadError, SiteHTTPError
 
-from .parser import source_headers
+from .parser import codec, source_headers, usable
 
 
 @dataclass(frozen=True)
@@ -46,20 +46,27 @@ class YouTubeClient:
         async with httpx.AsyncClient(proxy=self.proxy or None, trust_env=False, timeout=10) as http:
 
             async def check(item):
+                hls = item.get("protocol") in {"m3u8", "m3u8_native"}
+                headers = source_headers(item)
+                if not hls:
+                    headers["Range"] = "bytes=0-4095"
                 async with (
                     slots,
                     http.stream(
                         "GET",
                         item["url"],
-                        headers={**source_headers(item), "Range": "bytes=0-4095"},
+                        headers=headers,
                         follow_redirects=True,
                     ) as response,
                 ):
                     if response.status_code in {401, 403, 404, 410, 416}:
                         return None
+                    if response.status_code == 429:
+                        raise SiteHTTPError(
+                            429, "یوتیوب درخواست‌های سرور را موقتاً محدود کرده؛ کمی بعد امتحان کن."
+                        )
                     response.raise_for_status()
                     sample = bytearray()
-                    hls = item.get("protocol") in {"m3u8", "m3u8_native"}
                     async for chunk in response.aiter_bytes(4096):
                         sample.extend(chunk)
                         if (not hls and len(sample) >= 4096) or len(sample) > 256 * 1024:
@@ -72,10 +79,23 @@ class YouTubeClient:
                     return item["url"] if valid else None
 
             results = await asyncio.gather(*(check(item) for item in items), return_exceptions=True)
+            available, failure = set(), None
             for result in results:
+                if isinstance(result, SiteHTTPError) and result.status == 429:
+                    raise result
+                if isinstance(result, (httpx.HTTPError, TimeoutError)):
+                    failure = result
+                    continue
                 if isinstance(result, BaseException):
                     raise result
-            return {url for url in results if url}
+                if result:
+                    available.add(result)
+            if not available and failure is not None:
+                raise DownloadError(
+                    "ارتباط با جریان‌های یوتیوب قطع شد؛ دوباره امتحان کن.",
+                    code="youtube_cdn_connection_failed",
+                ) from failure
+            return available
 
     async def extract(self, url: str) -> dict:
         if self.cookies_file:
@@ -95,7 +115,6 @@ class YouTubeClient:
             "--skip-download",
             "--dump-single-json",
             "--no-progress",
-            "--no-warnings",
             "--no-remote-components",
             "--js-runtimes",
             self.js_runtime,
@@ -153,6 +172,8 @@ class YouTubeClient:
                 raise DownloadError("پاسخ استخراج یوتیوب معتبر نبود.") from error
             if not isinstance(data, dict):
                 raise DownloadError("پاسخ استخراج یوتیوب معتبر نبود.")
+            if not any(usable(item) and codec(item) for item in (data.get("formats") or [])):
+                raise extraction_error(diagnostic)
             return data
         except TimeoutError as error:
             raise DownloadError("دریافت اطلاعات یوتیوب طولانی شد؛ دوباره امتحان کن.") from error
@@ -169,20 +190,42 @@ def extraction_error(diagnostic: bytes) -> DownloadError:
     # Do not expose stderr: it may contain credentials or temporary signed URLs.
     text = diagnostic.lower()
     if b"no module named yt_dlp" in text:
-        return DownloadError("وابستگی yt-dlp روی سرور نصب نشده است.")
+        return DownloadError("وابستگی yt-dlp روی سرور نصب نشده است.", code="youtube_missing_yt_dlp")
     if b"private video" in text or b"members-only" in text:
-        return DownloadError("این ویدیو به حساب دارای دسترسی نیاز دارد.")
-    if b"age" in text and (b"confirm" in text or b"restrict" in text):
-        return DownloadError("این ویدیو به حساب مجاز برای محدودیت سنی نیاز دارد.")
+        return DownloadError(
+            "این ویدیو به حساب دارای دسترسی نیاز دارد.", code="youtube_private_video"
+        )
+    if any(
+        marker in text for marker in (b"age-restricted", b"age restricted", b"confirm your age")
+    ):
+        return DownloadError(
+            "این ویدیو به حساب مجاز برای محدودیت سنی نیاز دارد.", code="youtube_age_restricted"
+        )
     if b"not a bot" in text or b"sign in" in text:
         return DownloadError(
             "یوتیوب اتصال سرور را محدود کرده؛ مدیر ربات باید کوکی معتبر یا مسیر شبکه "
-            "یوتیوب را تنظیم کند."
+            "یوتیوب را تنظیم کند.",
+            code="youtube_login_required",
         )
     if b"429" in text:
-        return DownloadError("یوتیوب درخواست‌های سرور را موقتاً محدود کرده؛ کمی بعد امتحان کن.")
+        return DownloadError(
+            "یوتیوب درخواست‌های سرور را موقتاً محدود کرده؛ کمی بعد امتحان کن.",
+            code="youtube_rate_limited",
+        )
     if b"403" in text:
-        return DownloadError("یوتیوب اجازه دریافت این جریان را نداد؛ لینک را دوباره بفرست.")
-    if b"javascript" in text or b"js runtime" in text:
-        return DownloadError("حل چالش JavaScript یوتیوب روی سرور تنظیم نشده است.")
-    return DownloadError("دریافت اطلاعات یوتیوب ممکن نشد؛ ویدیو یا اتصال سرور را بررسی کن.")
+        return DownloadError(
+            "یوتیوب اجازه دریافت این جریان را نداد؛ لینک را دوباره بفرست.",
+            code="youtube_cdn_forbidden",
+        )
+    if any(
+        marker in text
+        for marker in (b"javascript", b"js runtime", b"signature solving failed", b"n challenge")
+    ):
+        return DownloadError(
+            "حل چالش JavaScript یوتیوب روی سرور تنظیم نشده یا ناموفق بوده است.",
+            code="youtube_js_challenge_failed",
+        )
+    return DownloadError(
+        "دریافت اطلاعات یوتیوب ممکن نشد؛ ویدیو یا اتصال سرور را بررسی کن.",
+        code="youtube_extraction_failed",
+    )

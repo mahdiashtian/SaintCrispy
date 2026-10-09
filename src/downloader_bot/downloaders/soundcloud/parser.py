@@ -54,12 +54,20 @@ def is_preview_url(url: str, duration: int) -> bool:
 def read_qualities(track: dict) -> tuple[Quality, ...]:
     # A quality identifies the audio, not the delivery protocol or temporary URL.
     qualities: dict[str, Quality] = {}
-    for item in track.get("media", {}).get("transcodings", []):
-        preset = item.get("preset", "")
-        protocol = item.get("format", {}).get("protocol")
+    for item in transcodings(track):
+        preset = item.get("preset")
+        endpoint = item.get("url")
+        description = item.get("format") or {}
+        if not isinstance(preset, str) or not isinstance(endpoint, str):
+            continue
+        if not isinstance(description, dict):
+            continue
+        protocol = description.get("protocol")
+        if protocol == "encrypted-hls":
+            protocol = "hls"  # Standard AES-128 HLS is handled by FFmpeg.
         if (
             item.get("snipped")
-            or "/preview/" in item.get("url", "")
+            or "/preview/" in endpoint
             or preset.startswith("abr")
             or protocol not in ("hls", "progressive")
         ):
@@ -91,7 +99,7 @@ def read_qualities(track: dict) -> tuple[Quality, ...]:
             {"aac": "m4a", "mp3": "mp3", "opus": "opus"}[codec],
             {"aac": "audio/mp4", "mp3": "audio/mpeg", "opus": "audio/ogg"}[codec],
             protocol,
-            item["url"],
+            endpoint,
         )
         previous = qualities.get(key)
         if previous is None:
@@ -101,3 +109,34 @@ def read_qualities(track: dict) -> tuple[Quality, ...]:
         elif protocol == "hls" and previous.protocol == "progressive":
             qualities[key] = replace(previous, fallback_endpoint=quality.endpoint)
     return tuple(sorted(qualities.values(), key=lambda q: q.bitrate or 0, reverse=True))
+
+
+def transcodings(track: dict) -> tuple[dict, ...]:
+    media = track.get("media") or {}
+    if not isinstance(media, dict):
+        return ()
+    items = media.get("transcodings") or []
+    if not isinstance(items, list):
+        return ()
+    return tuple(item for item in items if isinstance(item, dict))
+
+
+def unavailable_error(track: dict) -> DownloadError:
+    if any(
+        str((item.get("format") or {}).get("protocol", "")).startswith(("ctr-", "cbc-"))
+        for item in transcodings(track)
+        if isinstance(item.get("format") or {}, dict)
+    ):
+        return DownloadError(
+            "جریان‌های کامل این آهنگ DRM دارند و لینک دانلود معمولی ارائه نمی‌کنند.",
+            code="soundcloud_protected_stream",
+        )
+    if any(item.get("snipped") for item in transcodings(track)):
+        return DownloadError(
+            "SoundCloud برای دسترسی فعلی فقط پیش‌نمایش آهنگ را ارائه کرده است.",
+            code="soundcloud_preview_only",
+        )
+    return DownloadError(
+        "SoundCloud لینک پخش کامل و قابل دریافت برای این آهنگ ارائه نکرد.",
+        code="soundcloud_no_full_stream",
+    )

@@ -88,9 +88,12 @@ class SoundCloudClient:
                 response = await self.http.get(url, params=query, headers=self.headers)
         self._check_status(response)
         try:
-            return response.json()
+            data = response.json()
         except json.JSONDecodeError as error:
             raise DownloadError("پاسخ SoundCloud معتبر نیست.") from error
+        if not isinstance(data, dict):
+            raise DownloadError("پاسخ SoundCloud معتبر نیست.", code="soundcloud_invalid_response")
+        return data
 
     def _check_status(self, response: httpx.Response, allow_redirect: bool = False) -> None:
         if response.status_code == 429:

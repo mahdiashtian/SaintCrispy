@@ -92,11 +92,10 @@ class PinterestClient:
             )
             api_pin = read_api_pin(body, identity)
         except SiteHTTPError as error:
-            if error.status not in {403, 404, 410}:
+            if error.status == 429:
                 raise
-        except DownloadError as error:
-            if error.__cause__ is not None:
-                raise
+        except DownloadError:
+            pass  # The public pin page is an independent metadata source.
         try:
             body, final_url, _ = await self._read(page, HEADERS, 4 * 1024 * 1024, kind="page")
             if pin_id(final_url) != identity:

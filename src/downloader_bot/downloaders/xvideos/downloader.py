@@ -36,7 +36,10 @@ class XVideosDownloader(Downloader):
                 candidates.append(quality)
         playable = await self._collect([self._sources(media, quality) for quality in candidates])
         if not playable:
-            raise DownloadError("هیچ کیفیت قابل دریافت و کاملی برای این ویدیو پیدا نشد.")
+            raise DownloadError(
+                "هیچ کیفیت قابل دریافت و کاملی برای این ویدیو پیدا نشد.",
+                code="xvideos_no_playable_format",
+            )
         return replace(
             media,
             qualities=tuple(quality for quality, _, _ in playable),

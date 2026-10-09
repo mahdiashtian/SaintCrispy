@@ -59,6 +59,10 @@ class TelegramFile:
 class DownloadError(Exception):
     """A recoverable failure with a safe, user-visible explanation."""
 
+    def __init__(self, message: str = "", *, code: str | None = None):
+        super().__init__(message)
+        self.code = code
+
 
 class SiteHTTPError(DownloadError):
     def __init__(self, status: int, message: str):

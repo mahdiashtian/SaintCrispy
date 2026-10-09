@@ -50,3 +50,21 @@ def test_track_numeric_id_is_preserved_even_above_signed_32_bit_range():
 def test_legacy_aac_hq_preset_is_ranked_above_standard_aac():
     track = {"media": {"transcodings": [variant("aac_160k"), variant("aac_0_0", quality="hq")]}}
     assert [q.key for q in read_qualities(track)] == ["aac_256", "aac_160"]
+
+
+def test_standard_encrypted_hls_is_supported_without_accepting_protected_protocols():
+    track = {
+        "media": {
+            "transcodings": [
+                variant("aac_160k", "encrypted-hls"),
+                variant("aac_256k", "cbc-encrypted-hls"),
+                variant("aac_96k", "ctr-encrypted-hls"),
+                None,
+                {"preset": None, "format": None},
+            ]
+        }
+    }
+    qualities = read_qualities(track)
+    assert len(qualities) == 1 and qualities[0].key == "aac_160"
+    assert qualities[0].protocol == "hls"
+    assert read_qualities({"media": None}) == ()

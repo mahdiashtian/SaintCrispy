@@ -31,7 +31,10 @@ class YouTubeDownloader(Downloader):
         media = read_media(data, identity)
         choices = await self._available(client, data)
         if not choices:
-            raise DownloadError("لینک کیفیت‌های یوتیوب روی اتصال سرور قابل دریافت نیست.")
+            raise DownloadError(
+                "لینک کیفیت‌های یوتیوب روی اتصال سرور قابل دریافت نیست.",
+                code="youtube_cdn_unavailable",
+            )
         return replace(
             media, qualities=tuple(item.quality for item in choices), account_id=account_id
         )

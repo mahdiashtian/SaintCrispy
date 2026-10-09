@@ -439,6 +439,77 @@ async def test_cdn_samples_exclude_denied_or_invalid_media(monkeypatch):
     assert available == {items[0]["url"], items[3]["url"]}
 
 
+async def test_long_finite_hls_is_read_without_a_truncating_range_header(monkeypatch):
+    original = httpx.AsyncClient
+    manifest = b"#EXTM3U\n" + b"#EXTINF:2,\nsegment.ts\n" * 600 + b"#EXT-X-ENDLIST\n"
+
+    def respond(request):
+        assert "range" not in request.headers
+        return httpx.Response(200, content=manifest)
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(respond))
+    )
+    item = fmt("long-hls", protocol="m3u8_native")
+    assert await YouTubeClient().available([item]) == {item["url"]}
+
+
+async def test_one_cdn_timeout_preserves_other_verified_formats(monkeypatch):
+    original = httpx.AsyncClient
+
+    def respond(request):
+        if request.url.path == "/broken":
+            raise httpx.ConnectTimeout("SECRET signed URL")
+        return httpx.Response(206, content=b"\x00\x00\x00\x18ftypisom" + bytes(100))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(respond))
+    )
+    good, broken = fmt("good"), fmt("broken")
+    assert await YouTubeClient().available([broken, good]) == {good["url"]}
+
+
+async def test_cdn_rate_limit_remains_visible_even_when_another_format_is_healthy(monkeypatch):
+    original = httpx.AsyncClient
+
+    def respond(request):
+        if request.url.path == "/limited":
+            return httpx.Response(429)
+        return httpx.Response(206, content=b"\x00\x00\x00\x18ftypisom" + bytes(100))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(respond))
+    )
+    with pytest.raises(DownloadError) as failure:
+        await YouTubeClient().available([fmt("good"), fmt("limited")])
+    assert failure.value.status == 429
+
+
+def test_webpage_login_challenge_is_not_misclassified_as_an_age_restriction():
+    error = extraction_error(b"Downloading webpage. Sign in to confirm you're not a bot SECRET")
+    assert error.code == "youtube_login_required" and "SECRET" not in str(error)
+
+
+async def test_successful_worker_with_no_formats_reports_its_safe_challenge_reason(monkeypatch):
+    original = asyncio.create_subprocess_exec
+
+    async def spawn(*args, **kwargs):
+        assert "--no-warnings" not in args
+        return await original(
+            sys.executable,
+            "-c",
+            "import json,sys; print(json.dumps({'id':'jNQXAC9IVRw','formats':[]})); "
+            "print('WARNING: n challenge solving failed SECRET',file=sys.stderr)",
+            **kwargs,
+        )
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    with pytest.raises(DownloadError) as failure:
+        await YouTubeClient().extract(PAGE)
+    assert failure.value.code == "youtube_js_challenge_failed"
+    assert "SECRET" not in str(failure.value)
+
+
 async def test_quality_requires_both_cdn_streams_to_be_accessible():
     async def extract(url):
         return info()

@@ -10,9 +10,11 @@ import json
 import os
 from contextlib import AsyncExitStack
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
+from dotenv import load_dotenv
 from telethon import TelegramClient, functions, types
 from telethon.sessions import MemorySession
 
@@ -30,6 +32,7 @@ from downloader_bot.downloaders.youtube.client import YouTubeClient
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
 from downloader_bot.models import DownloadError
 from downloader_bot.streaming import media_chunks, upload_stream
+from downloader_bot.telemetry import error_fields
 
 SAMPLES = {
     "soundcloud": "https://soundcloud.com/gdaal/mojezeh",
@@ -39,6 +42,24 @@ SAMPLES = {
     "xvideos": "https://www.xvideos.com/video4588838/_",
     "xnxx": "https://www.xnxx.com/video-bykb3e9/video",
 }
+
+
+def requested_cases(args):
+    overrides = {}
+    for site, url in getattr(args, "url", ()):
+        overrides.setdefault(site, []).append(url)
+    return [
+        (site, site if index == 0 else f"{site}:{index + 1}", url)
+        for site in (args.sites or SAMPLES)
+        for index, url in enumerate(overrides.get(site, [SAMPLES[site]]))
+    ]
+
+
+def url_argument(value):
+    site, separator, url = value.partition("=")
+    if not separator or site not in SAMPLES or not url.startswith("https://"):
+        raise argparse.ArgumentTypeError("Use SITE=https://... with one of the supported sites")
+    return site, url
 
 
 async def audit(args):
@@ -68,16 +89,17 @@ async def audit(args):
         }
         results = {}
 
-        async def inspect(site):
-            result = results[site] = {
-                "input_url": SAMPLES[site],
+        async def inspect(site, key, url):
+            result = results[key] = {
+                "site": site,
+                "page_host": urlsplit(url).hostname,
                 "inspected": False,
                 "resolved": [],
             }
             provider = providers[site]
             try:
                 async with asyncio.timeout(120):
-                    media = await provider.inspect(SAMPLES[site])
+                    media = await provider.inspect(url)
                     result.update(
                         inspected=True,
                         content_id=media.content_id,
@@ -131,11 +153,11 @@ async def audit(args):
                             sources.append((quality, source))
                     result["_sources"] = sources
             except Exception as error:
-                result.update(error_type=type(error).__name__)
+                result.update(error_fields(error))
                 if isinstance(error, DownloadError):
                     result["reason"] = str(error)
 
-        await asyncio.gather(*(inspect(site) for site in (args.sites or SAMPLES)))
+        await asyncio.gather(*(inspect(*case) for case in requested_cases(args)))
         if args.telegram and any(row.get("_sources") for row in results.values()):
             telegram = TelegramClient(
                 MemorySession(),
@@ -229,6 +251,14 @@ async def audit(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sites", nargs="+", choices=tuple(SAMPLES))
+    parser.add_argument(
+        "--url",
+        type=url_argument,
+        action="append",
+        default=[],
+        help="Override a site's sample with SITE=https://...; repeat for multiple URLs",
+    )
+    parser.add_argument("--output", type=Path, help="Save the same sanitized JSON report")
     parser.add_argument("--all-qualities", action="store_true")
     parser.add_argument("--telegram", action="store_true")
     parser.add_argument(
@@ -239,7 +269,17 @@ def main():
     args = parser.parse_args()
     if args.stream_mismatches and not args.telegram:
         parser.error("stream-mismatches requires telegram")
-    print(json.dumps(asyncio.run(audit(args)), ensure_ascii=False, indent=2))
+    load_dotenv(
+        Path(__file__).resolve().parents[1] / ".env",
+        override=True,
+        interpolate=False,
+        encoding="utf-8-sig",
+    )
+    report = json.dumps(asyncio.run(audit(args)), ensure_ascii=True, indent=2)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(report + "\n", encoding="utf-8")
+    print(report)
 
 
 if __name__ == "__main__":

@@ -46,7 +46,10 @@ class XNXXDownloader(Downloader):
             unique.append(item)
         playable = unique
         if not playable:
-            raise DownloadError("هیچ کیفیت قابل دریافت و کاملی برای این ویدیو پیدا نشد.")
+            raise DownloadError(
+                "هیچ کیفیت قابل دریافت و کاملی برای این ویدیو پیدا نشد.",
+                code="xnxx_no_playable_format",
+            )
         return replace(
             media,
             qualities=tuple(quality for quality, _, _ in playable),

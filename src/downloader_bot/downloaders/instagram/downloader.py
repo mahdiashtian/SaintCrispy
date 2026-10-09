@@ -32,7 +32,10 @@ class InstagramDownloader(Downloader):
                 media, formats = await self._media(client, url)
                 available = await self._available(client, media, formats)
                 if not available:
-                    raise DownloadError("رسانه کامل و قابل دریافت برای این پست پیدا نشد.")
+                    raise DownloadError(
+                        "رسانه کامل و قابل دریافت برای این پست پیدا نشد.",
+                        code="instagram_no_playable_format",
+                    )
                 return replace(
                     media, qualities=tuple(f.quality for f in available), account_id=account_id
                 )

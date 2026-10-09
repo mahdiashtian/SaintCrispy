@@ -18,12 +18,41 @@ from downloader_bot.progress import TransferProgress
 from downloader_bot.service import DownloadService
 from downloader_bot.streaming import PART_SIZE
 from downloader_bot.telegram import TelegramDelivery
-from downloader_bot.telemetry import SystemSampler, Telemetry, current_transfer
+from downloader_bot.telemetry import SystemSampler, Telemetry, current_transfer, error_fields
 
 QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "")
 MEDIA = Media("youtube", "stable-id", "PRIVATE TITLE", "", 3, "PRIVATE URL", None, (QUALITY,))
 PEER = types.InputPeerUser(1, 2)
 FILE = TelegramFile(1, 2, b"private-reference", bytes(PEER), 3, 123)
+
+
+def test_provider_failure_codes_are_logged_without_the_exception_text():
+    error = DownloadError(
+        "PRIVATE TEXT https://cdn.example?token=SECRET", code="origin_unavailable"
+    )
+    record = error_fields(error)
+    assert record["error_code"] == "origin_unavailable"
+    assert "PRIVATE" not in json.dumps(record) and "SECRET" not in json.dumps(record)
+
+
+async def test_shared_failure_cooldown_keeps_the_provider_reason_code():
+    calls = []
+    writer = MemoryWriter()
+    telemetry = Telemetry(writer)
+
+    async def inspect(url):
+        calls.append(url)
+        raise DownloadError("PRIVATE RESPONSE", code="soundcloud_protected_stream")
+
+    service = DownloadService(SimpleNamespace(inspect=inspect), None, None, telemetry=telemetry)
+    for _ in range(2):
+        with pytest.raises(DownloadError) as failure:
+            await service.inspect("https://example?token=SECRET")
+        assert failure.value.code == "soundcloud_protected_stream"
+    assert len(calls) == 1
+    records = [record for record in writer.records if record["event"] == "inspection_finished"]
+    assert all(record["error_code"] == "soundcloud_protected_stream" for record in records)
+    assert "PRIVATE RESPONSE" not in json.dumps(records) and "SECRET" not in json.dumps(records)
 
 
 class MemoryWriter:

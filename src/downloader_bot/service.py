@@ -48,14 +48,14 @@ class DownloadService:
         self._transfer_timeout = transfer_timeout
         self.telemetry = telemetry
         self._metadata: OrderedDict[str, tuple[float, Media]] = OrderedDict()
-        self._failures: OrderedDict[tuple[str, str], tuple[float, str]] = OrderedDict()
+        self._failures: OrderedDict[tuple[str, str], tuple[float, str, str | None]] = OrderedDict()
 
     def _raise_recent_failure(self, operation: str, key: str) -> None:
         cached = self._failures.get((operation, key))
         if cached is not None:
-            expires, message = cached
+            expires, message, code = cached
             if expires > time.monotonic():
-                raise DownloadError(message)
+                raise DownloadError(message, code=code)
             del self._failures[operation, key]
 
     def _remember_failure(self, operation: str, key: str, error: Exception) -> None:
@@ -67,7 +67,8 @@ class DownloadService:
             if isinstance(error, DownloadError)
             else "این درخواست کامل نشد؛ کمی بعد امتحان کن."
         )
-        self._failures[operation, key] = time.monotonic() + 10, message
+        code = error.code if isinstance(error, DownloadError) else None
+        self._failures[operation, key] = time.monotonic() + 10, message, code
         self._failures.move_to_end((operation, key))
         if len(self._failures) > self._metadata_capacity:
             self._failures.popitem(last=False)

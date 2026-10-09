@@ -169,7 +169,7 @@ class InstagramClient:
         try:
             data, _ = await self._read(url, **kwargs)
         except SiteHTTPError as error:
-            if error.status != 404:
+            if error.status not in {403, 404, 405, 410, 500, 502, 503, 504}:
                 raise
             return {}
         try:

@@ -8,7 +8,13 @@ from downloader_bot.downloaders.base import Downloader
 from downloader_bot.models import DownloadError, Media, Quality, SiteHTTPError, Source
 
 from .client import SoundCloudClient
-from .parser import is_preview_url, read_qualities, read_track, validate_page_url
+from .parser import (
+    is_preview_url,
+    read_qualities,
+    read_track,
+    unavailable_error,
+    validate_page_url,
+)
 from .urls import cache_alias
 
 
@@ -52,6 +58,7 @@ class SoundCloudDownloader(Downloader):
     async def _inspect(self, url: str, client: SoundCloudClient, account_id: str) -> Media:
         page, final_url = await client.page(url)
         await client.public_client_id(page)
+        from_page = False
         try:
             track = read_track(page)
         except DownloadError:
@@ -62,30 +69,26 @@ class SoundCloudDownloader(Downloader):
                 raise DownloadError("فعلاً لینک یک آهنگ را بفرست؛ لینک مجموعه پشتیبانی نشده است.")
         else:
             if client.headers:
-                track = await client.api(f"https://api-v2.soundcloud.com/tracks/{track['id']}")
-        if track.get("policy") in ("BLOCK", "SNIP"):
-            raise DownloadError("نسخه کامل این آهنگ با دسترسی فعلی قابل دریافت نیست.")
-        qualities = list(read_qualities(track))
-        # Offer only endpoints that resolve successfully; broken ABR and previews are excluded.
-        duration = int(track.get("duration", 0) / 1000)
-        resolved = await asyncio.gather(
-            *(
-                self._playback(client, quality, track.get("track_authorization"), duration)
-                for quality in qualities
-            ),
-            return_exceptions=True,
-        )
-        available = []
-        for result in resolved:
-            if isinstance(result, BaseException):
-                raise result
-            if result is not None:
-                available.append(result[0])
-        if client.headers and track.get("downloadable") and track.get("has_downloads_left"):
-            if original := await self._original(client, track):
-                available.insert(0, original)
+                track = await self._fresh_track(client, str(track["id"]))
+            else:
+                from_page = True
+        failure = None
+        try:
+            available = await self._qualities(client, track)
+        except (DownloadError, httpx.HTTPError, TimeoutError) as error:
+            if isinstance(error, SiteHTTPError) and error.status == 429:
+                raise
+            available, failure = [], error
+        if not available and from_page:
+            # Public HTML can retain transcodings that the current playback API removed.
+            track = await self._fresh_track(client, str(track["id"]))
+            failure = None
+            available = await self._qualities(client, track)
         if not available:
-            raise DownloadError("کیفیت کامل و قابل دریافت برای این آهنگ پیدا نشد.")
+            if failure is not None:
+                raise failure
+            raise unavailable_error(track)
+        duration = int(track.get("duration", 0) / 1000)
         return Media(
             "soundcloud",
             str(track["id"]),
@@ -99,6 +102,55 @@ class SoundCloudDownloader(Downloader):
             account_id,
         )
 
+    async def _qualities(self, client: SoundCloudClient, track: dict) -> list[Quality]:
+        if track.get("policy") in ("BLOCK", "SNIP"):
+            raise DownloadError(
+                "نسخه کامل این آهنگ با دسترسی فعلی قابل دریافت نیست.",
+                code="soundcloud_access_restricted",
+            )
+        qualities = list(read_qualities(track))
+        # Offer only endpoints that resolve successfully; broken ABR and previews are excluded.
+        duration = int(track.get("duration", 0) / 1000)
+        resolved = await asyncio.gather(
+            *(
+                self._playback(client, quality, track.get("track_authorization"), duration)
+                for quality in qualities
+            ),
+            return_exceptions=True,
+        )
+        available, failure = [], None
+        for result in resolved:
+            if isinstance(result, SiteHTTPError) and result.status == 429:
+                raise result
+            if isinstance(result, (DownloadError, httpx.HTTPError, TimeoutError)):
+                failure = result
+                continue
+            if isinstance(result, BaseException):
+                raise result
+            if result is not None:
+                available.append(result[0])
+        if track.get("downloadable") and track.get("has_downloads_left"):
+            try:
+                if original := await self._original(client, track):
+                    available.insert(0, original)
+            except (DownloadError, httpx.HTTPError, TimeoutError) as error:
+                if isinstance(error, SiteHTTPError) and error.status == 429:
+                    raise
+                failure = error
+        if not available and failure is not None:
+            raise failure
+        return available
+
+    @staticmethod
+    async def _fresh_track(client: SoundCloudClient, identity: str) -> dict:
+        track = await client.api(f"https://api-v2.soundcloud.com/tracks/{identity}")
+        if str(track.get("id")) != identity:
+            raise DownloadError(
+                "شناسه پاسخ SoundCloud با آهنگ درخواستی یکسان نیست.",
+                code="soundcloud_identity_mismatch",
+            )
+        return track
+
     async def resolve(self, media: Media, quality: Quality) -> Source:
         if media.site != "soundcloud" or quality not in media.qualities:
             raise DownloadError("کیفیت انتخاب‌شده متعلق به این آهنگ نیست.")
@@ -110,6 +162,14 @@ class SoundCloudDownloader(Downloader):
                 playback = await self._playback(
                     client, quality, media.authorization, media.duration
                 )
+                if playback is None:
+                    track = await self._fresh_track(client, media.content_id)
+                    for candidate in read_qualities(track):
+                        if candidate.key == quality.key:
+                            playback = await self._playback(
+                                client, candidate, track.get("track_authorization"), media.duration
+                            )
+                            break
                 if playback is None:
                     raise DownloadError(
                         "نسخه کامل این کیفیت فعلاً قابل دریافت نیست؛ لینک آهنگ را دوباره بفرست."
@@ -174,6 +234,7 @@ class SoundCloudDownloader(Downloader):
                 )
             )
         async with self._resolve_slots:
+            failure = None
             for candidate in candidates:
                 try:
                     data = await client.api(candidate.endpoint, authorization)
@@ -181,6 +242,9 @@ class SoundCloudDownloader(Downloader):
                     if error.status in (401, 403, 404):
                         continue
                     raise
+                except (httpx.HTTPError, TimeoutError) as error:
+                    failure = error
+                    continue
                 url = data.get("url")
                 if (
                     not isinstance(url, str)
@@ -189,4 +253,6 @@ class SoundCloudDownloader(Downloader):
                 ):
                     continue
                 return candidate, Source(url, candidate.protocol)
+            if failure is not None:
+                raise failure
         return None

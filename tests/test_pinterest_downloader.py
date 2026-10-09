@@ -442,3 +442,21 @@ async def test_one_hls_rendition_network_failure_preserves_other_verified_rendit
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
         media = await PinterestDownloader(PinterestClient(http)).inspect(PAGE)
         assert len(media.qualities) == 1 and media.qualities[0].width == 720
+
+
+@pytest.mark.parametrize("failure", ["timeout", "401", "503"])
+async def test_failed_pin_api_falls_back_to_verified_public_page_media(failure):
+    def respond(request):
+        if request.url.path.startswith("/resource/"):
+            if failure == "timeout":
+                raise httpx.ConnectTimeout("temporary API failure")
+            return httpx.Response(int(failure))
+        if request.url.host == "www.pinterest.com":
+            return httpx.Response(200, text=relay_page())
+        return httpx.Response(206, content=mp4())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        downloader = PinterestDownloader(PinterestClient(http))
+        media = await downloader.inspect(PAGE)
+        assert media.content_id == PIN and media.qualities
+        assert (await downloader.resolve(media, media.qualities[0])).url.startswith(CDN)
