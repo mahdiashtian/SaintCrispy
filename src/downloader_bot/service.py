@@ -1,6 +1,7 @@
 import asyncio
 import time
 from collections import OrderedDict
+from contextlib import nullcontext
 
 from downloader_bot.contracts import MediaDelivery, MediaRepository
 from downloader_bot.downloaders.base import Downloader
@@ -8,6 +9,13 @@ from downloader_bot.locks import KeyedLocks
 from downloader_bot.models import DownloadError, Media, Quality, TelegramFile
 from downloader_bot.progress import TransferProgress
 from downloader_bot.request_context import request_user
+from downloader_bot.telemetry import (
+    Telemetry,
+    acquired,
+    current_inspection,
+    current_transfer,
+    timed,
+)
 
 
 class DownloadService:
@@ -23,6 +31,7 @@ class DownloadService:
         metadata_ttl: float = 60,
         cached_concurrency: int = 4,
         transfer_timeout: float = 3600,
+        telemetry: Telemetry | None = None,
     ):
         self.downloader = downloader
         self.repository = repository
@@ -37,6 +46,7 @@ class DownloadService:
         self._metadata_count = 0
         self._metadata_ttl = metadata_ttl
         self._transfer_timeout = transfer_timeout
+        self.telemetry = telemetry
         self._metadata: OrderedDict[str, tuple[float, Media]] = OrderedDict()
         self._failures: OrderedDict[tuple[str, str], tuple[float, str]] = OrderedDict()
 
@@ -74,6 +84,14 @@ class DownloadService:
         return media
 
     async def inspect(self, url: str) -> Media:
+        observation = self.telemetry.inspection(url) if self.telemetry else nullcontext()
+        with observation as record:
+            media = await self._inspect_with_history(url)
+            if record is not None:
+                record.update(site=media.site, quality_count=len(media.qualities))
+            return media
+
+    async def _inspect_with_history(self, url: str) -> Media:
         user_id = request_user.get()
         identity = (
             await self.repository.record_link_view(user_id, url) if user_id is not None else None
@@ -96,7 +114,10 @@ class DownloadService:
     async def _inspect(self, url: str) -> Media:
         key = getattr(self.downloader, "cache_key", lambda value: value)(url)
         catalog_key = getattr(self.downloader, "catalog_key", lambda _: key)(url)
+        observation = current_inspection.get()
         if cached := self._cached_metadata(key):
+            if observation is not None:
+                observation["path"] = "memory_cache"
             return cached
         if self._metadata_count >= self._metadata_capacity:
             raise DownloadError("تعداد بررسی‌های همزمان به سقف رسیده؛ کمی بعد امتحان کن.")
@@ -105,15 +126,21 @@ class DownloadService:
             # Subprocess extraction has its own resource bound, independent of file transfers.
             async with self._metadata_locks.hold(key):
                 if cached := self._cached_metadata(key):
+                    if observation is not None:
+                        observation["path"] = "memory_cache"
                     return cached
                 if self.repository is not None and catalog_key is not None:
                     if stored := await self.repository.known_media(catalog_key):
                         # This menu offers only qualities already stored in Telegram.
                         # It survives restarts and needs no new request to the origin site.
                         self._remember_metadata(key, stored)
+                        if observation is not None:
+                            observation["path"] = "database_catalog"
                         return stored
                 self._raise_recent_failure("inspect", key)
                 try:
+                    if observation is not None:
+                        observation["path"] = "provider"
                     async with self._metadata_slots, asyncio.timeout(90):
                         media = await self.downloader.inspect(url)
                     if self.repository is not None and catalog_key is not None:
@@ -140,16 +167,25 @@ class DownloadService:
         stored: TelegramFile,
         progress: TransferProgress | None,
     ) -> str:
-        async with self._cached_slots:
+        async with acquired(self._cached_slots, "cached_send_wait"):
+            trace = current_transfer.get()
+            if trace is not None:
+                trace.file_size = stored.size_bytes
+                if trace.method == "unknown":
+                    trace.method = "reused"
             if progress is not None:
                 progress.method = "reused"
                 progress.phase = "reused"
             caption = f"{media.title}\n{media.artist}\n{quality.label}"
-            fresh = await self.delivery.resend(peer, stored, caption, progress)
+            with timed("cached_send"):
+                fresh = await self.delivery.resend(peer, stored, caption, progress)
+            if trace is not None:
+                trace.file_size = fresh.size_bytes
             if fresh != stored:
                 if progress is not None:
                     progress.phase = "saving"
-                await self.repository.save(media.site, media.content_id, quality.key, fresh)
+                with timed("database_save"):
+                    await self.repository.save(media.site, media.content_id, quality.key, fresh)
             if progress is not None:
                 progress.phase = "done"
             return "reused"
@@ -157,23 +193,32 @@ class DownloadService:
     async def deliver(
         self, peer, media: Media, quality: Quality, progress: TransferProgress | None = None
     ) -> str:
-        async with asyncio.timeout(self._transfer_timeout):
-            method = await self._deliver(peer, media, quality, progress)
-            if (user_id := request_user.get()) is not None:
-                await self.repository.record_delivery(user_id, media, quality, method)
-            return method
+        observation = (
+            self.telemetry.transfer(media, quality, progress) if self.telemetry else nullcontext()
+        )
+        with observation as trace:
+            async with asyncio.timeout(self._transfer_timeout):
+                method = await self._deliver(peer, media, quality, progress)
+                if trace is not None:
+                    trace.result = method
+                if (user_id := request_user.get()) is not None:
+                    with timed("history_save"):
+                        await self.repository.record_delivery(user_id, media, quality, method)
+                return method
 
     async def _deliver(self, peer, media, quality, progress) -> str:
         key = self.repository.key(media.site, media.content_id, quality.key)
         produced = False
-        stored = await self.repository.get(media.site, media.content_id, quality.key)
+        with timed("cache_lookup"):
+            stored = await self.repository.get(media.site, media.content_id, quality.key)
         if stored is None:
-            async with self._locks.hold(key):
-                stored = await self.repository.get(media.site, media.content_id, quality.key)
+            async with acquired(self._locks.hold(key), "deduplication_wait"):
+                with timed("cache_lookup"):
+                    stored = await self.repository.get(media.site, media.content_id, quality.key)
                 if stored is None:
                     self._raise_recent_failure("transfer", key)
                     try:
-                        async with self._slots:
+                        async with acquired(self._slots, "producer_wait"):
                             stored = await self._transfer(peer, media, quality, progress)
                             produced = True
                     except Exception as error:
@@ -188,14 +233,19 @@ class DownloadService:
     async def _transfer(self, peer, media, quality, progress) -> TelegramFile:
         if progress is not None:
             progress.phase = "resolving"
-        async with self._metadata_slots, asyncio.timeout(90):
-            source = await self.downloader.resolve(media, quality)
+        async with acquired(self._metadata_slots, "resolve_wait"), asyncio.timeout(90):
+            with timed("resolve"):
+                source = await self.downloader.resolve(media, quality)
         target = self.storage_peer if self.storage_peer is not None else peer
-        reference = await self.delivery.new_file(target, media, quality, source, progress)
+        with timed("delivery"):
+            reference = await self.delivery.new_file(target, media, quality, source, progress)
+        if (trace := current_transfer.get()) is not None:
+            trace.file_size = reference.size_bytes
         # Every successful transfer method reaches the same persistence step.
         if progress is not None:
             progress.phase = "saving"
-        await self.repository.save(media.site, media.content_id, quality.key, reference)
+        with timed("database_save"):
+            await self.repository.save(media.site, media.content_id, quality.key, reference)
         if progress is not None:
             progress.phase = "done"
         return reference

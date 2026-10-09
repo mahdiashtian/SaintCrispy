@@ -41,6 +41,9 @@ coverage.xml
 
 # Downloaded media, archives, logs and local database backups.
 downloads/
+logs/
+*.jsonl
+*.jsonl.*
 *.log
 *.zip
 *.tar

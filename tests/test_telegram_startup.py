@@ -80,3 +80,29 @@ async def test_network_backoff_can_be_cancelled_without_another_connection(monke
     with pytest.raises(asyncio.CancelledError):
         await task
     assert calls == [1]
+
+
+async def test_sigterm_cleans_up_the_application_and_removes_its_handler(monkeypatch):
+    from downloader_bot import __main__ as application
+
+    callbacks, removed = [], []
+    entered, cleaned = asyncio.Event(), asyncio.Event()
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(loop, "add_signal_handler", lambda _, callback: callbacks.append(callback))
+    monkeypatch.setattr(loop, "remove_signal_handler", lambda sig: removed.append(sig))
+
+    async def main():
+        try:
+            entered.set()
+            await asyncio.Future()
+        finally:
+            cleaned.set()
+
+    monkeypatch.setattr(application, "main", main)
+    task = asyncio.create_task(application.run_application())
+    await entered.wait()
+    callbacks[0]()
+    callbacks[0]()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cleaned.is_set() and len(removed) == 1

@@ -23,12 +23,14 @@ from telethon import errors, types
 
 from downloader_bot.database import FileRepository
 from downloader_bot.jobs import TransferJobs
+from downloader_bot.log_writer import JsonLogWriter
 from downloader_bot.models import Media, Quality, Source, TelegramFile
 from downloader_bot.progress import TransferProgress
 from downloader_bot.request_context import user_request
 from downloader_bot.service import DownloadService
 from downloader_bot.streaming import READ_SIZE
 from downloader_bot.telegram import TelegramDelivery
+from downloader_bot.telemetry import Telemetry
 
 SIZE = 4 * 1024 * 1024 + 123
 QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "")
@@ -197,6 +199,11 @@ async def run(args):
             )
         )
         telegram = SimulatedTelegram(args.rpc_latency)
+        telemetry = None
+        if args.log_file:
+            telemetry = await stack.enter_async_context(
+                Telemetry(JsonLogWriter(args.log_file, stdout=False), interval=1)
+            )
         resolved = 0
 
         async def resolve(media, quality):
@@ -216,6 +223,7 @@ async def run(args):
             ),
             concurrency=args.concurrency,
             cached_concurrency=args.cached_concurrency,
+            telemetry=telemetry,
         )
         unique = min(args.unique_downloads, args.requests if args.all_new else args.requests // 2)
         for index in range(0 if args.all_new else unique):
@@ -225,7 +233,7 @@ async def run(args):
         started = time.perf_counter()
         ticker = asyncio.create_task(watch_loop())
         try:
-            async with TransferJobs(capacity=args.requests) as jobs:
+            async with TransferJobs(capacity=args.requests, telemetry=telemetry) as jobs:
                 for index in range(args.requests):
                     cached = not args.all_new and index % 2 == 0
                     content = (index if args.all_new else index // 2) % unique
@@ -303,6 +311,8 @@ async def run(args):
             "simulated_rpc_latency_seconds": args.rpc_latency,
             "source_errors": source_errors,
             "complete_media_on_disk": False,
+            "logging_enabled": telemetry is not None,
+            "log_records_dropped": telemetry.writer.dropped if telemetry else 0,
             "file_bytes": SIZE,
             "all_new": args.all_new,
         }
@@ -341,6 +351,7 @@ def main():
     parser.add_argument("--user-history", action="store_true")
     parser.add_argument("--rpc-latency", type=float, default=0.005)
     parser.add_argument("--database", action="store_true")
+    parser.add_argument("--log-file", help="Exercise JSON performance logging during the load test")
     parser.add_argument(
         "--no-memory-tracing",
         action="store_true",

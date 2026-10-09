@@ -32,6 +32,13 @@ class Settings:
     upload_inflight_parts: int = 64
     transfer_timeout: int = 3600
     sends_per_second: int = 0
+    log_file: str | None = "logs/performance.jsonl"
+    log_max_bytes: int = 20 * 1024 * 1024
+    log_backups: int = 10
+    log_queue_size: int = 10000
+    log_stdout: bool = True
+    metrics_interval: int = 30
+    metrics_network_interface: str = ""
 
     @classmethod
     def from_environment(cls):
@@ -62,4 +69,11 @@ class Settings:
             upload_inflight_parts=integer_setting("UPLOAD_INFLIGHT_PARTS", 64, 1, 1024),
             transfer_timeout=integer_setting("TRANSFER_TIMEOUT_SECONDS", 3600, 60, 86400),
             sends_per_second=integer_setting("TELEGRAM_SENDS_PER_SECOND", 0, 0, 1000),
+            log_file=os.environ.get("LOG_FILE", "logs/performance.jsonl") or None,
+            log_max_bytes=integer_setting("LOG_MAX_MB", 20, 1, 1024) * 1024**2,
+            log_backups=integer_setting("LOG_BACKUP_COUNT", 10, 1, 100),
+            log_queue_size=integer_setting("LOG_QUEUE_SIZE", 10000, 100, 100000),
+            log_stdout=bool(integer_setting("LOG_STDOUT", 1, 0, 1)),
+            metrics_interval=integer_setting("METRICS_INTERVAL_SECONDS", 30, 1, 3600),
+            metrics_network_interface=os.environ.get("METRICS_NETWORK_INTERFACE", ""),
         )

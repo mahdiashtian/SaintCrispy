@@ -63,7 +63,7 @@ docker compose -p saintcrispy --profile bot stop bot
 docker compose -p saintcrispy --profile bot down
 ```
 
-PostgreSQL data lives in the project's named Docker volume. `down` keeps that volume; `down -v` deletes it. Keep the same Compose project name to retain the same database. Redis is a disposable cache and does not persist its contents.
+PostgreSQL data and performance logs live in the project's named Docker volumes. `down` keeps those volumes; `down -v` deletes them. Keep the same Compose project name to retain the same database and logs. Redis is a disposable cache and does not persist its contents.
 
 After pulling updates, rebuild the bot with:
 
@@ -186,6 +186,70 @@ The default pipeline admits 1000 tasks and has been locally exercised with 1000 
 
 Tasks and menus are held in memory. An interrupted transfer is not automatically resumed after a process crash; successfully persisted Telegram files can be reused after restart. Telegram publication and a database commit are separate operations, so an arbitrary crash between them cannot provide an unconditional exactly-once message guarantee.
 
+## Performance logging on a server
+
+Performance logging is enabled by default. Events are JSON Lines: one JSON object per line, with UTC timestamps, a process `session_id`, and a unique `transfer_id`. Output goes to stdout and `logs/performance.jsonl`. Serialization, writes and rotation run in a worker thread behind a bounded queue; transfers never wait for the log disk. Original URLs, signed CDN URLs, credentials, titles, user/chat IDs and raw exception messages are excluded. Content is correlated through a hash of its provider ID and selected quality.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `LOG_FILE` | `logs/performance.jsonl` | File destination; blank disables file output. |
+| `LOG_MAX_MB` | `20` | Rotate each file near this many MiB; range 1-1024. |
+| `LOG_BACKUP_COUNT` | `10` | Retained rotated files, plus the current file; range 1-100. |
+| `LOG_QUEUE_SIZE` | `10000` | Bounded pending event count; range 100-100000. |
+| `LOG_STDOUT` | `1` | Also emit JSON to stdout; set 0 to disable. |
+| `METRICS_INTERVAL_SECONDS` | `30` | Resource/network summaries and active transfer progress; range 1-3600. |
+| `METRICS_NETWORK_INTERFACE` | empty | Sample all non-loopback interfaces, or select an interface such as `eth0`. |
+
+Defaults retain roughly 220 MiB of file logs. The oldest backup is removed during rotation. Docker persists `/app/logs` in `bot_logs` and separately caps its stdout driver at three 20 MB files. Use a shorter metrics interval, such as 1-5 seconds, during load measurements; a 30-second sample can miss a short CPU/RAM peak. A failed disk or full queue increments `log_write_errors`/`log_records_dropped` in subsequent summaries. Retained events can therefore be incomplete; cumulative in-memory counters continue advancing. Normal shutdown drains the queue with a bounded wait. A forced process kill cannot guarantee a final summary or every queued event. Linux SIGTERM performs normal cleanup; Compose allows 45 seconds before forcing termination.
+
+The main events are:
+
+- `inspection_finished`: metadata latency, provider/cache path, quality count and safe error details.
+- `transfer_started` / `transfer_progress` / `transfer_finished`: provider, quality, content hash, method, exact final file size when known, elapsed time, bytes, current stages and final success/failure/cancellation.
+- `external_fallback`: the reason Telegram URL fetching fell back to streaming.
+- `batch_started` / `batch_finished`: a continuous wave from the first active transfer until no transfers remain. The result records N started/completed requests, peak concurrency, payload totals and the wave's wall time. Cache sends are counted as requests; deduplicated downloads still count their actual bytes only once.
+- `metrics_interval`: active/peak transfers, counts and traffic since startup and in the latest interval, bytes/second, completions/second, recent latency p95, per-site outcomes, process/child RSS, process/system CPU, event-loop scheduling delay and log health. Latency p95 uses the latest 2048 completed transfers.
+- `runtime_started`, `runtime_configured`, `runtime_stopped` and safe runtime/task failure events.
+- `request_rejected`, admission failures and cancellation events: capacity/rate rejections, safe failures before a transfer, and accepted/protected Stop requests. Job reservation/running counts are included in interval summaries.
+
+`stages_seconds` separates resource waits, resolution, source-size probing, Telegram URL fetching, streaming, Telegram cooldowns/publication and database/history writes. `download_seconds` spans source acquisition through valid EOF; `upload_seconds` spans the first part RPC through final acknowledgement/cleanup. Download and upload overlap, and include backpressure/waits within their spans. Do not add them to calculate elapsed time. `upload_rpc` is cumulative time across concurrent RPCs and may exceed wall time. External URL fetching exposes only `external_fetch` duration and final file size; Telegram does not expose separate download/upload timing. Reused files have no local media transfer, so both times are null.
+
+Traffic fields have different scopes:
+
+- `stream_read_bytes`: bytes read by the upload pipeline. For progressive media this is the HTTP body; for HLS/DASH this is FFmpeg's remuxed output, including its container overhead.
+- `progressive_download_bytes` / `ffmpeg_output_bytes`: those two cases separately. FFmpeg's original segment traffic cannot be inferred from its output size.
+- `upload_acked_bytes`: payload parts acknowledged by Telegram. `upload_attempt_bytes` also counts explicit repeated part RPCs. Neither includes TLS/MTProto/TCP overhead.
+- `pipeline_payload_bytes`: stream reads plus attempted upload payload. This describes both sides of the application's pipeline; it is not a NIC byte count.
+- `delivered_file_bytes`: logical file sizes delivered successfully, including external fetches and cache reuse. Cached files can have a large logical size while producing no local media payload traffic.
+- `network_received_bytes` / `network_sent_bytes` / `network_traffic_bytes`: OS counters on the selected interfaces, including metadata requests, FFmpeg input, database/control traffic and protocol overhead. They are sampled session-wide, not attributed to individual transfers. In Docker they cover the container's network namespace; native deployment includes other traffic on the host's selected interfaces. Select the primary interface to avoid counting the same host traffic through multiple bridges/interfaces. `system.network_interfaces` and `network_available` identify the measurement scope. These counters do not measure traffic between Telegram's servers and an origin.
+
+Inspect running Docker logs or export the retained JSON files:
+
+```bash
+docker compose -p saintcrispy logs --tail 100 -f bot
+mkdir -p logs
+docker compose -p saintcrispy cp bot:/app/logs/. ./logs/
+```
+
+Analyze all retained files, the first N matching completed requests, or a provider/time range:
+
+```bash
+python tools/summarize_logs.py 'logs/performance.jsonl*'
+python tools/summarize_logs.py 'logs/performance.jsonl*' --files 1000
+python tools/summarize_logs.py 'logs/performance.jsonl*' --site youtube --since '2026-10-09T00:00:00Z'
+```
+
+The analyzer reports bytes/MiB, methods, outcomes, wall time, summed per-request/stage times and throughput. It deduplicates retained transfer IDs and skips malformed/truncated JSON lines. NIC/session summaries are shown separately and remain session-wide even when filtering transfer records. The first-N selection follows file modification order, then record order; timestamps require a timezone. Retention and dropped records limit what can be reconstructed. Transfer wall times use a monotonic clock; the analyzer's cross-request wall range uses UTC timestamps and can be affected by host clock corrections.
+
+Exercise logging with a local load test before deployment:
+
+```bash
+python tools/load_test_transfers.py --requests 1000 --unique-downloads 1000 --all-new --file-mib 1 --synchronize-sources --no-memory-tracing --log-file logs/load-test.jsonl
+python tools/summarize_logs.py 'logs/load-test.jsonl*' --files 1000
+```
+
+This benchmark downloads real localhost HTTP bodies while simulating Telegram. Its JSON events test the instrumentation and logging path; they do not establish production Telegram throughput.
+
 ## Project structure and provider boundaries
 
 ```text
@@ -193,6 +257,8 @@ src/downloader_bot/
   __main__.py              # Composition and lifecycle
   config.py                # Environment configuration
   contracts.py             # Storage/delivery interfaces
+  log_writer.py            # Bounded background JSON writer and rotation
+  telemetry.py             # Transfer, batch and system measurements
   database.py              # PostgreSQL and Redis repository
   service.py               # Inspection, deduplication and delivery orchestration
   streaming.py             # Generic byte transfer and FFmpeg processes

@@ -1,7 +1,8 @@
 import asyncio
 import time
+import uuid
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from telethon import errors, types
 
@@ -21,6 +22,7 @@ class TransferProgress:
     download_done: bool = False
     upload_done: bool = False
     error: str = ""
+    transfer_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     def text(self) -> str:
         if self.phase == "done":

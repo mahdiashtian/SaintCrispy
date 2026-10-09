@@ -10,6 +10,6 @@ COPY pyproject.toml ./
 COPY README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir .
-RUN useradd --create-home bot
+RUN useradd --create-home bot && mkdir -p /app/logs && chown bot:bot /app/logs
 USER bot
 CMD ["python", "-m", "downloader_bot"]

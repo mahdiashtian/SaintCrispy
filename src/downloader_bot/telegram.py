@@ -12,6 +12,7 @@ from downloader_bot.limits import check_file_size
 from downloader_bot.models import DownloadError, Media, Quality, Source, TelegramFile
 from downloader_bot.progress import TransferProgress
 from downloader_bot.streaming import media_chunks, source_size, upload_stream
+from downloader_bot.telemetry import acquired, count, current_transfer, timed
 
 EXTERNAL_FAILURES = (
     errors.ExternalUrlInvalidError,
@@ -76,10 +77,15 @@ class TelegramDelivery:
                             if progress is not None:
                                 progress.phase = "publishing"
                         break
-                await asyncio.sleep(delay)
+                with timed("telegram_wait"):
+                    await asyncio.sleep(delay)
             try:
                 return await action()
             except errors.FloodWaitError as error:
+                if (trace := current_transfer.get()) is not None:
+                    trace.discard_error(error)
+                count("flood_wait_events")
+                count("flood_wait_requested_seconds", error.seconds)
                 # Only an explicit rejected RPC is repeated; ambiguous network failures are not.
                 self._retry_at = max(self._retry_at, time.monotonic() + max(1, error.seconds))
                 if progress is not None:
@@ -88,22 +94,32 @@ class TelegramDelivery:
     async def _send_file(self, peer, media, *, progress=None, **options):
         if progress is not None:
             progress.phase = "waiting_telegram"
-        return await self._request(
-            lambda: self.client.send_file(peer, media, **options),
-            publish=True,
-            progress=progress,
-        )
+        with timed("publish"):
+            result = await self._request(
+                lambda: self.client.send_file(peer, media, **options),
+                publish=True,
+                progress=progress,
+            )
+        count("telegram_publications")
+        return result
 
     async def _upload_part(self, request):
         # Part RPCs share the same explicit Telegram cooldown as file publication.
-        return await self._request(lambda: self.client(request))
+        async def send():
+            count("upload_part_attempts")
+            count("upload_attempt_bytes", len(request.bytes))
+            with timed("upload_rpc"):
+                return await self.client(request)
+
+        return await self._request(send)
 
     async def _fetch_external(self, peer, external):
         try:
-            async with asyncio.timeout(self.external_timeout):
-                return await self._request(
-                    lambda: self.client(functions.messages.UploadMediaRequest(peer, external)),
-                )
+            with timed("external_fetch"):
+                async with asyncio.timeout(self.external_timeout):
+                    return await self._request(
+                        lambda: self.client(functions.messages.UploadMediaRequest(peer, external)),
+                    )
         except TimeoutError as error:
             raise ExternalFetchTimeout from error
 
@@ -118,7 +134,13 @@ class TelegramDelivery:
         if quality.duration is not None:
             media = replace(media, duration=quality.duration)
         caption = f"{media.title}\n{media.artist}\n{quality.label}"
-        size = await self._checked_source_size(source)
+        if (trace := current_transfer.get()) is not None:
+            trace.protocol = source.protocol
+            trace.source_size = source.size_bytes
+        with timed("size_probe"):
+            size = await self._checked_source_size(source)
+        if trace is not None:
+            trace.source_size = size
         # Unknown-size sources use the byte-capped stream instead of unrestricted URL fetching.
         if source.protocol == "progressive" and (not self.max_file_bytes or size is not None):
             reference = await self._try_external(peer, source, caption, size, progress)
@@ -149,6 +171,10 @@ class TelegramDelivery:
         if progress is not None:
             progress.phase = "external"
             progress.method = "external"
+        trace = current_transfer.get()
+        if trace is not None:
+            trace.method = "external"
+        count("external_attempts")
         try:
             external = types.InputMediaDocumentExternal(source.url)
             if progress is not None or self.max_file_bytes or size is not None:
@@ -178,7 +204,13 @@ class TelegramDelivery:
                 parse_mode=None,
                 progress=progress,
             )
-        except (*EXTERNAL_FAILURES, ExternalFetchTimeout, ExternalFileMismatch):
+        except (*EXTERNAL_FAILURES, ExternalFetchTimeout, ExternalFileMismatch) as error:
+            count("external_fallbacks")
+            if trace is not None:
+                trace.clear_errors()
+                trace.telemetry.emit(
+                    "external_fallback", **trace.fields(), reason=type(error).__name__
+                )
             message = None
         if message is not None:
             return capture_file(message, peer)
@@ -195,6 +227,8 @@ class TelegramDelivery:
     ) -> TelegramFile:
         name = re.sub(r'[\\/:*?"<>|]', "_", media.title)[:100]
         filename = f"{name}-{media.content_id}-{quality.key}.{quality.extension}"
+        if (trace := current_transfer.get()) is not None:
+            trace.method = source.protocol
         if progress is not None:
             progress.phase = "streaming"
             progress.method = source.protocol
@@ -205,7 +239,7 @@ class TelegramDelivery:
         remux = source.protocol in {"hls", "dash"}
         if progress is not None and remux:
             progress.phase = "waiting_process"
-        async with self._remux_slots if remux else nullcontext():
+        async with acquired(self._remux_slots, "remux_wait") if remux else nullcontext():
             if progress is not None:
                 progress.phase = "streaming"
             handle = await upload_stream(

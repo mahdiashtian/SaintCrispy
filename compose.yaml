@@ -31,11 +31,19 @@ services:
   bot:
     profiles: ["bot"]
     build: .
+    stop_grace_period: 45s
     env_file: .env
     environment:
       DATABASE_URL: postgresql://downloader:${DEV_DB_PASSWORD}@postgres:5432/downloader
       REDIS_URL: redis://redis:6379/0
       FFMPEG_PATH: ffmpeg
+    volumes:
+      - bot_logs:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,3 +58,4 @@ services:
     # Internal token generation only; no public port and no media proxy.
 volumes:
   postgres_data:
+  bot_logs:

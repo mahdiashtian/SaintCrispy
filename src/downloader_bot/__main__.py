@@ -1,7 +1,11 @@
 import asyncio
+import json
 import os
+import signal
+import sys
 from contextlib import AsyncExitStack
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import asyncpg
 import httpx
@@ -28,9 +32,11 @@ from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
 from downloader_bot.handlers import register_handlers
 from downloader_bot.jobs import TransferJobs
 from downloader_bot.limits import RequestLimiter
+from downloader_bot.log_writer import JsonLogWriter
 from downloader_bot.menus import MenuStore
 from downloader_bot.service import DownloadService
 from downloader_bot.telegram import TelegramDelivery
+from downloader_bot.telemetry import Telemetry, error_fields
 
 
 async def create_provider_session(stack: AsyncExitStack) -> httpx.AsyncClient:
@@ -70,6 +76,39 @@ async def main() -> None:
     if aes.cryptg is None:
         raise RuntimeError("Install cryptg to avoid slow pure-Python encryption in the event loop")
     async with AsyncExitStack() as stack:
+        telemetry = await stack.enter_async_context(
+            Telemetry(
+                JsonLogWriter(
+                    settings.log_file,
+                    settings.log_max_bytes,
+                    settings.log_backups,
+                    settings.log_queue_size,
+                    settings.log_stdout,
+                ),
+                settings.metrics_interval,
+                settings.metrics_network_interface,
+            )
+        )
+        loop = asyncio.get_running_loop()
+        previous_handler = loop.get_exception_handler()
+        loop.set_exception_handler(
+            lambda _, context: telemetry.emit(
+                "async_task_failure",
+                **error_fields(context.get("exception") or RuntimeError()),
+            )
+        )
+        stack.callback(loop.set_exception_handler, previous_handler)
+        telemetry.emit(
+            "runtime_configured",
+            concurrency=settings.concurrency,
+            request_capacity=settings.max_requests,
+            metadata_concurrency=settings.metadata_concurrency,
+            remux_concurrency=settings.remux_concurrency,
+            upload_inflight_parts=settings.upload_inflight_parts,
+            upload_parallelism=settings.upload_parallelism,
+            max_file_bytes=settings.max_file_bytes,
+            transfer_timeout_seconds=settings.transfer_timeout,
+        )
         pool = await stack.enter_async_context(
             await asyncpg.create_pool(
                 settings.database_url,
@@ -189,13 +228,50 @@ async def main() -> None:
             metadata_concurrency=settings.metadata_concurrency,
             metadata_capacity=settings.max_requests,
             transfer_timeout=settings.transfer_timeout,
+            telemetry=telemetry,
         )
-        jobs = await stack.enter_async_context(TransferJobs(capacity=settings.max_requests))
+        jobs = await stack.enter_async_context(
+            TransferJobs(capacity=settings.max_requests, telemetry=telemetry)
+        )
         menus = MenuStore(limit=max(2048, settings.max_requests))
-        limits = RequestLimiter(settings.request_interval, repository)
+        limits = RequestLimiter(settings.request_interval, repository, telemetry=telemetry)
         register_handlers(client, service, menus, jobs, limits)
         await client.run_until_disconnected()
 
 
+async def run_application():
+    loop = asyncio.get_running_loop()
+    task = asyncio.current_task()
+    signal_installed = False
+    try:
+        loop.add_signal_handler(
+            signal.SIGTERM, lambda: task.cancel() if not task.cancelling() else None
+        )
+        signal_installed = True
+    except NotImplementedError:
+        # asyncio's runner still handles Ctrl+C on Windows.
+        pass
+    try:
+        await main()
+    finally:
+        if signal_installed:
+            loop.remove_signal_handler(signal.SIGTERM)
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(run_application())
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        pass
+    except Exception as error:
+        print(
+            json.dumps(
+                {
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "event": "startup_or_runtime_failure",
+                    **error_fields(error),
+                }
+            ),
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None

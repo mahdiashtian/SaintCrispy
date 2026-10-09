@@ -29,4 +29,13 @@ def test_runtime_does_not_call_blocking_disk_network_or_subprocess_apis():
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
+                if name(node.func) == "asyncio.to_thread":
+                    # Only system sampling and log-thread shutdown may use an I/O worker.
+                    assert (
+                        path.relative_to(Path(__file__).parents[1] / "src").as_posix()
+                        == "downloader_bot/telemetry.py"
+                    )
+                    assert len(node.args) == 1 and not node.keywords
+                    assert name(node.args[0]) in {"self.sampler.sample", "self.writer.close"}
+                    continue
                 assert name(node.func) not in banned, f"{path.name}:{node.lineno}"

@@ -10,6 +10,7 @@ from telethon import functions, helpers, types
 from downloader_bot.limits import check_file_size
 from downloader_bot.models import DownloadError, Quality, Source
 from downloader_bot.progress import TransferProgress
+from downloader_bot.telemetry import current_transfer, timed
 
 PART_SIZE = 512 * 1024
 READ_SIZE = 64 * 1024
@@ -123,6 +124,34 @@ async def media_chunks(
     ffmpeg: str,
     progress: TransferProgress | None = None,
 ) -> AsyncIterator[bytes]:
+    trace = current_transfer.get()
+    if trace is not None:
+        trace.start_phase("download")
+    try:
+        with timed("source_stream"):
+            async with aclosing(_media_chunks(http, source, quality, ffmpeg, progress)) as chunks:
+                async for chunk in chunks:
+                    if trace is not None:
+                        trace.add("stream_read_bytes", len(chunk))
+                        key = (
+                            "progressive_download_bytes"
+                            if source.protocol == "progressive"
+                            else "ffmpeg_output_bytes"
+                        )
+                        trace.add(key, len(chunk))
+                    yield chunk
+    finally:
+        if trace is not None:
+            trace.end_phase("download")
+
+
+async def _media_chunks(
+    http: httpx.AsyncClient,
+    source: Source,
+    quality: Quality,
+    ffmpeg: str,
+    progress: TransferProgress | None,
+) -> AsyncIterator[bytes]:
     if source.protocol == "progressive":
         async with AsyncExitStack() as stack:
             if source.proxy is not None:
@@ -205,6 +234,7 @@ async def progressive_chunks(
 ) -> AsyncIterator[bytes]:
     """Use small byte ranges for YouTube; verify every response before finalizing."""
     offset, total = 0, source.size_bytes
+    trace = current_transfer.get()
     while True:
         headers = {**source.headers, "Accept-Encoding": "identity"}
         end = None
@@ -250,6 +280,8 @@ async def progressive_chunks(
                     total = expected
             if progress is not None:
                 progress.total = total
+            if trace is not None:
+                trace.source_size = total
             received = 0
             async for chunk in response.aiter_bytes(READ_SIZE):
                 received += len(chunk)
@@ -296,13 +328,18 @@ async def upload_stream(
     buffer = bytearray()
     buffer_slot = False
     pending: set[asyncio.Task] = set()
+    trace = current_transfer.get()
 
     async def send(part_index: int, total: int, data: bytes) -> None:
+        if trace is not None:
+            trace.start_phase("upload")
         async with asyncio.timeout(part_timeout):
             if not await client(
                 functions.upload.SaveBigFilePartRequest(file_id, part_index, total, data)
             ):
                 raise DownloadError("آپلود یکی از قسمت‌های فایل ناموفق بود.")
+        if trace is not None:
+            trace.add("upload_acked_bytes", len(data))
         if progress is not None:
             progress.uploaded += len(data)
 
@@ -329,7 +366,8 @@ async def upload_stream(
                         # Bound unfinished buffers as well as RPC payloads. Each of
                         # the other open sources retains only one small read chunk.
                         if upload_slots is not None:
-                            await upload_slots.acquire()
+                            with timed("upload_window_wait"):
+                                await upload_slots.acquire()
                             buffer_slot = True
                     count = min(PART_SIZE - len(buffer), len(chunk) - offset)
                     buffer.extend(memoryview(chunk)[offset : offset + count])
@@ -366,3 +404,5 @@ async def upload_stream(
             if not task.done() and not task.cancelling():
                 task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
+        if trace is not None:
+            trace.end_phase("upload")

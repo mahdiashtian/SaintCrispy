@@ -18,3 +18,5 @@ tools
 *.txt
 *.zip
 *.egg-info
+logs
+*.jsonl*

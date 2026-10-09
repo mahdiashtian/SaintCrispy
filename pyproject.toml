@@ -16,6 +16,7 @@ dependencies = [
     "cryptg>=0.5,<1",
     "yt-dlp[default]==2026.8.19",
     "bgutil-ytdlp-pot-provider==2.0.2",
+    "psutil>=7,<9",
 ]
 
 [project.optional-dependencies]

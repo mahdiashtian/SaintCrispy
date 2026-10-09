@@ -65,6 +65,12 @@ def test_blank_ffmpeg_setting_uses_the_executable_on_path(monkeypatch):
         ("UPLOAD_INFLIGHT_PARTS", "1025"),
         ("TRANSFER_TIMEOUT_SECONDS", "59"),
         ("TRANSFER_TIMEOUT_SECONDS", "86401"),
+        ("LOG_MAX_MB", "0"),
+        ("LOG_MAX_MB", "1025"),
+        ("LOG_BACKUP_COUNT", "0"),
+        ("LOG_QUEUE_SIZE", "99"),
+        ("LOG_STDOUT", "2"),
+        ("METRICS_INTERVAL_SECONDS", "0"),
     ],
 )
 def test_invalid_resource_limits_fail_before_startup(monkeypatch, key, value):

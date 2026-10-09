@@ -3,6 +3,7 @@ import time
 from collections import OrderedDict
 
 from downloader_bot.models import DownloadError
+from downloader_bot.telemetry import error_fields
 
 
 def check_file_size(size: int | None, maximum: int) -> None:
@@ -13,16 +14,24 @@ def check_file_size(size: int | None, maximum: int) -> None:
 class RequestLimiter:
     """One interval per user and stage, across all chats; production uses PostgreSQL."""
 
-    def __init__(self, interval_seconds: int = 60, repository=None):
+    def __init__(self, interval_seconds: int = 60, repository=None, telemetry=None):
         if interval_seconds < 1:
             raise ValueError("Request interval must be positive")
         self.interval = interval_seconds
         self.repository = repository
+        self.telemetry = telemetry
         self._deadlines: OrderedDict[tuple[int, str], float] = OrderedDict()
 
     async def check(self, user_id: int, scope: str) -> None:
         if self.repository is not None:
-            remaining = await self.repository.claim_request(user_id, scope, self.interval)
+            try:
+                remaining = await self.repository.claim_request(user_id, scope, self.interval)
+            except Exception as error:
+                if self.telemetry is not None:
+                    self.telemetry.emit(
+                        "request_admission_failure", scope=scope, **error_fields(error)
+                    )
+                raise
         else:
             now = time.monotonic()
             while self._deadlines and next(iter(self._deadlines.values())) <= now:
@@ -32,6 +41,14 @@ class RequestLimiter:
             if remaining <= 0:
                 self._deadlines[key] = now + self.interval
         if remaining > 0:
+            if self.telemetry is not None:
+                self.telemetry.counters["rate_rejections"] += 1
+                self.telemetry.emit(
+                    "request_rejected",
+                    reason="rate_limit",
+                    scope=scope,
+                    retry_after_seconds=remaining,
+                )
             raise DownloadError(
                 f"هر {self.interval} ثانیه یک درخواست مجاز است؛ {remaining} ثانیه دیگر امتحان کن."
             )
