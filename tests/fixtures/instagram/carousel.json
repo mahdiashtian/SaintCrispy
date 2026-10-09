@@ -1,0 +1,343 @@
+{
+  "data": {
+    "xig_polaris_media": {
+      "if_not_gated_logged_out": {
+        "user": {
+          "username": "instagram",
+          "id": "17841400039600391",
+          "pk": "25025320"
+        },
+        "pk": "1455920561485265648",
+        "code": "BQ0eAlwhDrw",
+        "media_type": 8,
+        "caption": {
+          "text": "Fixture post"
+        },
+        "carousel_media": [
+          {
+            "code": "BQ0dSaohpPW",
+            "original_height": 640,
+            "original_width": 640,
+            "image_versions2": {
+              "candidates": [
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture0.jpg?expires=old",
+                  "height": 720,
+                  "width": 720
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture1.jpg?expires=old",
+                  "height": 640,
+                  "width": 640
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture2.jpg?expires=old",
+                  "height": 480,
+                  "width": 480
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture3.jpg?expires=old",
+                  "height": 320,
+                  "width": 320
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture4.jpg?expires=old",
+                  "height": 240,
+                  "width": 240
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture0.jpg?expires=old",
+                  "height": 720,
+                  "width": 720
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture0.jpg?expires=old",
+                  "height": 720,
+                  "width": 720
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture1.jpg?expires=old",
+                  "height": 640,
+                  "width": 640
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture2.jpg?expires=old",
+                  "height": 480,
+                  "width": 480
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture3.jpg?expires=old",
+                  "height": 320,
+                  "width": 320
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture4.jpg?expires=old",
+                  "height": 240,
+                  "width": 240
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture5.jpg?expires=old",
+                  "height": 150,
+                  "width": 150
+                }
+              ]
+            },
+            "id": "POLARIS_1455917388444111830",
+            "pk": "1455917388444111830",
+            "media_type": 2,
+            "has_audio": false,
+            "user": {
+              "pk": "25025320",
+              "id": "17841400039600391",
+              "username": "instagram"
+            },
+            "video_dash_manifest": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" minBufferTime=\"PT2S\" type=\"static\" mediaPresentationDuration=\"PT4.004004001617432S\" FBManifestTimestamp=\"1791510734\" FBManifestIdentifier=\"FpyjwqwNGBBpZ19kYXNoX2Jhc2VsaW5lGRaslYnKjbq7AyIYHmR1bW15X3RhZ3NldF9mb3JfZmFsbGJhY2tfbGlzdCIsGRgKdmVyeV9oZWF2eQAWthEUABIUAEgOTk9UX0NMQVNTSUZJRUQA\"><Period id=\"0\" duration=\"PT4.004004001617432S\"><AdaptationSet id=\"0\" contentType=\"video\" subsegmentAlignment=\"true\" par=\"1:1\"><Representation id=\"975165557122390v\" bandwidth=\"79426\" codecs=\"avc1.4d401e\" mimeType=\"video/mp4\" sar=\"1:1\" FBEncodingTag=\"dash_baseline_1_v1\" FBContentLength=\"39753\" FBAbrPolicyTags=\"\" width=\"640\" height=\"640\" frameRate=\"11988/400\" FBQualityClass=\"sd\" FBQualityLabel=\"640p\"><BaseURL>https://scontent.cdninstagram.com/fixture6.mp4?expires=old</BaseURL><SegmentBase indexRange=\"854-897\" timescale=\"11988\" FBFirstSegmentRange=\"898-39752\" FBFirstSegmentDuration=\"4004\" FBPrefetchSegmentRange=\"898-39752\" FBPrefetchSegmentDuration=\"4004\"><Initialization range=\"0-853\"/></SegmentBase></Representation></AdaptationSet></Period></MPD>\n",
+            "video_versions": [
+              {
+                "type": 101,
+                "url": "https://scontent.cdninstagram.com/fixture7.mp4?expires=old"
+              },
+              {
+                "type": 102,
+                "url": "https://scontent.cdninstagram.com/fixture7.mp4?expires=old"
+              },
+              {
+                "type": 103,
+                "url": "https://scontent.cdninstagram.com/fixture7.mp4?expires=old"
+              }
+            ]
+          },
+          {
+            "code": "BQ0dTpOhuHT",
+            "original_height": 640,
+            "original_width": 640,
+            "image_versions2": {
+              "candidates": [
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture8.jpg?expires=old",
+                  "height": 720,
+                  "width": 720
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture9.jpg?expires=old",
+                  "height": 640,
+                  "width": 640
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture10.jpg?expires=old",
+                  "height": 480,
+                  "width": 480
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture11.jpg?expires=old",
+                  "height": 320,
+                  "width": 320
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture12.jpg?expires=old",
+                  "height": 240,
+                  "width": 240
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture8.jpg?expires=old",
+                  "height": 720,
+                  "width": 720
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture8.jpg?expires=old",
+                  "height": 720,
+                  "width": 720
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture9.jpg?expires=old",
+                  "height": 640,
+                  "width": 640
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture10.jpg?expires=old",
+                  "height": 480,
+                  "width": 480
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture11.jpg?expires=old",
+                  "height": 320,
+                  "width": 320
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture12.jpg?expires=old",
+                  "height": 240,
+                  "width": 240
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture13.jpg?expires=old",
+                  "height": 150,
+                  "width": 150
+                }
+              ]
+            },
+            "id": "POLARIS_1455917472833528275",
+            "pk": "1455917472833528275",
+            "media_type": 2,
+            "has_audio": false,
+            "user": {
+              "pk": "25025320",
+              "id": "17841400039600391",
+              "username": "instagram"
+            },
+            "video_dash_manifest": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" minBufferTime=\"PT2S\" type=\"static\" mediaPresentationDuration=\"PT31.6983642578125S\" FBManifestTimestamp=\"1791510734\" FBManifestIdentifier=\"FpyjwqwNGBBpZ19kYXNoX2Jhc2VsaW5lGRba5d7U5te1AiIYHmR1bW15X3RhZ3NldF9mb3JfZmFsbGJhY2tfbGlzdCIsGRgKdmVyeV9oZWF2eQAWvBEUABIUAEgOTk9UX0NMQVNTSUZJRUQA\"><Period id=\"0\" duration=\"PT31.6983642578125S\"><AdaptationSet id=\"0\" contentType=\"video\" subsegmentAlignment=\"true\" par=\"1:1\"><Representation id=\"681006613649773v\" bandwidth=\"637213\" codecs=\"avc1.4d401e\" mimeType=\"video/mp4\" sar=\"1:1\" FBEncodingTag=\"dash_baseline_1_v1\" FBContentLength=\"2524830\" FBAbrPolicyTags=\"\" width=\"640\" height=\"640\" frameRate=\"11988/400\" FBQualityClass=\"sd\" FBQualityLabel=\"640p\"><BaseURL>https://scontent.cdninstagram.com/fixture14.mp4?expires=old</BaseURL><SegmentBase indexRange=\"854-933\" timescale=\"11988\" FBFirstSegmentRange=\"934-1138687\" FBFirstSegmentDuration=\"11411\" FBSecondSegmentRange=\"1138688-1795911\" FBPrefetchSegmentRange=\"934-1138687\" FBPrefetchSegmentDuration=\"11411\"><Initialization range=\"0-853\"/></SegmentBase></Representation></AdaptationSet></Period></MPD>\n",
+            "video_versions": [
+              {
+                "type": 101,
+                "url": "https://scontent.cdninstagram.com/fixture15.mp4?expires=old"
+              },
+              {
+                "type": 102,
+                "url": "https://scontent.cdninstagram.com/fixture15.mp4?expires=old"
+              },
+              {
+                "type": 103,
+                "url": "https://scontent.cdninstagram.com/fixture15.mp4?expires=old"
+              }
+            ]
+          },
+          {
+            "code": "BQ0dT7RBFeF",
+            "original_height": 640,
+            "original_width": 640,
+            "image_versions2": {
+              "candidates": [
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture16.jpg?expires=old",
+                  "height": 720,
+                  "width": 720
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture17.jpg?expires=old",
+                  "height": 640,
+                  "width": 640
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture18.jpg?expires=old",
+                  "height": 480,
+                  "width": 480
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture19.jpg?expires=old",
+                  "height": 320,
+                  "width": 320
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture20.jpg?expires=old",
+                  "height": 240,
+                  "width": 240
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture16.jpg?expires=old",
+                  "height": 720,
+                  "width": 720
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture16.jpg?expires=old",
+                  "height": 720,
+                  "width": 720
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture17.jpg?expires=old",
+                  "height": 640,
+                  "width": 640
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture18.jpg?expires=old",
+                  "height": 480,
+                  "width": 480
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture19.jpg?expires=old",
+                  "height": 320,
+                  "width": 320
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture20.jpg?expires=old",
+                  "height": 240,
+                  "width": 240
+                },
+                {
+                  "url": "https://scontent.cdninstagram.com/fixture21.jpg?expires=old",
+                  "height": 150,
+                  "width": 150
+                }
+              ]
+            },
+            "id": "POLARIS_1455917492202657669",
+            "pk": "1455917492202657669",
+            "media_type": 2,
+            "has_audio": false,
+            "user": {
+              "pk": "25025320",
+              "id": "17841400039600391",
+              "username": "instagram"
+            },
+            "video_dash_manifest": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" minBufferTime=\"PT2S\" type=\"static\" mediaPresentationDuration=\"PT6.506506443023682S\" FBManifestTimestamp=\"1791510734\" FBManifestIdentifier=\"FpyjwqwNGBBpZ19kYXNoX2Jhc2VsaW5lGRba4vf5t/nXAyIYHmR1bW15X3RhZ3NldF9mb3JfZmFsbGJhY2tfbGlzdCIsGRgKdmVyeV9oZWF2eQAWrhEUABIUAEgOTk9UX0NMQVNTSUZJRUQA\"><Period id=\"0\" duration=\"PT6.506506443023682S\"><AdaptationSet id=\"0\" contentType=\"video\" subsegmentAlignment=\"true\" par=\"1:1\"><Representation id=\"1037826227370157v\" bandwidth=\"1180840\" codecs=\"avc1.4d401e\" mimeType=\"video/mp4\" sar=\"1:1\" FBEncodingTag=\"dash_baseline_1_v1\" FBContentLength=\"960393\" FBAbrPolicyTags=\"\" width=\"640\" height=\"640\" frameRate=\"11988/400\" FBQualityClass=\"sd\" FBQualityLabel=\"640p\"><BaseURL>https://scontent.cdninstagram.com/fixture22.mp4?expires=old</BaseURL><SegmentBase indexRange=\"854-897\" timescale=\"11988\" FBFirstSegmentRange=\"898-960392\" FBFirstSegmentDuration=\"6506\" FBPrefetchSegmentRange=\"898-960392\" FBPrefetchSegmentDuration=\"6506\"><Initialization range=\"0-853\"/></SegmentBase></Representation></AdaptationSet></Period></MPD>\n",
+            "video_versions": [
+              {
+                "type": 101,
+                "url": "https://scontent.cdninstagram.com/fixture23.mp4?expires=old"
+              },
+              {
+                "type": 102,
+                "url": "https://scontent.cdninstagram.com/fixture23.mp4?expires=old"
+              },
+              {
+                "type": 103,
+                "url": "https://scontent.cdninstagram.com/fixture23.mp4?expires=old"
+              }
+            ]
+          }
+        ],
+        "original_height": 720,
+        "original_width": 720,
+        "id": "POLARIS_1455920561485265648",
+        "image_versions2": {
+          "candidates": [
+            {
+              "url": "https://scontent.cdninstagram.com/fixture0.jpg?expires=old"
+            },
+            {
+              "url": "https://scontent.cdninstagram.com/fixture1.jpg?expires=old"
+            },
+            {
+              "url": "https://scontent.cdninstagram.com/fixture2.jpg?expires=old"
+            },
+            {
+              "url": "https://scontent.cdninstagram.com/fixture3.jpg?expires=old"
+            },
+            {
+              "url": "https://scontent.cdninstagram.com/fixture4.jpg?expires=old"
+            },
+            {
+              "url": "https://scontent.cdninstagram.com/fixture0.jpg?expires=old"
+            },
+            {
+              "url": "https://scontent.cdninstagram.com/fixture0.jpg?expires=old"
+            },
+            {
+              "url": "https://scontent.cdninstagram.com/fixture1.jpg?expires=old"
+            },
+            {
+              "url": "https://scontent.cdninstagram.com/fixture2.jpg?expires=old"
+            },
+            {
+              "url": "https://scontent.cdninstagram.com/fixture3.jpg?expires=old"
+            },
+            {
+              "url": "https://scontent.cdninstagram.com/fixture4.jpg?expires=old"
+            },
+            {
+              "url": "https://scontent.cdninstagram.com/fixture5.jpg?expires=old"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

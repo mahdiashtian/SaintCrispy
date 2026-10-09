@@ -1,0 +1,55 @@
+# Credentials, local configuration and Telegram sessions.
+.env
+.env.*
+!.env.example
+*.session
+*.session-*
+*.cookies
+*cookies*.txt
+*.pem
+*.key
+
+# Python environments, build outputs and caches.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Private research, Persian documentation and local runtime state.
+.research/
+.runtime/
+.local-docs/
+/*.md
+!/README.md
+!/AGENTS.md
+/PROVIDER_AUDIT*.json
+/LOAD_AUDIT*.json
+/SCALING_RESULTS.json
+/TELEGRAM_TRANSFER*_RESULTS.json
+/*_TEST_RESULTS.json
+/TEST_AUDIT_RESULTS.txt
+
+# Downloaded media, archives, logs and local database backups.
+downloads/
+*.log
+*.zip
+*.tar
+*.tar.gz
+*.dump
+*.sql.gz
+
+# Editor and operating-system files.
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
