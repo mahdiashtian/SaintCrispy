@@ -72,3 +72,16 @@ jobs:
           --url soundcloud=https://soundcloud.com/octobersveryown/quebec
           --url soundcloud=https://soundcloud.com/gdaal/mojezeh
           --output '${{ runner.temp }}/provider-audit.json'
+      - name: Inspect reported SoundCloud playback and legacy routes
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_providers
+        run: >-
+          python tools/probe_soundcloud.py --legacy
+          https://soundcloud.com/quavoofficial/away
+          https://soundcloud.com/octobersveryown/quebec
+      - name: Check additional YouTube player profile
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_providers
+        env:
+          YOUTUBE_PLAYER_CLIENTS: default,web_embedded
+        run: >-
+          python tools/audit_providers.py --sites youtube
+          --output '${{ runner.temp }}/youtube-embedded-audit.json'

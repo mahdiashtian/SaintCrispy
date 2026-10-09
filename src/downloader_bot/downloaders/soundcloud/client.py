@@ -53,7 +53,11 @@ class SoundCloudClient:
                     continue
                 data = item.get("data")
                 value = data.get("id") if isinstance(data, dict) else None
-                if isinstance(value, str) and re.fullmatch(r"[0-9a-zA-Z]{32}", value):
+                if (
+                    isinstance(value, str)
+                    and value != invalid_id
+                    and re.fullmatch(r"[0-9a-zA-Z]{32}", value)
+                ):
                     self.client_id = value
                     return value
             scripts = re.findall(r'<script[^>]+src="([^"]+)"', page)
@@ -65,10 +69,13 @@ class SoundCloudClient:
                     continue
                 self._check_status(response)
                 match = re.search(r'client_id\s*:\s*"([0-9a-zA-Z]{32})"', response.text)
-                if match:
+                if match and match[1] != invalid_id:
                     self.client_id = match[1]
                     return self.client_id
-        raise DownloadError("شناسه عمومی پخش SoundCloud پیدا نشد؛ ساختار سایت نیاز به بررسی دارد.")
+        raise DownloadError(
+            "شناسه عمومی پخش SoundCloud پیدا نشد؛ ساختار سایت نیاز به بررسی دارد.",
+            code="soundcloud_client_id_unavailable",
+        )
 
     async def api(
         self, url: str, authorization: str | None = None, *, params: dict[str, str] | None = None
@@ -82,7 +89,12 @@ class SoundCloudClient:
         response = await self.http.get(url, params=query, headers=self.headers)
         # Original download uses 401/403 for account permissions, not a stale public ID.
         if response.status_code in (401, 403) and not urlsplit(url).path.endswith("/download"):
-            refreshed = await self.public_client_id(invalid_id=query["client_id"])
+            try:
+                refreshed = await self.public_client_id(invalid_id=query["client_id"])
+            except DownloadError as error:
+                if error.code != "soundcloud_client_id_unavailable":
+                    raise
+                refreshed = query["client_id"]  # Preserve the original permission response.
             if refreshed != query["client_id"]:
                 query["client_id"] = refreshed
                 response = await self.http.get(url, params=query, headers=self.headers)

@@ -54,6 +54,56 @@ async def test_client_id_asset_fallback_skips_a_removed_script():
     assert visited == ["/removed.js", "/current.js"]
 
 
+async def test_rejected_hydration_and_asset_ids_do_not_hide_a_current_asset_id():
+    old_id, new_id = "o" * 32, "n" * 32
+    visited = []
+    page = (
+        client_page(old_id)
+        + '<script src="https://a-v2.sndcdn.com/current.js"></script>'
+        + '<script src="https://a-v2.sndcdn.com/stale.js"></script>'
+    )
+
+    def respond(request):
+        visited.append(request.url.path)
+        if request.url.host == "soundcloud.com":
+            return httpx.Response(200, text=page)
+        if request.url.host == "a-v2.sndcdn.com":
+            value = old_id if request.url.path == "/stale.js" else new_id
+            return httpx.Response(200, text=f'client_id:"{value}"')
+        return (
+            httpx.Response(401)
+            if request.url.params["client_id"] == old_id
+            else httpx.Response(200, json={"id": 1})
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        client = SoundCloudClient(http)
+        client.client_id = old_id
+        assert await client.api("https://api-v2.soundcloud.com/tracks/1") == {"id": 1}
+        assert client.client_id == new_id
+    assert visited == ["/tracks/1", "/", "/stale.js", "/current.js", "/tracks/1"]
+
+
+async def test_no_replacement_client_id_preserves_the_original_permission_failure():
+    visited = []
+
+    def respond(request):
+        visited.append(request.url.path)
+        return (
+            httpx.Response(200, text=client_page("o" * 32))
+            if request.url.host == "soundcloud.com"
+            else httpx.Response(403)
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        client = SoundCloudClient(http)
+        client.client_id = "o" * 32
+        with pytest.raises(SiteHTTPError) as error:
+            await client.api("https://api-v2.soundcloud.com/tracks/1")
+    assert error.value.status == 403
+    assert visited == ["/tracks/1", "/"]
+
+
 async def test_concurrent_expired_client_ids_share_one_refresh_and_retry_once():
     home_requests = []
 
