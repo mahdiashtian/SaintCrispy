@@ -166,6 +166,135 @@ def test_native_entry_reads_its_own_env_literally_even_from_another_directory(
     assert calls == [("downloader_bot", "__main__")]
 
 
+@pytest.mark.parametrize(
+    "saved_urls",
+    [
+        {},
+        {"DATABASE_URL": "", "REDIS_URL": ""},
+        {
+            "DATABASE_URL": "postgresql://old:old@postgres:5432/old",
+            "REDIS_URL": "redis://redis:6379/7",
+        },
+    ],
+)
+def test_native_entry_builds_urls_from_env_ports_and_literal_password(
+    tmp_path, monkeypatch, saved_urls
+):
+    root = tmp_path / "project"
+    root.mkdir()
+    password = "literal@host/#?:%${HOME}$$[x]\\word' space"
+    path = create_env(
+        root,
+        API_ID="123",
+        API_HASH="test-hash",
+        BOT_TOKEN="test-token",
+        POSTGRES_PORT="32768",
+        REDIS_PORT="32769",
+        DEV_DB_PASSWORD=password,
+        **saved_urls,
+    )
+    original = path.read_bytes()
+    for key in ("DATABASE_URL", "REDIS_URL"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(entry, "__file__", str(root / "main.py"))
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+    calls = []
+
+    def application(name, *, run_name):
+        from downloader_bot.config import Settings
+
+        settings = Settings.from_environment()
+        database = urlsplit(settings.database_url)
+        assert database.hostname == "127.0.0.1" and database.port == 32768
+        assert database.username == "downloader" and database.path == "/downloader"
+        assert unquote(database.password) == password
+        assert settings.redis_url == "redis://127.0.0.1:32769/0"
+        assert password not in repr(settings)
+        calls.append((name, run_name))
+
+    monkeypatch.setattr(entry.runpy, "run_module", application)
+    entry.main()
+    assert calls == [("downloader_bot", "__main__")]
+    assert path.read_bytes() == original
+
+
+def test_changing_local_ports_and_password_overrides_stale_urls_without_setup():
+    from downloader_bot.config import connection_urls
+
+    values = {
+        "POSTGRES_PORT": "32768",
+        "REDIS_PORT": "32769",
+        "DEV_DB_PASSWORD": "first-password",
+    }
+    database_url, redis_url = connection_urls(values)
+    values.update(
+        DATABASE_URL=database_url,
+        REDIS_URL=redis_url,
+        POSTGRES_PORT="32123",
+        REDIS_PORT="32124",
+        DEV_DB_PASSWORD="changed@/#password",
+    )
+    database_url, redis_url = connection_urls(values)
+    parsed = urlsplit(database_url)
+    assert parsed.port == 32123 and unquote(parsed.password) == "changed@/#password"
+    assert redis_url == "redis://127.0.0.1:32124/0"
+
+
+@pytest.mark.parametrize("key", ["POSTGRES_PORT", "REDIS_PORT"])
+@pytest.mark.parametrize("value", ["0", "65536", "PRIVATE-BAD-PORT"])
+def test_invalid_local_port_has_safe_diagnostics(key, value):
+    from downloader_bot.config import ConfigurationError, connection_urls
+    from downloader_bot.telemetry import error_fields
+
+    with pytest.raises(ConfigurationError) as failure:
+        connection_urls({key: value, "DEV_DB_PASSWORD": "PRIVATE-PASSWORD"})
+    record = error_fields(failure.value)
+    assert record["configuration_fields"] == [key]
+    assert "PRIVATE-" not in json.dumps(record)
+
+
+@pytest.mark.parametrize("password", [None, "", "YOUR_PASSWORD"])
+def test_native_configuration_requires_existing_password_without_generating_one(password):
+    from downloader_bot.config import ConfigurationError, connection_urls
+
+    values = {
+        "POSTGRES_PORT": "32768",
+        "DEV_DB_PASSWORD": password,
+        "DATABASE_URL": "postgresql://old:old@127.0.0.1:5432/downloader",
+    }
+    original = values.copy()
+    with pytest.raises(ConfigurationError) as failure:
+        connection_urls(values)
+    assert failure.value.fields == ("DEV_DB_PASSWORD",)
+    assert values == original
+
+
+def test_native_configuration_rejects_duplicate_local_service_ports():
+    from downloader_bot.config import ConfigurationError, connection_urls
+
+    with pytest.raises(ConfigurationError) as failure:
+        connection_urls(
+            {"POSTGRES_PORT": "32768", "REDIS_PORT": "32768", "DEV_DB_PASSWORD": "password"}
+        )
+    assert failure.value.code == "duplicate_service_ports"
+    assert failure.value.fields == ("POSTGRES_PORT", "REDIS_PORT")
+
+
+def test_explicit_remote_urls_work_when_local_ports_are_blank_and_redis_is_optional():
+    from downloader_bot.config import connection_urls
+
+    values = {
+        "POSTGRES_PORT": "",
+        "REDIS_PORT": "",
+        "DATABASE_URL": "postgresql://user:password@db.example:5432/custom",
+        "REDIS_URL": "redis://user:password@cache.example:6380/3",
+    }
+    assert connection_urls(values) == (values["DATABASE_URL"], values["REDIS_URL"])
+    values["REDIS_URL"] = ""
+    assert connection_urls(values) == (values["DATABASE_URL"], None)
+
+
 @pytest.mark.parametrize("key", ["API_ID", "API_HASH", "BOT_TOKEN", "DATABASE_URL"])
 @pytest.mark.parametrize("value", [None, "", " \t "])
 def test_missing_required_setting_is_identified_without_logging_other_values(
@@ -174,6 +303,8 @@ def test_missing_required_setting_is_identified_without_logging_other_values(
     from downloader_bot.config import ConfigurationError, Settings
     from downloader_bot.telemetry import error_fields
 
+    for name in ("POSTGRES_PORT", "REDIS_PORT", "DEV_DB_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
     for name in ("API_ID", "API_HASH", "BOT_TOKEN", "DATABASE_URL"):
         monkeypatch.setenv(name, "123" if name == "API_ID" else "PRIVATE-CONFIG-VALUE")
     if value is None:
@@ -206,6 +337,8 @@ def test_native_startup_reports_config_fields_before_connecting(tmp_path, key, v
         "API_HASH": "PRIVATE-HASH",
         "BOT_TOKEN": "PRIVATE-TOKEN",
         "DATABASE_URL": "postgresql://user:PRIVATE-PASSWORD@127.0.0.1:1/private",
+        "POSTGRES_PORT": "",
+        "REDIS_PORT": "",
         key: value,
     }
     create_env(root, **values)

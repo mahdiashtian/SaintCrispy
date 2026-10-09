@@ -1,5 +1,7 @@
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from urllib.parse import quote
 
 
 class ConfigurationError(RuntimeError):
@@ -11,20 +13,55 @@ class ConfigurationError(RuntimeError):
         self.fields = fields
 
 
-def integer_setting(name: str, default: int, minimum: int, maximum: int) -> int:
+def parse_integer(name: str, value: str, minimum: int, maximum: int) -> int:
     try:
-        value = int(os.environ.get(name, str(default)))
+        number = int(value)
     except ValueError as error:
         raise ConfigurationError(
             f"{name} must be an integer", code="invalid_integer", fields=(name,)
         ) from error
-    if not minimum <= value <= maximum:
+    if not minimum <= number <= maximum:
         raise ConfigurationError(
             f"{name} must be between {minimum} and {maximum}",
             code="out_of_range",
             fields=(name,),
         )
-    return value
+    return number
+
+
+def integer_setting(name: str, default: int, minimum: int, maximum: int) -> int:
+    return parse_integer(name, os.environ.get(name, str(default)), minimum, maximum)
+
+
+def connection_urls(values: Mapping[str, str | None]) -> tuple[str | None, str | None]:
+    """Local ports take precedence over saved URLs; explicit remote URLs remain supported."""
+    database_url = (values.get("DATABASE_URL") or "").strip() or None
+    redis_url = (values.get("REDIS_URL") or "").strip() or None
+    ports = {}
+    for key in ("POSTGRES_PORT", "REDIS_PORT"):
+        if value := (values.get(key) or "").strip():
+            ports[key] = parse_integer(key, value, 1, 65535)
+    if len(ports) == 2 and ports["POSTGRES_PORT"] == ports["REDIS_PORT"]:
+        raise ConfigurationError(
+            "POSTGRES_PORT and REDIS_PORT must be different",
+            code="duplicate_service_ports",
+            fields=("POSTGRES_PORT", "REDIS_PORT"),
+        )
+    if "POSTGRES_PORT" in ports:
+        password = values.get("DEV_DB_PASSWORD") or ""
+        if not password or password == "YOUR_PASSWORD":
+            raise ConfigurationError(
+                "Missing environment variables: DEV_DB_PASSWORD",
+                code="missing_required_settings",
+                fields=("DEV_DB_PASSWORD",),
+            )
+        encoded = quote(password, safe="")
+        database_url = (
+            f"postgresql://downloader:{encoded}@127.0.0.1:{ports['POSTGRES_PORT']}/downloader"
+        )
+    if "REDIS_PORT" in ports:
+        redis_url = f"redis://127.0.0.1:{ports['REDIS_PORT']}/0"
+    return database_url, redis_url
 
 
 @dataclass(frozen=True)
@@ -57,8 +94,11 @@ class Settings:
 
     @classmethod
     def from_environment(cls):
+        database_url, redis_url = connection_urls(os.environ)
         required = ("API_ID", "API_HASH", "BOT_TOKEN", "DATABASE_URL")
-        missing = tuple(name for name in required if not os.environ.get(name, "").strip())
+        values = {name: os.environ.get(name, "") for name in required}
+        values["DATABASE_URL"] = database_url or ""
+        missing = tuple(name for name in required if not values.get(name, "").strip())
         if missing:
             raise ConfigurationError(
                 "Missing environment variables: " + ", ".join(missing),
@@ -70,8 +110,8 @@ class Settings:
             api_id=integer_setting("API_ID", 0, 1, 2**31 - 1),
             api_hash=os.environ["API_HASH"],
             bot_token=os.environ["BOT_TOKEN"],
-            database_url=os.environ["DATABASE_URL"],
-            redis_url=os.environ.get("REDIS_URL") or None,
+            database_url=database_url,
+            redis_url=redis_url,
             ffmpeg=os.environ.get("FFMPEG_PATH") or "ffmpeg",
             storage_chat=os.environ.get("MEDIA_STORAGE_CHAT") or None,
             concurrency=integer_setting("TRANSFER_CONCURRENCY", requests, 1, requests),

@@ -8,9 +8,11 @@ import socket
 import subprocess
 from contextlib import ExitStack
 from pathlib import Path
-from urllib.parse import quote, urlsplit
+from urllib.parse import urlsplit
 
 from dotenv import dotenv_values, set_key
+
+from downloader_bot.config import connection_urls, parse_integer
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,12 +38,7 @@ def configure_environment(path: Path, template: Path) -> dict:
         port = values.get(key) or previous_port(values, url_key)
         if not port:
             continue
-        try:
-            number = int(port)
-        except ValueError:
-            raise RuntimeError(f"{key} must be an integer between 1 and 65535") from None
-        if not 1 <= number <= 65535:
-            raise RuntimeError(f"{key} must be between 1 and 65535")
+        number = parse_integer(key, port, 1, 65535)
         if number in chosen:
             raise RuntimeError("POSTGRES_PORT and REDIS_PORT must be different")
         chosen.add(number)
@@ -64,11 +61,7 @@ def configure_environment(path: Path, template: Path) -> dict:
     if not password or password == "YOUR_PASSWORD":
         password = secrets.token_hex(32)
     updates["DEV_DB_PASSWORD"] = password
-    encoded = quote(password, safe="")
-    updates["DATABASE_URL"] = (
-        f"postgresql://downloader:{encoded}@127.0.0.1:{updates['POSTGRES_PORT']}/downloader"
-    )
-    updates["REDIS_URL"] = f"redis://127.0.0.1:{updates['REDIS_PORT']}/0"
+    updates["DATABASE_URL"], updates["REDIS_URL"] = connection_urls(updates)
     if not values.get("FFMPEG_PATH") and (ffmpeg := shutil.which("ffmpeg")):
         updates["FFMPEG_PATH"] = ffmpeg
 

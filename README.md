@@ -80,7 +80,16 @@ python main.py
 
 The setup command chooses a free localhost port for each blank port setting, then saves the exact `POSTGRES_PORT` and `REDIS_PORT` in `.env`. Subsequent runs keep those numbers. You can enter your own free port numbers before setup. Existing localhost connection URLs also supply their previous ports during migration. Docker binds both services to `127.0.0.1` using the saved ports.
 
-The same setup writes explicit `DATABASE_URL` and `REDIS_URL` values containing `127.0.0.1` and those ports. PostgreSQL's Docker container reads `DEV_DB_PASSWORD` from `.env`; the URL password is percent-encoded for Python, including `@`, `/`, `#`, `?` and dollar signs. If the password is blank or still `YOUR_PASSWORD`, setup generates a random hex password. Setup waits for both database health checks and prints only their addresses, not credentials.
+You do not need to enter `DATABASE_URL` or `REDIS_URL`. When `POSTGRES_PORT` is set, the bot builds its PostgreSQL URL from that port and `DEV_DB_PASSWORD`; when `REDIS_PORT` is set, it builds the Redis URL automatically. Configured ports take precedence over saved URLs, so changing a port cannot leave the bot using a stale address. Password characters such as `@`, `/`, `#`, `?` and dollar signs are percent-encoded without changing the actual password. This happens in memory at every startup, without rewriting `.env`.
+
+The setup command also saves the generated URLs in `.env` for standalone tools and starts the database containers. PostgreSQL's Docker container reads `DEV_DB_PASSWORD` from `.env`. If the password is blank or still `YOUR_PASSWORD`, setup generates a random hex password; the bot itself requires the existing password and never generates a replacement. Setup waits for both database health checks and prints only their addresses, not credentials.
+
+If you already set both ports and the database password in `.env`, you can start directly without the setup tool:
+
+```bash
+docker compose --env-file .env -p saintcrispy up -d --remove-orphans --wait postgres redis
+python main.py
+```
 
 `main.py` reads the `.env` next to itself automatically. Values in that file take precedence over stale shell exports and are loaded without variable expansion. It runs with the repository as its working directory, so relative log/cookie paths remain consistent. The bot is ready to receive `/start` when the console emits `bot_ready`; earlier `runtime_started` only means that the process has begun initialization. Press Ctrl+C for normal cleanup.
 
@@ -111,7 +120,7 @@ Stop the current native bot before replacing it. Setup uses project `saintcrispy
 
 ## Database service management
 
-After initial setup has populated `.env`:
+Once `POSTGRES_PORT`, `REDIS_PORT` and `DEV_DB_PASSWORD` are set in `.env`:
 
 ```bash
 docker compose -p saintcrispy up -d --wait postgres redis
@@ -124,7 +133,7 @@ docker compose -p saintcrispy stop postgres redis
 
 Internal container ports remain 5432 and 6379; the native Python bot uses the published localhost ports in `.env`. PostgreSQL data lives in `saintcrispy_postgres_data`. `docker compose -p saintcrispy down` preserves the volume; `down -v` deletes it. Redis is a disposable cache with persistence disabled. Back up PostgreSQL separately before upgrades.
 
-After changing a port or password setting, rerun `python tools/setup_services.py` to refresh the explicit URLs and Compose configuration. Setup manages a local database named `downloader` and user `downloader`. For an externally managed database/cache, supply your own `DATABASE_URL`/`REDIS_URL` and run `python main.py` directly without the local setup command. An empty `REDIS_URL` disables Redis.
+After changing a port, recreate the database containers with `docker compose -p saintcrispy up -d --wait postgres redis`; `python main.py` automatically uses the new ports. Rerun `python tools/setup_services.py` if standalone tools also need the saved URLs refreshed. Setup manages a local database named `downloader` and user `downloader`. For an externally managed database/cache, leave the corresponding `POSTGRES_PORT`/`REDIS_PORT` blank, supply your own `DATABASE_URL`/`REDIS_URL` and run `python main.py` directly without the local setup command. Leaving both `REDIS_PORT` and `REDIS_URL` blank disables Redis; PostgreSQL remains required.
 
 ## Windows development
 
@@ -319,7 +328,7 @@ Live provider probes use the current network and optional account settings. `--t
 
 ## Troubleshooting
 
-- **Missing or invalid settings:** startup failures include `configuration_error` and `configuration_fields`, which identify the problem and affected variable names without printing their values. Fill `API_ID`, `API_HASH`, `BOT_TOKEN` and `DATABASE_URL` in the repository's `.env`; whitespace-only values count as missing. `API_ID` must be a positive integer. Launch `python main.py`, which reads `.env` automatically. `python tools/setup_services.py` configures database addresses; it does not supply Telegram credentials.
+- **Missing or invalid settings:** startup failures include `configuration_error` and `configuration_fields`, which identify the problem and affected variable names without printing their values. Fill `API_ID`, `API_HASH`, `BOT_TOKEN`, `POSTGRES_PORT` and `DEV_DB_PASSWORD` in the repository's `.env`; `DATABASE_URL` is built automatically. Alternatively, supply an explicit `DATABASE_URL` with `POSTGRES_PORT` blank. `API_ID` must be a positive integer and ports must be distinct integers between 1 and 65535. Launch `python main.py`, which reads `.env` automatically. `python tools/setup_services.py` does not supply Telegram credentials.
 - **FFmpeg cannot start:** verify `ffmpeg -version` and `FFMPEG_PATH`; YouTube separate streams and HLS require FFmpeg.
 - **YouTube login/bot challenge:** use an authorized session and an accepted network route. PO tokens do not grant access to private or unavailable content.
 - **No available quality or HTTP 429:** source availability, authentication and rate limits apply. Provider cooldowns prevent repeated bursts against a rejected origin.
