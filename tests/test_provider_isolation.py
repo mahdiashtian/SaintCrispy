@@ -66,7 +66,10 @@ def test_provider_imports_do_not_depend_on_other_sites_or_shared_concrete_logic(
                     assert name == "downloader_bot.downloaders.base" or (
                         name == prefix or name.startswith(prefix + ".")
                     ), f"{path}: shares provider implementation through {name}"
-                assert name not in {"downloader_bot.core.urls", "downloader_bot.bot.handlers.media"}
+                assert name not in {
+                    "downloader_bot.downloaders.router",
+                    "downloader_bot.bot.handlers.media",
+                }
                 assert name not in {
                     "downloader_bot.bot.transfers.streaming",
                     "downloader_bot.services.download",

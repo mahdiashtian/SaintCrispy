@@ -32,3 +32,13 @@ async def connect_bot(client, telemetry=None):
                 )
             await asyncio.sleep(delay)
             delay = min(30, delay * 2)
+
+
+async def catch_up_bot(client, telemetry=None):
+    """Recover missed updates after handlers exist; an unavailable catch-up is nonfatal."""
+    try:
+        async with asyncio.timeout(10):
+            await client.catch_up()
+    except (errors.RPCError, OSError, TimeoutError) as error:
+        if telemetry is not None:
+            telemetry.emit("telegram_catch_up_unavailable", **error_fields(error))

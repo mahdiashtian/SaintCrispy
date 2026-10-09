@@ -10,7 +10,32 @@ The workstation check for this architecture change tried the exact reported YouT
 
 Pinterest pin `2885187256207927` completed two full qualities and Telegram registration without sending messages. The HLS 720x1280 stream produced 1,014,604 bytes; the progressive 720x1280 file contained 971,092 bytes. A mismatching Telegram URL-cache result triggered a streamed upload fallback, whose registered size matched the origin. Instagram had already been confirmed working by the operator; Linux checks continue to include a carousel and two reels.
 
-The optional Linux workflow now includes the operator's exact YouTube URL alongside the standard public fixture and separately probes SoundCloud's reported tracks and legacy origin routes. Fresh deployment-network findings should be recorded from its uploaded sanitized report; they should not be inferred from another network's success.
+The requested `IconsEmoji` set was also read through Telegram: it contains 143 documents and provides matching custom variants for the music and chat emojis used in the start text. UTF-16 entity offsets and rejection fallback are tested. No test message was published to check Premium eligibility.
+
+The fresh [Linux verification run 37950024038](https://github.com/mahdiashtian/SaintCrispy/actions/runs/37950024038) passed **653 code/database tests** and completed **55 full public quality streams** across five providers:
+
+| Provider | Full streams completed | Remaining observations |
+| --- | ---: | --- |
+| SoundCloud | 3 | Both reported tracks still expose protected full streams; original guest download is 401 |
+| Instagram | 13 | Two inputs passed; a third reel hit HTTP 429 during quality resolution |
+| Pinterest | 29 | Both inputs and every offered quality passed |
+| XVideos | 9 | Working public/embedded samples passed; one obsolete input returned 404 |
+| XNXX | 1 | Working public sample passed; one obsolete input returned 404 |
+| YouTube | 0 | The exact reported video and standard public fixture both required login on the runner's egress |
+
+The workflow's strict live step failed visibly for those restrictions. Its code/database test step passed, and the separate [push test run 37950007165](https://github.com/mahdiashtian/SaintCrispy/actions/runs/37950007165) is green. Available formats can change between checks, which explains why this run completed 55 streams and the earlier run completed 71. Production-network findings must be measured on that host rather than inferred from either run.
+
+## Concurrent pipeline measurement
+
+A local run with 1,000 distinct, initially uncached inputs, synchronized source starts and real HTTP bodies completed all 1,000 downloads in 11.677 seconds with no failures or dropped performance records. It read 1,048,699,000 bytes and acknowledged the same number of upload bytes, for 2,097,398,000 payload bytes through the pipeline. It reached 1,000 active HTTP connections while the global upload window stayed at 64 parts. The maximum measured event-loop delay was 1.331 seconds. Telegram RPCs and the repository were simulated in this benchmark; this is not production Telegram throughput or a latency guarantee. A separate 1,000-request duplicate-content run produced only 100 origin downloads and reused 900 saved references.
+
+```bash
+python tools/load_test_transfers.py --requests 1000 --unique-downloads 1000 \
+  --all-new --concurrency 1000 --synchronize-sources --provider-mix \
+  --file-mib 1 --rpc-latency 0.005 --no-memory-tracing \
+  --log-file .runtime/load-1000.jsonl
+python tools/summarize_logs.py .runtime/load-1000.jsonl --files 1000
+```
 
 ## Reported restricted media
 

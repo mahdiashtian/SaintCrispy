@@ -11,8 +11,7 @@ from downloader_bot.bot.handlers import register_handlers
 from downloader_bot.bot.progress import TransferProgress
 from downloader_bot.bot.state.menus import MenuStore
 from downloader_bot.bot.transfers.streaming import media_chunks, remux_arguments
-from downloader_bot.core.urls import extract_youtube_url
-from downloader_bot.downloaders.router import DownloaderRouter
+from downloader_bot.downloaders.router import DownloaderRouter, extract_youtube_url
 from downloader_bot.downloaders.youtube.client import YouTubeClient, extraction_error
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
 from downloader_bot.downloaders.youtube.handler import handle_youtube_link

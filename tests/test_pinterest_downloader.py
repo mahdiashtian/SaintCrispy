@@ -6,7 +6,6 @@ from dataclasses import replace
 import httpx
 import pytest
 
-from downloader_bot.core.urls import extract_pinterest_url
 from downloader_bot.downloaders.pinterest.client import PinterestClient
 from downloader_bot.downloaders.pinterest.downloader import PinterestDownloader
 from downloader_bot.downloaders.pinterest.parser import (
@@ -16,6 +15,7 @@ from downloader_bot.downloaders.pinterest.parser import (
     read_page_pin,
     read_pin,
 )
+from downloader_bot.downloaders.router import extract_pinterest_url
 from downloader_bot.schemas.media import DownloadError
 
 PIN = "123456789"

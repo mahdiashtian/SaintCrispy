@@ -9,6 +9,7 @@ from telethon import errors, types
 
 from downloader_bot.bot.delivery import TelegramDelivery
 from downloader_bot.bot.handlers import register_handlers
+from downloader_bot.bot.handlers.start import handle_start
 from downloader_bot.bot.jobs.transfers import TransferJobs
 from downloader_bot.bot.presentation import BotPresentation
 from downloader_bot.bot.state.manager import ConversationManager
@@ -280,3 +281,29 @@ async def test_custom_emoji_permission_failure_falls_back_and_does_not_repeat():
     assert await presentation.respond(event, "🎵 تست") == "sent"
     assert len(calls) == 3 and "formatting_entities" not in calls[-1]
     assert all(options["reply_to"] == 77 for options in calls)
+
+
+async def test_start_uses_actual_username_and_does_not_invent_provider_bots():
+    repo = WorkflowMemory()
+    responses = []
+
+    async def respond(text, **options):
+        responses.append((text, options))
+
+    event = SimpleNamespace(sender_id=10, chat_id=20, id=77, respond=respond)
+    await handle_start(
+        event,
+        bot_username="ActualBot",
+        users=UserService(repo),
+        conversations=ConversationManager(repo),
+        presentation=BotPresentation(),
+    )
+    assert repo.users == {10: True}
+    text, options = responses[0]
+    assert "@ActualBot" in text and "/start" in text
+    assert text.count("@") == 2
+    assert all(
+        name in text
+        for name in ("SoundCloud", "YouTube", "Instagram", "Pinterest", "XVideos", "XNXX")
+    )
+    assert options["reply_to"] == 77

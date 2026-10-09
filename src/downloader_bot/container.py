@@ -13,7 +13,7 @@ from downloader_bot.bot.delivery import TelegramDelivery
 from downloader_bot.bot.handlers import register_handlers
 from downloader_bot.bot.jobs.transfers import TransferJobs
 from downloader_bot.bot.presentation import BotPresentation
-from downloader_bot.bot.session import connect_bot, sign_in_bot
+from downloader_bot.bot.session import catch_up_bot, connect_bot, sign_in_bot
 from downloader_bot.bot.state.manager import ConversationManager
 from downloader_bot.bot.state.menus import PersistentMenuStore
 from downloader_bot.core.config import Settings
@@ -264,4 +264,5 @@ class Container:
             bot_username=bot.username,
             presentation=presentation,
         )
+        await catch_up_bot(client, telemetry)
         telemetry.emit("bot_ready", bot_username=bot.username)

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from telethon import errors
 
-from downloader_bot.bot.session import connect_bot, sign_in_bot
+from downloader_bot.bot.session import catch_up_bot, connect_bot, sign_in_bot
 
 
 async def test_login_retries_only_after_the_server_requested_wait(monkeypatch):
@@ -80,6 +80,71 @@ async def test_network_backoff_can_be_cancelled_without_another_connection(monke
     with pytest.raises(asyncio.CancelledError):
         await task
     assert calls == [1]
+
+
+async def test_missed_update_recovery_runs_once_after_registration():
+    calls = []
+
+    async def catch_up():
+        calls.append("recover")
+
+    await catch_up_bot(SimpleNamespace(catch_up=catch_up))
+    assert calls == ["recover"]
+
+
+async def test_unavailable_catch_up_is_logged_without_preventing_readiness():
+    records = []
+
+    async def catch_up():
+        raise errors.FloodWaitError(request=None, capture=30)
+
+    telemetry = SimpleNamespace(
+        emit=lambda event, **fields: records.append({"event": event, **fields})
+    )
+    await catch_up_bot(SimpleNamespace(catch_up=catch_up), telemetry)
+    assert records[0]["event"] == "telegram_catch_up_unavailable"
+    assert records[0]["error_type"] == "FloodWaitError"
+
+
+async def test_native_recovery_closes_previous_runtime_before_reconnecting(monkeypatch, capsys):
+    from downloader_bot.bot.runtime import run_with_recovery
+
+    order, waits = [], []
+
+    class Container:
+        async def __aenter__(self):
+            order.append("enter")
+            self.client = SimpleNamespace(run_until_disconnected=self.run)
+            return self
+
+        async def run(self):
+            if len(waits) < 2:
+                raise ConnectionError("PRIVATE-DETAIL")
+            raise asyncio.CancelledError
+
+        async def __aexit__(self, *args):
+            order.append("close")
+
+    async def sleep(seconds):
+        waits.append(seconds)
+        order.append("wait")
+
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    with pytest.raises(asyncio.CancelledError):
+        await run_with_recovery(Container)
+    assert waits == [2, 4]
+    assert order == ["enter", "close", "wait", "enter", "close", "wait", "enter", "close"]
+    assert "PRIVATE-DETAIL" not in capsys.readouterr().out
+
+
+async def test_native_recovery_does_not_retry_fatal_configuration_errors():
+    from downloader_bot.bot.runtime import run_with_recovery
+
+    def invalid():
+        raise RuntimeError("Invalid configuration")
+
+    with pytest.raises(RuntimeError, match="Invalid configuration"):
+        await run_with_recovery(invalid)
 
 
 async def test_sigterm_cleans_up_the_application_and_removes_its_handler(monkeypatch):

@@ -4,8 +4,7 @@ from dataclasses import replace
 import httpx
 import pytest
 
-from downloader_bot.core.urls import extract_xvideos_url
-from downloader_bot.downloaders.router import DownloaderRouter
+from downloader_bot.downloaders.router import DownloaderRouter, extract_xvideos_url
 from downloader_bot.downloaders.xvideos.client import XVideosClient
 from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.xvideos.parser import extract_links, read_video

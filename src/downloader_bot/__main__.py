@@ -4,14 +4,15 @@ import signal
 import sys
 from datetime import UTC, datetime
 
+from downloader_bot.bot.runtime import run_with_recovery
 from downloader_bot.container import Container
 from downloader_bot.core.config import Settings
 from downloader_bot.services.observability import error_fields
 
 
 async def main() -> None:
-    async with Container(Settings.from_environment()) as container:
-        await container.client.run_until_disconnected()
+    settings = Settings.from_environment()
+    await run_with_recovery(lambda: Container(settings))
 
 
 async def run_application():

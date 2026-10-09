@@ -50,3 +50,12 @@ def test_business_services_do_not_import_the_telegram_framework():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.ImportFrom):
                 assert not (node.module or "").startswith(("telethon", "downloader_bot.bot"))
+
+
+def test_core_does_not_import_provider_or_application_implementations():
+    for path in (ROOT / "core").glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom):
+                assert not (node.module or "").startswith(
+                    ("downloader_bot.downloaders", "downloader_bot.services", "downloader_bot.bot")
+                )
