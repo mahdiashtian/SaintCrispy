@@ -70,6 +70,8 @@ jobs:
         run: >-
           python tools/audit_providers.py --all-qualities --stream --strict
           --max-stream-mib 512 --case-timeout 900 --transfer-timeout 240
+          --url youtube=https://www.youtube.com/watch?v=l6zflbTGNFQ
+          --url youtube=https://youtu.be/jNQXAC9IVRw
           --url soundcloud=https://soundcloud.com/quavoofficial/away
           --url soundcloud=https://soundcloud.com/octobersveryown/quebec
           --url soundcloud=https://soundcloud.com/gdaal/mojezeh
@@ -85,6 +87,12 @@ jobs:
           --url xnxx=https://www.xnxx.com/video-bykb3e9/video
           --url xnxx=https://www.xnxx.com/video-55awb78/video
           --output '${{ runner.temp }}/provider-audit.json'
+      - name: Inspect reported SoundCloud DRM and legacy origin routes
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.audit_providers
+        run: >-
+          python tools/probe_soundcloud.py --legacy
+          https://soundcloud.com/quavoofficial/away
+          https://soundcloud.com/octobersveryown/quebec
       - name: Save provider verification report
         if: always() && github.event_name == 'workflow_dispatch' && inputs.audit_providers
         uses: actions/upload-artifact@v7

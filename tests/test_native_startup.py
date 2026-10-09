@@ -153,7 +153,7 @@ def test_native_entry_reads_its_own_env_literally_even_from_another_directory(
     calls = []
 
     def application(name, *, run_name):
-        from downloader_bot.config import Settings
+        from downloader_bot.core.config import Settings
 
         settings = Settings.from_environment()
         assert settings.api_id == 123 and settings.bot_token == token
@@ -202,7 +202,7 @@ def test_native_entry_builds_urls_from_env_ports_and_literal_password(
     calls = []
 
     def application(name, *, run_name):
-        from downloader_bot.config import Settings
+        from downloader_bot.core.config import Settings
 
         settings = Settings.from_environment()
         database = urlsplit(settings.database_url)
@@ -220,7 +220,7 @@ def test_native_entry_builds_urls_from_env_ports_and_literal_password(
 
 
 def test_changing_local_ports_and_password_overrides_stale_urls_without_setup():
-    from downloader_bot.config import connection_urls
+    from downloader_bot.core.config import connection_urls
 
     values = {
         "POSTGRES_PORT": "32768",
@@ -244,8 +244,8 @@ def test_changing_local_ports_and_password_overrides_stale_urls_without_setup():
 @pytest.mark.parametrize("key", ["POSTGRES_PORT", "REDIS_PORT"])
 @pytest.mark.parametrize("value", ["0", "65536", "PRIVATE-BAD-PORT"])
 def test_invalid_local_port_has_safe_diagnostics(key, value):
-    from downloader_bot.config import ConfigurationError, connection_urls
-    from downloader_bot.telemetry import error_fields
+    from downloader_bot.core.config import ConfigurationError, connection_urls
+    from downloader_bot.services.observability import error_fields
 
     with pytest.raises(ConfigurationError) as failure:
         connection_urls({key: value, "DEV_DB_PASSWORD": "PRIVATE-PASSWORD"})
@@ -256,7 +256,7 @@ def test_invalid_local_port_has_safe_diagnostics(key, value):
 
 @pytest.mark.parametrize("password", [None, "", "YOUR_PASSWORD"])
 def test_native_configuration_requires_existing_password_without_generating_one(password):
-    from downloader_bot.config import ConfigurationError, connection_urls
+    from downloader_bot.core.config import ConfigurationError, connection_urls
 
     values = {
         "POSTGRES_PORT": "32768",
@@ -271,7 +271,7 @@ def test_native_configuration_requires_existing_password_without_generating_one(
 
 
 def test_native_configuration_rejects_duplicate_local_service_ports():
-    from downloader_bot.config import ConfigurationError, connection_urls
+    from downloader_bot.core.config import ConfigurationError, connection_urls
 
     with pytest.raises(ConfigurationError) as failure:
         connection_urls(
@@ -282,7 +282,7 @@ def test_native_configuration_rejects_duplicate_local_service_ports():
 
 
 def test_explicit_remote_urls_work_when_local_ports_are_blank_and_redis_is_optional():
-    from downloader_bot.config import connection_urls
+    from downloader_bot.core.config import connection_urls
 
     values = {
         "POSTGRES_PORT": "",
@@ -300,8 +300,8 @@ def test_explicit_remote_urls_work_when_local_ports_are_blank_and_redis_is_optio
 def test_missing_required_setting_is_identified_without_logging_other_values(
     monkeypatch, key, value
 ):
-    from downloader_bot.config import ConfigurationError, Settings
-    from downloader_bot.telemetry import error_fields
+    from downloader_bot.core.config import ConfigurationError, Settings
+    from downloader_bot.services.observability import error_fields
 
     for name in ("POSTGRES_PORT", "REDIS_PORT", "DEV_DB_PASSWORD"):
         monkeypatch.delenv(name, raising=False)
@@ -364,7 +364,7 @@ async def test_startup_wait_logs_explain_cooldown_without_credentials(monkeypatc
 
     from telethon import errors
 
-    from downloader_bot.__main__ import sign_in_bot
+    from downloader_bot.bot.session import sign_in_bot
 
     records, calls = [], []
 

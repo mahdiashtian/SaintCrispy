@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qs, urlsplit
 
-from downloader_bot.models import DownloadError, Media, Quality, Source
+from downloader_bot.schemas.media import DownloadError, Media, Quality, Source
 
 from .urls import PAGE_HOSTS as HOSTS
 

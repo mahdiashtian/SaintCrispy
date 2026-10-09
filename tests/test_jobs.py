@@ -2,9 +2,9 @@ import asyncio
 
 import pytest
 
-from downloader_bot.jobs import TransferJobs
-from downloader_bot.models import DownloadError
-from downloader_bot.progress import TransferProgress
+from downloader_bot.bot.jobs.transfers import TransferJobs
+from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.schemas.media import DownloadError
 
 
 async def wait_empty(jobs):

@@ -4,7 +4,7 @@ from collections import OrderedDict
 from dataclasses import replace
 
 from downloader_bot.downloaders.base import Downloader
-from downloader_bot.models import DownloadError, Media, Quality, SiteHTTPError, Source
+from downloader_bot.schemas.media import DownloadError, Media, Quality, SiteHTTPError, Source
 
 from .client import InstagramClient
 from .parser import Format, content_path, media_id, mp4_info, read_media

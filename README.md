@@ -6,7 +6,7 @@ Supported providers: **SoundCloud, YouTube, Instagram, Pinterest, XVideos and XN
 
 ## How it works
 
-1. A user sends a supported media URL and receives a quality menu.
+1. A user sends a supported media URL and receives a quality menu. `/start` is optional, including after a server restart.
 2. The bot identifies the content using the provider's stable ID and the selected quality.
 3. If that file already exists in Telegram, the saved document reference is reused.
 4. Otherwise, a complete progressive URL is offered to Telegram first. The fetched document is checked before publication when its size is known or a size limit is configured.
@@ -202,7 +202,9 @@ One coordinator process owns a bot account. A PostgreSQL advisory lock rejects a
 
 The default pipeline admits 1000 tasks and has been locally exercised with 1000 simultaneous HTTP downloads and real PostgreSQL/Redis. Telegram RPCs in that load test were simulated. This does not establish 1000 real Telegram sends or 1000 active FFmpeg processes. Shared upload parts have roughly 32 MiB of payload budget at the default window; HTTP/TLS, tasks, subprocesses and the database add memory overhead. Size your server, connection/file-descriptor limits and bandwidth accordingly.
 
-Tasks and menus are held in memory. An interrupted transfer is not automatically resumed after a process crash; successfully persisted Telegram files can be reused after restart. Telegram publication and a database commit are separate operations, so an arbitrary crash between them cannot provide an unconditional exactly-once message guarantee.
+Conversation states and owned quality menus are stored in PostgreSQL without expiry. A new user is registered on the first link; `is_started` records `/start` usage but never gates downloads. Menus survive restarts and preserve the original message to reply to. Their durable payload excludes credentials and signed file/thumbnail URLs. A restored menu reuses stored Telegram files first; otherwise the provider refreshes the original content and checks its ID and quality before downloading. Interrupted inspections/transfers become `INTERRUPTED` at startup; they are not silently replayed. Transfer tasks remain bounded in memory. Telegram publication and a database commit are separate operations, so an arbitrary crash between them cannot provide an unconditional exactly-once message guarantee.
+
+The account-scoped Telegram session lives under `SESSION_NAME` (default `.runtime/sessions/saintcrispy-<bot-id>.session`). Keep this private file between restarts. Startup takes a PostgreSQL coordinator lock before opening the session, preventing two coordinators for the same bot from owning it. Additive schema migrations run transactionally at startup and are recorded in `app_schema_migrations`; upgrading keeps existing file references, accounts and histories.
 
 ## Performance logging on a server
 
@@ -218,7 +220,9 @@ Performance logging is enabled by default. Events are JSON Lines: one JSON objec
 | `METRICS_INTERVAL_SECONDS` | `30` | Resource/network summaries and active transfer progress; range 1-3600. |
 | `METRICS_NETWORK_INTERFACE` | empty | Sample all non-loopback interfaces, or select an interface such as `eth0`. |
 
-Defaults retain roughly 220 MiB of file logs. The oldest backup is removed during rotation. Logs are stored on the host in the repository's `logs/` directory. Use a shorter metrics interval, such as 1-5 seconds, during load measurements; a 30-second sample can miss a short CPU/RAM peak. A failed disk or full queue increments `log_write_errors`/`log_records_dropped` in subsequent summaries. Retained events can therefore be incomplete; cumulative in-memory counters continue advancing. Normal shutdown drains the queue with a bounded wait. A forced process kill cannot guarantee a final summary or every queued event. Linux SIGTERM and Ctrl+C perform normal cleanup. A separately configured supervisor should allow sufficient time for that cleanup.
+Defaults retain roughly 220 MiB of performance logs. The additional system, Telegram and activity streams each use the same size/backup limits, for about 880 MiB across four streams. The oldest backup is removed during rotation. Logs are stored on the host in the repository's `logs/` directory. Use a shorter metrics interval, such as 1-5 seconds, during load measurements; a 30-second sample can miss a short CPU/RAM peak. A failed disk or full queue increments `log_write_errors`/`log_records_dropped` in subsequent summaries. Retained events can therefore be incomplete; cumulative in-memory counters continue advancing. Normal shutdown drains the queue with a bounded wait. A forced process kill cannot guarantee a final summary or every queued event. Linux SIGTERM and Ctrl+C perform normal cleanup. A separately configured supervisor should allow sufficient time for that cleanup.
+
+Application logging follows Couplyo’s separate streams: `logs/system.log`, `logs/telegram.log`, and `logs/activity.log`. They use JSON records, bounded writer queues, severity/logger fields, and safe exception identities. Activity logs include request/user/chat correlation where available and should stay private. `application_log_streams` in performance summaries exposes their pending/dropped/write-error counters. Set `CUSTOM_EMOJI_SET` (default `IconsEmoji`) for custom emoji entities; Telegram permission errors fall back to Unicode. `/start` uses the bot’s real username.
 
 The main events are:
 
@@ -267,16 +271,24 @@ This benchmark downloads real localhost HTTP bodies while simulating Telegram. I
 main.py                    # Host entry point and automatic .env loading
 compose.yaml               # PostgreSQL and Redis only
 src/downloader_bot/
-  __main__.py              # Composition and lifecycle
-  config.py                # Environment configuration
-  contracts.py             # Storage/delivery interfaces
-  log_writer.py            # Bounded background JSON writer and rotation
-  telemetry.py             # Transfer, batch and system measurements
-  database.py              # PostgreSQL and Redis repository
-  service.py               # Inspection, deduplication and delivery orchestration
-  streaming.py             # Generic byte transfer and FFmpeg processes
-  telegram.py              # Telegram URL fetching, upload and reuse
-  handlers/                # Generic start, quality, stop and rate limiting
+  __main__.py              # Small application entry and signal handling
+  container.py             # Composition root and resource lifecycle
+  core/                    # Settings, diagnostics, request context, logging, locks
+  schemas/                 # Framework-independent media and transfer DTOs
+  db/postgres/             # Connection pool, schema and tracked additive migrations
+  db/redis/                # Bounded cache connection pool
+  repositories/interfaces/ # Storage and delivery contracts
+  repositories/postgres/   # SQL media, history, user, menu and conversation persistence
+  repositories/redis/      # Write-through media cache and rate rejection accelerator
+  services/                # Download orchestration, users, limits and observability
+  bot/handlers/            # Telegram start, quality, stop and admission handlers
+  bot/state/               # Conversation manager and durable owned menus
+  bot/jobs/                # Bounded transfer task registry and cancellation
+  bot/transfers/           # HTTP/FFmpeg streaming and Telegram part uploads
+  bot/delivery.py          # Telegram URL fetching, publication and file reuse
+  bot/presentation.py      # Custom emoji entities and Unicode fallback
+  bot/texts.py             # User-facing copy
+  bot/session.py           # Connection/login recovery
   downloaders/
     base.py                # inspect/resolve contract
     router.py              # Provider dispatch
@@ -293,6 +305,8 @@ tools/                     # Database setup, diagnostics and local load tests
 ```
 
 Each provider owns those six files. Providers do not import another provider, a shared concrete extractor or the generic transfer implementation. Shared models and the abstract contract are deliberately small. Similar extraction/HLS code is kept inside its owning provider because site behavior can diverge. DRY applies within each provider and to generic infrastructure; it does not override this isolation rule. Storage and delivery are injected through structural interfaces so the service can be tested independently.
+
+The application follows Couplyo's `handlers → services → repositories` layout. Business services do not import Telethon; only Telegram adapters build RPCs. See [architecture decisions](docs/ARCHITECTURE.md), [deployment and recovery](docs/OPERATIONS.md), and [live provider verification](docs/PROVIDER_VERIFICATION.md).
 
 To add a provider, create the same six files, subclass `Downloader`, implement `inspect` and `resolve`, and register its URL extractor, downloader and handler in the existing composition modules. Do not add a common concrete video extractor. Extend the architecture tests for the new site, add parser/downloader cases, and test its session isolation.
 

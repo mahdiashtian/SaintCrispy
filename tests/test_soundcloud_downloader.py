@@ -7,7 +7,7 @@ from test_parser import variant
 
 from downloader_bot.downloaders.soundcloud.client import SoundCloudClient
 from downloader_bot.downloaders.soundcloud.downloader import SoundCloudDownloader
-from downloader_bot.models import DownloadError, Media
+from downloader_bot.schemas.media import DownloadError, Media
 
 
 def track_page(transcodings, include_track=True):

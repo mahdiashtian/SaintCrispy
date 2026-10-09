@@ -6,7 +6,7 @@ from html.parser import HTMLParser
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
 
-from downloader_bot.models import DownloadError, Media, Quality, Source
+from downloader_bot.schemas.media import DownloadError, Media, Quality, Source
 
 from .urls import PAGE_HOSTS as HOSTS
 

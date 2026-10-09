@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 from dotenv import dotenv_values, set_key
 
-from downloader_bot.config import connection_urls, parse_integer
+from downloader_bot.core.config import connection_urls, parse_integer
 
 ROOT = Path(__file__).resolve().parents[1]
 

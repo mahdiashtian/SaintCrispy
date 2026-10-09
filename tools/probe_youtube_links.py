@@ -11,11 +11,11 @@ import httpx
 from telethon import TelegramClient, functions, types
 from telethon.sessions import MemorySession
 
+from downloader_bot.bot.delivery import EXTERNAL_FAILURES
+from downloader_bot.bot.transfers.streaming import media_chunks, upload_stream
 from downloader_bot.downloaders.youtube.client import YouTubeClient
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
-from downloader_bot.models import DownloadError
-from downloader_bot.streaming import media_chunks, upload_stream
-from downloader_bot.telegram import EXTERNAL_FAILURES
+from downloader_bot.schemas.media import DownloadError
 
 
 async def main():

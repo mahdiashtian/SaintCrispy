@@ -27,9 +27,9 @@ from telethon.network import (
 )
 from telethon.sessions import MemorySession
 
-from downloader_bot.models import DownloadError, Quality, Source
-from downloader_bot.progress import TransferProgress
-from downloader_bot.streaming import PART_SIZE, media_chunks, upload_stream
+from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.transfers.streaming import PART_SIZE, media_chunks, upload_stream
+from downloader_bot.schemas.media import DownloadError, Quality, Source
 
 
 @dataclass(frozen=True)

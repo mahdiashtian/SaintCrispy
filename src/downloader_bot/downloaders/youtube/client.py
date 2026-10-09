@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from downloader_bot.models import DownloadError, SiteHTTPError
+from downloader_bot.schemas.media import DownloadError, SiteHTTPError
 
 from .parser import codec, source_headers, usable
 
@@ -32,12 +32,17 @@ class YouTubeClient:
 
     @classmethod
     def from_environment(cls):
+        pot_base_url = os.environ.get("YOUTUBE_POT_BASE_URL") or None
+        player_clients = os.environ.get("YOUTUBE_PLAYER_CLIENTS") or None
+        if pot_base_url and not player_clients:
+            # yt-dlp recommends mweb for GVS tokens; a configured helper must be used.
+            player_clients = "mweb,web_safari"
         return cls(
             js_runtime=os.environ.get("YOUTUBE_JS_RUNTIME") or "node",
             cookies_file=os.environ.get("YOUTUBE_COOKIES_FILE") or None,
             proxy=os.environ.get("YOUTUBE_PROXY", ""),
-            player_clients=os.environ.get("YOUTUBE_PLAYER_CLIENTS") or None,
-            pot_base_url=os.environ.get("YOUTUBE_POT_BASE_URL") or None,
+            player_clients=player_clients,
+            pot_base_url=pot_base_url,
         )
 
     async def available(self, items: list[dict]) -> set[str]:
@@ -203,8 +208,7 @@ def extraction_error(diagnostic: bytes) -> DownloadError:
         )
     if b"not a bot" in text or b"sign in" in text:
         return DownloadError(
-            "یوتیوب اتصال سرور را محدود کرده؛ مدیر ربات باید کوکی معتبر یا مسیر شبکه "
-            "یوتیوب را تنظیم کند.",
+            "یوتیوب فعلاً دریافت این ویدیو را روی اتصال ربات محدود کرده؛ کمی بعد دوباره امتحان کن.",
             code="youtube_login_required",
         )
     if b"429" in text:

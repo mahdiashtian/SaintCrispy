@@ -3,13 +3,13 @@ from types import SimpleNamespace
 import pytest
 from telethon import errors
 
+from downloader_bot.bot.handlers import register_handlers
+from downloader_bot.bot.state.menus import MenuStore
 from downloader_bot.downloaders.pinterest.handler import handle_pinterest_link
 from downloader_bot.downloaders.soundcloud.handler import handle_soundcloud_link
 from downloader_bot.downloaders.xnxx.handler import handle_xnxx_link
 from downloader_bot.downloaders.xvideos.handler import handle_xvideos_link
-from downloader_bot.handlers import register_handlers
-from downloader_bot.menus import MenuStore
-from downloader_bot.models import DownloadError, Media, Quality
+from downloader_bot.schemas.media import DownloadError, Media, Quality
 
 QUALITY = Quality("aac_160", "AAC 160", "aac", 160, "m4a", "audio/mp4", "hls", "endpoint")
 

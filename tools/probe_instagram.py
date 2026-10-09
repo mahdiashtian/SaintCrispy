@@ -16,10 +16,10 @@ import httpx
 from telethon import TelegramClient, functions, types
 from telethon.sessions import MemorySession
 
+from downloader_bot.bot.transfers.streaming import media_chunks, upload_stream
 from downloader_bot.downloaders.instagram.client import InstagramClient
 from downloader_bot.downloaders.instagram.downloader import InstagramDownloader
-from downloader_bot.models import DownloadError
-from downloader_bot.streaming import media_chunks, upload_stream
+from downloader_bot.schemas.media import DownloadError
 
 
 async def main():

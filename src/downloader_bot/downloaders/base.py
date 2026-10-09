@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from downloader_bot.models import Media, Quality, Source
+from downloader_bot.schemas.media import Media, Quality, Source
 
 
 class Downloader(ABC):

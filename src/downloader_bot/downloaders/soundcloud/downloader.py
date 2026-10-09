@@ -5,7 +5,7 @@ from dataclasses import replace
 import httpx
 
 from downloader_bot.downloaders.base import Downloader
-from downloader_bot.models import DownloadError, Media, Quality, SiteHTTPError, Source
+from downloader_bot.schemas.media import DownloadError, Media, Quality, SiteHTTPError, Source
 
 from .client import SoundCloudClient
 from .parser import (

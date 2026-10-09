@@ -12,9 +12,9 @@ import httpx
 import pytest
 from telethon import errors, functions, types
 
-from downloader_bot.models import DownloadError
-from downloader_bot.progress import TransferProgress
-from downloader_bot.streaming import PART_SIZE
+from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.transfers.streaming import PART_SIZE
+from downloader_bot.schemas.media import DownloadError
 
 SPEC = importlib.util.spec_from_file_location(
     "transfer_probe_matrix",

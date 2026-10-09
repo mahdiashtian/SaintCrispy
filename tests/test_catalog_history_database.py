@@ -9,10 +9,10 @@ from unittest.mock import AsyncMock
 import asyncpg
 import pytest
 
-from downloader_bot.database import FileRepository
-from downloader_bot.models import Media, Quality, TelegramFile
-from downloader_bot.request_context import user_request
-from downloader_bot.service import DownloadService
+from downloader_bot.core.request_context import user_request
+from downloader_bot.repositories.redis.media import FileRepository
+from downloader_bot.schemas.media import Media, Quality, TelegramFile
+from downloader_bot.services.download import DownloadService
 
 
 async def test_real_database_catalog_history_admission_and_duplicate_file_are_atomic():

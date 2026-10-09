@@ -4,12 +4,12 @@ from types import SimpleNamespace
 import pytest
 from telethon import types
 
-from downloader_bot.handlers.quality import handle_quality
-from downloader_bot.handlers.stop import handle_stop
-from downloader_bot.jobs import TransferJobs
-from downloader_bot.menus import MenuStore
-from downloader_bot.models import Media, Quality
-from downloader_bot.progress import TransferProgress
+from downloader_bot.bot.handlers.quality import handle_quality
+from downloader_bot.bot.handlers.stop import handle_stop
+from downloader_bot.bot.jobs.transfers import TransferJobs
+from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.state.menus import MenuStore
+from downloader_bot.schemas.media import Media, Quality
 
 QUALITY = Quality("aac_160", "AAC 160", "aac", 160, "m4a", "audio/mp4", "hls", "endpoint")
 MEDIA = Media("soundcloud", "track", "Title", "Artist", 30, "url", None, (QUALITY,))

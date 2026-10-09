@@ -7,7 +7,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-from downloader_bot.models import DownloadError, SiteHTTPError, Source
+from downloader_bot.schemas.media import DownloadError, SiteHTTPError, Source
 
 from .parser import HLSSample, media_url, mp4_dimensions, validate_page_url
 

@@ -2,8 +2,8 @@ import asyncio
 
 import pytest
 
-from downloader_bot.models import DownloadError
-from downloader_bot.streaming import PART_SIZE, upload_stream
+from downloader_bot.bot.transfers.streaming import PART_SIZE, upload_stream
+from downloader_bot.schemas.media import DownloadError
 
 
 @pytest.mark.parametrize("size", [1, 1024, PART_SIZE - 1, PART_SIZE, PART_SIZE + 7, 2 * PART_SIZE])

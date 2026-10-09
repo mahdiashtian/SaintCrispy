@@ -3,8 +3,8 @@ from dataclasses import asdict
 import pytest
 from redis.exceptions import ConnectionError
 
-from downloader_bot.database import FileRepository, encode_file
-from downloader_bot.models import TelegramFile
+from downloader_bot.repositories.redis.media import FileRepository, encode_file
+from downloader_bot.schemas.media import TelegramFile
 
 FILE = TelegramFile(1, 2, b"ref", b"peer", 3)
 
@@ -52,7 +52,7 @@ async def test_cached_reads_do_not_reconnect_to_sql_and_quality_keys_are_distinc
 
 async def test_failed_cache_update_never_returns_old_cached_data(monkeypatch):
     clock = [100.0]
-    monkeypatch.setattr("downloader_bot.database.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("downloader_bot.repositories.redis.media.time.monotonic", lambda: clock[0])
     pool, cache = FakePool(), FakeRedis()
     repo = FileRepository(pool, cache, 123)
     key = repo.key("soundcloud", "track", "aac_160")
@@ -72,7 +72,7 @@ async def test_failed_cache_update_never_returns_old_cached_data(monkeypatch):
 
 
 async def test_redis_outage_is_not_retried_for_every_new_key(monkeypatch):
-    monkeypatch.setattr("downloader_bot.database.time.monotonic", lambda: 100.0)
+    monkeypatch.setattr("downloader_bot.repositories.redis.media.time.monotonic", lambda: 100.0)
     pool, cache = FakePool(), FakeRedis()
     calls = 0
 

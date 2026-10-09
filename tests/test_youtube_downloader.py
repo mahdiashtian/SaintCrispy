@@ -7,6 +7,11 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from downloader_bot.bot.handlers import register_handlers
+from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.state.menus import MenuStore
+from downloader_bot.bot.transfers.streaming import media_chunks, remux_arguments
+from downloader_bot.core.urls import extract_youtube_url
 from downloader_bot.downloaders.router import DownloaderRouter
 from downloader_bot.downloaders.youtube.client import YouTubeClient, extraction_error
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
@@ -17,12 +22,7 @@ from downloader_bot.downloaders.youtube.parser import (
     source_headers,
     video_id,
 )
-from downloader_bot.handlers import register_handlers
-from downloader_bot.menus import MenuStore
-from downloader_bot.models import DownloadError, Source
-from downloader_bot.progress import TransferProgress
-from downloader_bot.streaming import media_chunks, remux_arguments
-from downloader_bot.urls import extract_youtube_url
+from downloader_bot.schemas.media import DownloadError, Source
 
 IDENTITY = "jNQXAC9IVRw"
 PAGE = f"https://www.youtube.com/watch?v={IDENTITY}"
@@ -557,3 +557,14 @@ async def test_resolve_keeps_the_inspecting_account():
     await downloader.resolve(first, first.qualities[0])
     assert (first.account_id, second.account_id) == ("one", "two")
     assert calls == ["one", "two", "one"]
+
+
+@pytest.mark.parametrize("explicit", ["", "web_embedded"])
+def test_configured_token_helper_selects_compatible_clients_unless_overridden(
+    monkeypatch, explicit
+):
+    monkeypatch.setenv("YOUTUBE_POT_BASE_URL", "http://127.0.0.1:4416")
+    monkeypatch.setenv("YOUTUBE_PLAYER_CLIENTS", explicit)
+    client = YouTubeClient.from_environment()
+    assert client.player_clients == (explicit or "mweb,web_safari")
+    assert client.pot_base_url == "http://127.0.0.1:4416"

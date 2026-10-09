@@ -6,8 +6,8 @@ import asyncpg
 import pytest
 from redis.asyncio import Redis
 
-from downloader_bot.database import FileRepository
-from downloader_bot.models import TelegramFile
+from downloader_bot.repositories.redis.media import FileRepository
+from downloader_bot.schemas.media import TelegramFile
 
 
 async def test_real_postgres_redis_quality_persistence_and_multiple_accounts():

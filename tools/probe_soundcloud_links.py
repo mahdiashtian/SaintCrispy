@@ -17,7 +17,7 @@ import httpx
 from downloader_bot.downloaders.soundcloud.client import SoundCloudClient
 from downloader_bot.downloaders.soundcloud.downloader import SoundCloudDownloader
 from downloader_bot.downloaders.soundcloud.parser import validate_page_url
-from downloader_bot.models import DownloadError, Source
+from downloader_bot.schemas.media import DownloadError, Source
 
 
 async def sample_source(http: httpx.AsyncClient, source: Source) -> dict:

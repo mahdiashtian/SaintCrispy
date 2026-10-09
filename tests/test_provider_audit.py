@@ -11,7 +11,7 @@ import httpx
 import pytest
 from telethon import errors, functions
 
-from downloader_bot.models import DownloadError, Media, Quality, Source
+from downloader_bot.schemas.media import DownloadError, Media, Quality, Source
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("provider_audit", ROOT / "tools/audit_providers.py")

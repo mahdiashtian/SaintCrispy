@@ -3,7 +3,7 @@ import re
 from dataclasses import replace
 from urllib.parse import urlsplit
 
-from downloader_bot.models import DownloadError, Quality
+from downloader_bot.schemas.media import DownloadError, Quality
 
 from .urls import PAGE_HOSTS
 

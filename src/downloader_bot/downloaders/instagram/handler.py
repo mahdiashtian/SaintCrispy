@@ -3,8 +3,8 @@ from functools import partial
 import httpx
 from telethon import Button, events, types
 
-from downloader_bot.models import DownloadError
-from downloader_bot.telegram import EXTERNAL_FAILURES
+from downloader_bot.bot.delivery import EXTERNAL_FAILURES
+from downloader_bot.schemas.media import DownloadError
 
 from .urls import LINK_PATTERN, extract_url
 
@@ -17,12 +17,16 @@ async def handle_instagram_link(event, service, menus) -> None:
         return
     try:
         media = await service.inspect(url)
-        token = menus.add(event.sender_id, event.chat_id, media)
+        token = await menus.create(
+            event.sender_id, event.chat_id, media, message_id=getattr(event, "id", None)
+        )
         buttons = [
             [Button.inline(quality.label, data=f"ig:{token}:{index}")]
             for index, quality in enumerate(media.qualities)
         ]
-        text = f"{media.title}\n{media.artist}\nکیفیت را انتخاب کن:"
+        text = (
+            f"📸 Instagram\n\n🎧 {media.title}\n👤 {media.artist}\n\n📥 کیفیت دریافت را انتخاب کن:"
+        )
         for offset in range(0, len(buttons), 50):
             chunk = buttons[offset : offset + 50]
             if media.thumbnail and offset == 0:
@@ -32,15 +36,22 @@ async def handle_instagram_link(event, service, menus) -> None:
                         file=types.InputMediaPhotoExternal(media.thumbnail),
                         buttons=chunk,
                         parse_mode=None,
+                        reply_to=getattr(event, "id", None),
                     )
                     continue
                 except EXTERNAL_FAILURES:
                     pass
-            await event.respond(text, buttons=chunk, parse_mode=None)
+            await event.respond(
+                text, buttons=chunk, parse_mode=None, reply_to=getattr(event, "id", None)
+            )
     except DownloadError as error:
-        await event.respond(str(error), parse_mode=None)
+        await event.respond(f"⚠️ {error}", parse_mode=None, reply_to=getattr(event, "id", None))
     except (httpx.HTTPError, TimeoutError):
-        await event.respond("دریافت اطلاعات محتوا ناموفق بود؛ دوباره امتحان کن.")
+        await event.respond(
+            "⚠️ دریافت اطلاعات محتوا ناموفق بود؛ کمی بعد دوباره امتحان کن.",
+            parse_mode=None,
+            reply_to=getattr(event, "id", None),
+        )
 
 
 CALLBACK_PREFIX = "ig"

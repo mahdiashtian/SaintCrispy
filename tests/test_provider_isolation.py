@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from downloader_bot.__main__ import create_provider_session
+from downloader_bot.container import create_provider_session
 from downloader_bot.downloaders.base import Downloader
 
 ROOT = Path(__file__).resolve().parents[1] / "src/downloader_bot/downloaders"
@@ -66,12 +66,12 @@ def test_provider_imports_do_not_depend_on_other_sites_or_shared_concrete_logic(
                     assert name == "downloader_bot.downloaders.base" or (
                         name == prefix or name.startswith(prefix + ".")
                     ), f"{path}: shares provider implementation through {name}"
-                assert name not in {"downloader_bot.urls", "downloader_bot.handlers.media"}
+                assert name not in {"downloader_bot.core.urls", "downloader_bot.bot.handlers.media"}
                 assert name not in {
-                    "downloader_bot.streaming",
-                    "downloader_bot.service",
-                    "downloader_bot.database",
-                    "downloader_bot.contracts",
+                    "downloader_bot.bot.transfers.streaming",
+                    "downloader_bot.services.download",
+                    "downloader_bot.repositories.redis.media",
+                    "downloader_bot.repositories.interfaces.media",
                     "downloader_bot.downloaders.router",
                 }, f"{path}: provider depends on shared concrete infrastructure"
 

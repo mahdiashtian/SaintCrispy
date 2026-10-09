@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from downloader_bot.models import DownloadError, Media, Quality, Source, TelegramFile
-from downloader_bot.request_context import request_user, user_request
-from downloader_bot.service import DownloadService
-from downloader_bot.streaming import upload_stream
+from downloader_bot.bot.transfers.streaming import upload_stream
+from downloader_bot.core.request_context import request_user, user_request
+from downloader_bot.schemas.media import DownloadError, Media, Quality, Source, TelegramFile
+from downloader_bot.services.download import DownloadService
 
 QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "url")
 MEDIA = Media("youtube", "jNQXAC9IVRw", "Title", "Author", 19, "page", None, (QUALITY,))
@@ -223,7 +223,7 @@ async def test_delivery_history_is_written_for_every_recipient_only_after_succes
 async def test_global_upload_window_is_shared_by_thousand_streams_and_cancellation_releases_it(
     monkeypatch,
 ):
-    monkeypatch.setattr("downloader_bot.streaming.PART_SIZE", 64)
+    monkeypatch.setattr("downloader_bot.bot.transfers.streaming.PART_SIZE", 64)
     slots = asyncio.Semaphore(8)
     full, release = asyncio.Event(), asyncio.Event()
     active = peak = 0

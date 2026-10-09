@@ -6,7 +6,7 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 
-from downloader_bot.models import DownloadError, SiteHTTPError
+from downloader_bot.schemas.media import DownloadError, SiteHTTPError
 
 from .parser import read_hydration, validate_page_url
 

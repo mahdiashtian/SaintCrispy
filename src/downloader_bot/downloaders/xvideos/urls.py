@@ -1,7 +1,7 @@
 import re
 from urllib.parse import urlsplit, urlunsplit
 
-from downloader_bot.models import DownloadError
+from downloader_bot.schemas.media import DownloadError
 
 PAGE_HOSTS = {
     prefix + domain

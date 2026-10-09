@@ -20,6 +20,8 @@ from dotenv import load_dotenv
 from telethon import TelegramClient, functions, types
 from telethon.sessions import MemorySession
 
+from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.transfers.streaming import media_chunks, upload_stream
 from downloader_bot.downloaders.instagram.client import InstagramClient
 from downloader_bot.downloaders.instagram.downloader import InstagramDownloader
 from downloader_bot.downloaders.pinterest.client import PinterestClient
@@ -32,10 +34,8 @@ from downloader_bot.downloaders.xvideos.client import XVideosClient
 from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.youtube.client import YouTubeClient
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
-from downloader_bot.models import DownloadError
-from downloader_bot.progress import TransferProgress
-from downloader_bot.streaming import media_chunks, upload_stream
-from downloader_bot.telemetry import error_fields
+from downloader_bot.schemas.media import DownloadError
+from downloader_bot.services.observability import error_fields
 
 SAMPLES = {
     "soundcloud": "https://soundcloud.com/gdaal/mojezeh",

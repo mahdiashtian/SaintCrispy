@@ -6,13 +6,13 @@ import httpx
 import pytest
 from telethon import errors, functions, types
 
+from downloader_bot.bot.delivery import TelegramDelivery
+from downloader_bot.bot.handlers import register_handlers
+from downloader_bot.bot.state.menus import MenuStore
 from downloader_bot.downloaders.router import DownloaderRouter
 from downloader_bot.downloaders.xvideos.client import XVideosClient
 from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
-from downloader_bot.handlers import register_handlers
-from downloader_bot.menus import MenuStore
-from downloader_bot.service import DownloadService
-from downloader_bot.telegram import TelegramDelivery
+from downloader_bot.services.download import DownloadService
 
 PAGE_URL = "https://www.xvideos.com/video.demo/test"
 PAGE = "<title>Demo</title>setVideoUrlHigh('https://cdn.example/video.mp4')"
@@ -233,7 +233,7 @@ async def test_xvideos_menu_transfer_progress_and_success_only_cache(method, hls
         await callback_handler(selection)
         if method == "failed_upload":
             assert not stored and len(sends) == 0
-            assert edits[-1].startswith("انتقال متوقف شد")
+            assert edits[-1].startswith("❌ دریافت فایل کامل نشد")
             return
         quality_key = "hls_32x32_h264" if hls_origin else "high"
         assert set(stored) == {("xvideos", "demo", quality_key)}

@@ -10,10 +10,10 @@ import httpx
 from telethon import TelegramClient, functions, types
 from telethon.sessions import MemorySession
 
+from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.transfers.streaming import media_chunks, upload_stream
 from downloader_bot.downloaders.soundcloud.client import SoundCloudClient
 from downloader_bot.downloaders.soundcloud.downloader import SoundCloudDownloader
-from downloader_bot.progress import TransferProgress
-from downloader_bot.streaming import media_chunks, upload_stream
 
 
 async def main() -> None:

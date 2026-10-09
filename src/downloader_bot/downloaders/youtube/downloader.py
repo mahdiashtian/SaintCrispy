@@ -1,7 +1,7 @@
 from dataclasses import replace
 
 from downloader_bot.downloaders.base import Downloader
-from downloader_bot.models import DownloadError, Media, Quality, Source
+from downloader_bot.schemas.media import DownloadError, Media, Quality, Source
 
 from .client import YouTubeClient
 from .parser import canonical_url, number, read_media, selections, video_id

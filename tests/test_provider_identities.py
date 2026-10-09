@@ -11,7 +11,7 @@ from downloader_bot.downloaders.soundcloud.parser import read_qualities
 from downloader_bot.downloaders.xnxx.downloader import XNXXDownloader
 from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
-from downloader_bot.models import DownloadError
+from downloader_bot.schemas.media import DownloadError
 
 
 @pytest.mark.parametrize(

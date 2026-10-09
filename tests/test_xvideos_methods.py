@@ -7,7 +7,7 @@ import pytest
 from downloader_bot.downloaders.xvideos.client import XVideosClient
 from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.xvideos.parser import extract_links, mp4_dimensions
-from downloader_bot.models import DownloadError
+from downloader_bot.schemas.media import DownloadError
 
 PAGE = "https://www.xvideos.com/video.demo/_"
 FTYP = b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isommp42"

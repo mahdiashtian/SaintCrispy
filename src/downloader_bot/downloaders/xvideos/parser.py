@@ -6,7 +6,7 @@ from html.parser import HTMLParser
 from math import isfinite
 from urllib.parse import unquote, urljoin, urlsplit
 
-from downloader_bot.models import DownloadError, Media, Quality
+from downloader_bot.schemas.media import DownloadError, Media, Quality
 
 from .urls import validate_page_url as validate_page_url
 from .urls import video_id as video_id

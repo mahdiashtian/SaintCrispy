@@ -4,8 +4,8 @@ import httpx
 import pytest
 from telethon import errors, types
 
-from downloader_bot.models import Media, Quality, Source
-from downloader_bot.telegram import TelegramDelivery
+from downloader_bot.bot.delivery import TelegramDelivery
+from downloader_bot.schemas.media import Media, Quality, Source
 
 
 @pytest.mark.parametrize(

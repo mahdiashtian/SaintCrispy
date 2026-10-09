@@ -5,10 +5,10 @@ import httpx
 import pytest
 from telethon import errors, functions, types
 
-from downloader_bot.jobs import TransferJobs
-from downloader_bot.models import Media, Quality, Source
-from downloader_bot.progress import TransferProgress
-from downloader_bot.telegram import TelegramDelivery
+from downloader_bot.bot.delivery import TelegramDelivery
+from downloader_bot.bot.jobs.transfers import TransferJobs
+from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.schemas.media import Media, Quality, Source
 
 QUALITY = Quality("mp3_sq", "MP3", "mp3", None, "mp3", "audio/mpeg", "progressive", "endpoint")
 MEDIA = Media("soundcloud", "track", "Title", "Artist", 30, "url", None, (QUALITY,))

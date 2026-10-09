@@ -5,8 +5,8 @@ import asyncpg
 import pytest
 from redis.asyncio import Redis
 
-from downloader_bot.database import FileRepository
-from downloader_bot.models import TelegramFile
+from downloader_bot.repositories.redis.media import FileRepository
+from downloader_bot.schemas.media import TelegramFile
 
 
 async def test_xvideos_references_are_isolated_by_site_quality_and_bot_in_postgres_and_redis():

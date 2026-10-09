@@ -9,6 +9,9 @@ import httpx
 import pytest
 from telethon import types
 
+from downloader_bot.bot.state.menus import MenuStore
+from downloader_bot.bot.transfers.streaming import media_chunks
+from downloader_bot.core.urls import extract_instagram_url
 from downloader_bot.downloaders.instagram.client import InstagramClient
 from downloader_bot.downloaders.instagram.downloader import InstagramDownloader
 from downloader_bot.downloaders.instagram.handler import handle_instagram_link
@@ -23,10 +26,7 @@ from downloader_bot.downloaders.instagram.parser import (
     read_media,
 )
 from downloader_bot.downloaders.router import DownloaderRouter
-from downloader_bot.menus import MenuStore
-from downloader_bot.models import DownloadError, SiteHTTPError, Source
-from downloader_bot.streaming import media_chunks
-from downloader_bot.urls import extract_instagram_url
+from downloader_bot.schemas.media import DownloadError, SiteHTTPError, Source
 
 FIXTURES = Path(__file__).parent / "fixtures" / "instagram"
 PAGE = "https://www.instagram.com/p/Chunk8-jurw/"

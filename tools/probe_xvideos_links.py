@@ -11,12 +11,12 @@ import httpx
 from telethon import TelegramClient, errors, functions, types
 from telethon.sessions import MemorySession
 
+from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.transfers.streaming import media_chunks, upload_stream
 from downloader_bot.downloaders.xvideos.client import XVideosClient
 from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.xvideos.urls import extract_url
-from downloader_bot.models import DownloadError
-from downloader_bot.progress import TransferProgress
-from downloader_bot.streaming import media_chunks, upload_stream
+from downloader_bot.schemas.media import DownloadError
 
 
 async def telegram_probe(

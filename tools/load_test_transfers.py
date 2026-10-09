@@ -21,16 +21,16 @@ import httpx
 from redis.asyncio import Redis
 from telethon import errors, types
 
-from downloader_bot.database import FileRepository
-from downloader_bot.jobs import TransferJobs
-from downloader_bot.log_writer import JsonLogWriter
-from downloader_bot.models import Media, Quality, Source, TelegramFile
-from downloader_bot.progress import TransferProgress
-from downloader_bot.request_context import user_request
-from downloader_bot.service import DownloadService
-from downloader_bot.streaming import READ_SIZE
-from downloader_bot.telegram import TelegramDelivery
-from downloader_bot.telemetry import Telemetry
+from downloader_bot.bot.delivery import TelegramDelivery
+from downloader_bot.bot.jobs.transfers import TransferJobs
+from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.transfers.streaming import READ_SIZE
+from downloader_bot.core.log_writer import JsonLogWriter
+from downloader_bot.core.request_context import user_request
+from downloader_bot.repositories.redis.media import FileRepository
+from downloader_bot.schemas.media import Media, Quality, Source, TelegramFile
+from downloader_bot.services.download import DownloadService
+from downloader_bot.services.observability import Telemetry
 
 SIZE = 4 * 1024 * 1024 + 123
 QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "")

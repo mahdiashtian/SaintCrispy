@@ -6,14 +6,14 @@ import httpx
 import pytest
 from telethon import types
 
-from downloader_bot.handlers.limited import LimitedHandlers
-from downloader_bot.handlers.quality import handle_quality
-from downloader_bot.jobs import TransferJobs
-from downloader_bot.limits import RequestLimiter
-from downloader_bot.menus import MenuStore
-from downloader_bot.models import DownloadError, Media, Quality, Source, TelegramFile
-from downloader_bot.streaming import PART_SIZE, source_size, upload_stream
-from downloader_bot.telegram import TelegramDelivery
+from downloader_bot.bot.delivery import TelegramDelivery
+from downloader_bot.bot.handlers.limited import LimitedHandlers
+from downloader_bot.bot.handlers.quality import handle_quality
+from downloader_bot.bot.jobs.transfers import TransferJobs
+from downloader_bot.bot.state.menus import MenuStore
+from downloader_bot.bot.transfers.streaming import PART_SIZE, source_size, upload_stream
+from downloader_bot.schemas.media import DownloadError, Media, Quality, Source, TelegramFile
+from downloader_bot.services.limits import RequestLimiter
 
 QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "url")
 MEDIA = Media("sample", "id", "Title", "", 1, "url", None, (QUALITY,))
@@ -22,7 +22,9 @@ PEER = types.InputPeerUser(1, 2)
 
 async def test_user_interval_is_atomic_and_expires_at_the_configured_second(monkeypatch):
     clock = [100.0]
-    monkeypatch.setattr("downloader_bot.limits.time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(
+        "downloader_bot.services.limits.time", SimpleNamespace(monotonic=lambda: clock[0])
+    )
     limiter = RequestLimiter(60)
     results = await asyncio.gather(
         *(limiter.check(1, "download") for _ in range(100)),
@@ -105,7 +107,7 @@ async def test_full_request_capacity_does_not_consume_user_interval():
         answer=answer,
     )
     async with TransferJobs(capacity=1) as jobs:
-        from downloader_bot.progress import TransferProgress
+        from downloader_bot.bot.progress import TransferProgress
 
         jobs.reserve(3, 4, TransferProgress())
         await handle_quality(event, None, menus, jobs, limiter)

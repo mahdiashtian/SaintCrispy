@@ -10,15 +10,20 @@ import httpx
 import pytest
 from telethon import errors, functions, types
 
-from downloader_bot.jobs import TransferJobs
-from downloader_bot.limits import RequestLimiter
-from downloader_bot.log_writer import JsonLogWriter
-from downloader_bot.models import DownloadError, Media, Quality, Source, TelegramFile
-from downloader_bot.progress import TransferProgress
-from downloader_bot.service import DownloadService
-from downloader_bot.streaming import PART_SIZE
-from downloader_bot.telegram import TelegramDelivery
-from downloader_bot.telemetry import SystemSampler, Telemetry, current_transfer, error_fields
+from downloader_bot.bot.delivery import TelegramDelivery
+from downloader_bot.bot.jobs.transfers import TransferJobs
+from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.transfers.streaming import PART_SIZE
+from downloader_bot.core.log_writer import JsonLogWriter
+from downloader_bot.schemas.media import DownloadError, Media, Quality, Source, TelegramFile
+from downloader_bot.services.download import DownloadService
+from downloader_bot.services.limits import RequestLimiter
+from downloader_bot.services.observability import (
+    SystemSampler,
+    Telemetry,
+    current_transfer,
+    error_fields,
+)
 
 QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "")
 MEDIA = Media("youtube", "stable-id", "PRIVATE TITLE", "", 3, "PRIVATE URL", None, (QUALITY,))
@@ -264,7 +269,7 @@ async def test_total_timeout_is_logged_as_failure_not_user_cancellation():
 def test_overlapping_download_and_upload_are_wall_spans_not_added_durations(monkeypatch):
     clock = [0.0]
     telemetry = Telemetry(MemoryWriter())
-    monkeypatch.setattr("downloader_bot.telemetry.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("downloader_bot.services.observability.time.monotonic", lambda: clock[0])
     with telemetry.transfer(MEDIA, QUALITY) as trace:
         trace.start_phase("download")
         clock[0] = 2
@@ -362,7 +367,7 @@ def test_network_sampler_selects_interface_excludes_loopback_and_handles_reset(m
         ]
     )
     monkeypatch.setattr(
-        "downloader_bot.telemetry.psutil.net_io_counters", lambda **_: next(samples)
+        "downloader_bot.services.observability.psutil.net_io_counters", lambda **_: next(samples)
     )
     sampler = SystemSampler("eth0")
     assert sampler.sample()["network_received_bytes"] == 0

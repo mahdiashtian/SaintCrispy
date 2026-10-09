@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from downloader_bot.models import DownloadError, Media, Quality, Source, TelegramFile
-from downloader_bot.service import DownloadService
+from downloader_bot.schemas.media import DownloadError, Media, Quality, Source, TelegramFile
+from downloader_bot.services.download import DownloadService
 
 QUALITY = Quality("aac_160", "AAC 160", "aac", 160, "m4a", "audio/mp4", "hls", "endpoint")
 MEDIA = Media("soundcloud", "track", "Title", "Artist", 30, "url", None, (QUALITY,))

@@ -1,6 +1,6 @@
 import pytest
 
-from downloader_bot.urls import extract_soundcloud_url, extract_xnxx_url, site_link_pattern
+from downloader_bot.core.urls import extract_soundcloud_url, extract_xnxx_url, site_link_pattern
 
 
 @pytest.mark.parametrize(

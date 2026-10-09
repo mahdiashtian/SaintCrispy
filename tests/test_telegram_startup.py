@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from telethon import errors
 
-from downloader_bot.__main__ import connect_bot, sign_in_bot
+from downloader_bot.bot.session import connect_bot, sign_in_bot
 
 
 async def test_login_retries_only_after_the_server_requested_wait(monkeypatch):

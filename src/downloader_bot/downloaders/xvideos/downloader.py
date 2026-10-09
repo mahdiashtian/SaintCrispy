@@ -4,7 +4,7 @@ from dataclasses import replace
 from typing import Any
 
 from downloader_bot.downloaders.base import Downloader
-from downloader_bot.models import DownloadError, Media, Quality, SiteHTTPError, Source
+from downloader_bot.schemas.media import DownloadError, Media, Quality, SiteHTTPError, Source
 
 from .client import XVideosClient
 from .parser import HLSVariant, read_hls_playlist, read_hls_variants, read_video

@@ -8,7 +8,7 @@ from html.parser import HTMLParser
 from math import isfinite
 from urllib.parse import urljoin, urlsplit
 
-from downloader_bot.models import DownloadError, Media, Quality
+from downloader_bot.schemas.media import DownloadError, Media, Quality
 
 from .urls import PINTEREST_HOSTS
 

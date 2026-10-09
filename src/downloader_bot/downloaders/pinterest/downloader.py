@@ -4,7 +4,7 @@ from dataclasses import replace
 from urllib.parse import urljoin, urlsplit
 
 from downloader_bot.downloaders.base import Downloader
-from downloader_bot.models import DownloadError, Media, Quality, SiteHTTPError, Source
+from downloader_bot.schemas.media import DownloadError, Media, Quality, SiteHTTPError, Source
 
 from .client import HEADERS, PinterestClient
 from .parser import (

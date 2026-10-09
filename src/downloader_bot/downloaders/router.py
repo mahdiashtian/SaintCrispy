@@ -1,5 +1,5 @@
-from downloader_bot.models import DownloadError, Media, Quality, Source
-from downloader_bot.urls import SITE_EXTRACTORS
+from downloader_bot.core.urls import SITE_EXTRACTORS
+from downloader_bot.schemas.media import DownloadError, Media, Quality, Source
 
 from .base import Downloader
 
