@@ -80,7 +80,8 @@ jobs:
           --url pinterest=https://www.pinterest.com/pin/664281013778109217/
           --url xvideos=https://www.xvideos.com/video4588838/_
           --url xvideos=https://www.xvideos.com/embedframe/4588838
-          --url xvideos=https://www.xvideos.com/video.uptoip6a0b/_
+          --url xvideos=https://www.xvideos.com/video65982001/what_s_her_name
+          --url xvideos=https://www.xvideos.com/video.ucuvbkfda4e/a_beautiful_red-haired_stranger_was_refused_but_still_came_to_my_room_for_sex
           --url xnxx=https://www.xnxx.com/video-bykb3e9/video
           --url xnxx=https://www.xnxx.com/video-55awb78/video
           --output '${{ runner.temp }}/provider-audit.json'

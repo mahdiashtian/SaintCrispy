@@ -97,6 +97,8 @@ class Selection:
             chunk_size=2 * 1024 * 1024 if self.quality.protocol == "progressive" else None,
             require_audio=self.quality.mime_type.startswith("video/"),
             duration=duration or None,
+            input_protocol="hls" if is_hls(self.video) else "progressive",
+            audio_protocol=("hls" if is_hls(self.audio) else "progressive") if self.audio else None,
         )
 
 

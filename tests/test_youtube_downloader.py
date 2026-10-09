@@ -21,7 +21,7 @@ from downloader_bot.handlers import register_handlers
 from downloader_bot.menus import MenuStore
 from downloader_bot.models import DownloadError, Source
 from downloader_bot.progress import TransferProgress
-from downloader_bot.streaming import media_chunks
+from downloader_bot.streaming import media_chunks, remux_arguments
 from downloader_bot.urls import extract_youtube_url
 
 IDENTITY = "jNQXAC9IVRw"
@@ -166,6 +166,25 @@ def test_silent_video_without_a_compatible_audio_is_not_offered():
     data["formats"] = [fmt("137", 1080, "avc1")]
     with pytest.raises(DownloadError):
         read_media(data, IDENTITY)
+
+
+@pytest.mark.parametrize("video_hls", [True, False])
+def test_mixed_hls_and_progressive_inputs_apply_hls_options_to_the_correct_track(video_hls):
+    data = info()
+    video = fmt("137", 1080, "avc1", protocol="m3u8_native" if video_hls else "https")
+    audio = fmt("140", audio="mp4a.40.2", protocol="https" if video_hls else "m3u8_native")
+    data["formats"] = [video, audio]
+    choice = next(item for item in selections(data) if item.quality.mime_type.startswith("video/"))
+    source = choice.source("")
+    assert source.protocol == "hls"
+    assert source.input_protocol == ("hls" if video_hls else "progressive")
+    assert source.audio_protocol == ("progressive" if video_hls else "hls")
+    arguments = remux_arguments(source, choice.quality)
+    assert arguments.count("-http_seekable") == 1
+    first_input = arguments.index("-i")
+    second_input = arguments.index("-i", first_input + 1)
+    option = arguments.index("-http_seekable")
+    assert (option < first_input) if video_hls else (first_input < option < second_input)
 
 
 def test_every_native_original_audio_quality_is_offered_separately():

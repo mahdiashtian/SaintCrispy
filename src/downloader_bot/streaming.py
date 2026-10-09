@@ -51,7 +51,7 @@ async def source_size(http: httpx.AsyncClient, source: Source) -> int | None:
     return None
 
 
-def _input_options(source: Source, headers: dict[str, str]) -> list[str]:
+def _input_options(source: Source, headers: dict[str, str], protocol: str) -> list[str]:
     options = []
     if headers:
         options.extend(
@@ -59,16 +59,27 @@ def _input_options(source: Source, headers: dict[str, str]) -> list[str]:
         )
     if source.proxy:
         options.extend(["-http_proxy", source.proxy])
+    if protocol == "hls":
+        # Some FFmpeg versions stop fMP4 demuxing after the first ranged segment.
+        options.extend(["-http_seekable", "0"])
     return options
 
 
 def remux_arguments(source: Source, quality: Quality) -> list[str]:
     """Build a codec-copy command; media discovery stays inside each provider."""
-    inputs = [*_input_options(source, source.headers), "-i", source.url]
+    inputs = [
+        *_input_options(source, source.headers, source.input_protocol or source.protocol),
+        "-i",
+        source.url,
+    ]
     if source.audio_url:
         inputs.extend(
             [
-                *_input_options(source, source.audio_headers or source.headers),
+                *_input_options(
+                    source,
+                    source.audio_headers or source.headers,
+                    source.audio_protocol or source.protocol,
+                ),
                 "-rw_timeout",
                 "30000000",
                 "-i",
@@ -213,10 +224,13 @@ async def _media_chunks(
         returncode = await process.wait()
         await errors
         incomplete = source.duration and media_seconds < source.duration - max(
-            2, source.duration * 0.005
+            1, source.duration * 0.005
         )
         if returncode != 0 or skipped_segment or incomplete:
-            raise DownloadError("دریافت جریان رسانه کامل نشد؛ فایل ناقص ارسال نمی‌شود.")
+            raise DownloadError(
+                "دریافت جریان رسانه کامل نشد؛ فایل ناقص ارسال نمی‌شود.",
+                code="media_stream_incomplete",
+            )
         if progress is not None:
             progress.download_done = True
             progress.total = progress.downloaded

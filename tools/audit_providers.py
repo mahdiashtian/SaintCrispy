@@ -42,7 +42,7 @@ SAMPLES = {
     "youtube": "https://youtu.be/jNQXAC9IVRw",
     "instagram": "https://www.instagram.com/reel/Chunk8-jurw/",
     "pinterest": "https://www.pinterest.com/pin/2885187256207927/",
-    "xvideos": "https://www.xvideos.com/video.uptoip6a0b/_",
+    "xvideos": "https://www.xvideos.com/video65982001/what_s_her_name",
     "xnxx": "https://www.xnxx.com/video-55awb78/video",
 }
 
@@ -120,12 +120,16 @@ async def check_quality(provider, media, quality, args):
                 cdn_host=urlsplit(source.url).hostname,
                 separate_audio=bool(source.audio_url),
                 size_bytes=source.size_bytes,
+                expected_media_seconds=source.duration,
                 telegram_url_candidate=source.protocol == "progressive" and not source.audio_url,
             )
             async with httpx.AsyncClient(proxy=source.proxy, trust_env=False, timeout=20) as http:
                 row.update(
                     await sample_source(
-                        http, source.url, source.headers, progressive=source.protocol != "hls"
+                        http,
+                        source.url,
+                        source.headers,
+                        progressive=(source.input_protocol or source.protocol) != "hls",
                     )
                 )
                 row["cdn_responds"] = True
@@ -134,7 +138,7 @@ async def check_quality(provider, media, quality, args):
                         http,
                         source.audio_url,
                         source.audio_headers or source.headers,
-                        progressive=source.protocol != "hls",
+                        progressive=(source.audio_protocol or source.protocol) != "hls",
                     )
                 if args.stream:
                     await stream_source(http, source, quality, args, row)

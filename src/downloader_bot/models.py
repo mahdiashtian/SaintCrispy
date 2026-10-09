@@ -44,6 +44,8 @@ class Source:
     chunk_size: int | None = None
     require_audio: bool = False
     duration: float | None = None
+    input_protocol: str | None = None
+    audio_protocol: str | None = None
 
 
 @dataclass(frozen=True)
