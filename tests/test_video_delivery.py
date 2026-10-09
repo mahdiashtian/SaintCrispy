@@ -5,7 +5,8 @@ from urllib.parse import urlsplit
 
 import httpx
 import pytest
-from telethon import errors, types
+from telethon import errors, functions, types
+from video_fixture import mp4_header
 
 from downloader_bot.bot.delivery import TelegramDelivery
 from downloader_bot.bot.progress import TransferProgress
@@ -470,6 +471,7 @@ async def test_external_fallback_streams_with_headers_and_uses_correct_media_att
     mime_type, site
 ):
     uploaded = []
+    body = (mp4_header() if mime_type == "video/mp4" else b"") + b"media data"
     quality = Quality(
         "high", "High", "video", None, "mp4", mime_type, "progressive", "url", width=32, height=32
     )
@@ -478,7 +480,9 @@ async def test_external_fallback_streams_with_headers_and_uses_correct_media_att
 
     class Client:
         async def __call__(self, request):
-            assert request.bytes == b"media data"
+            if isinstance(request, functions.messages.UploadMediaRequest):
+                raise errors.WebpageCurlFailedError(request=None)
+            assert request.bytes == body
             return True
 
         async def send_file(self, target, value, **kwargs):
@@ -492,7 +496,7 @@ async def test_external_fallback_streams_with_headers_and_uses_correct_media_att
 
     def respond(request):
         assert request.headers["referer"] == f"https://www.{site}.com/"
-        return httpx.Response(200, content=b"media data")
+        return httpx.Response(200, content=body)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
         file = await TelegramDelivery(Client(), http, "ffmpeg").new_file(

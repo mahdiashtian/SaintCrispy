@@ -44,6 +44,16 @@ docker compose -p saintcrispy exec -T postgres \
   pg_dump -U downloader -d downloader -Fc > .runtime/backups/before-upgrade.dump
 ```
 
+## Video playback while downloading
+
+MP4 video messages include actual dimensions, duration, codec, audio presence and `supports_streaming` through Telethon 1.45.0. The bot inspects up to 1 MiB of the MP4 header asynchronously and replays those bytes into the existing bounded uploader. A source with its index before the media is uploaded unchanged. A source with its index at the end is copied through the existing FFmpeg process limit into fragmented MP4 with the index first; it is not re-encoded or saved as a complete local file. HLS/DASH remuxing retains its existing mixed-input and completeness checks.
+
+Direct URL registration remains preferred. For MP4, the returned Telegram document must contain valid video dimensions and `supports_streaming` before publication; otherwise the bot prepares the stream locally. Legacy cache entries are checked on the next request. Compatible files stay on the Telegram reference path; incompatible files are replaced only after a successful transfer. Migration 3 persists this status in PostgreSQL and the same write-through Redis cache. It preserves existing files, users, conversations and menus.
+
+Tests use neutral generated video and mock Telegram RPCs. They decode the full result and the first fragment before EOF. Playback in a real Telegram client still depends on its supported codecs and network buffer; those tests do not verify a user's player or measure Telegram's remote download progress. See the official [video attributes](https://core.telegram.org/constructor/documentAttributeVideo) and [FFmpeg MP4 formats](https://ffmpeg.org/ffmpeg-formats.html#mov_002c-mp4_002c-ismv).
+
+Validation on 2026-10-09: 670 tests passed on Windows/Python 3.14 and 670 on Linux/Python 3.12, both with real PostgreSQL/Redis and FFmpeg. Lint and formatting checks passed. The suite includes adoption of both a legacy database and already-applied migrations 1/2, failed-repair preservation, and 1,000 concurrent requests sharing one legacy repair with concurrent follower publications. The update was integrated with upstream `main` at `2b30936`; no running coordinator was restarted during integration.
+
 ## Logs
 
 All destinations are local and excluded from Git. Serialization and disk I/O run in bounded background writer queues.

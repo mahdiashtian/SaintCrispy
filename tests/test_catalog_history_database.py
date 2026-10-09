@@ -47,7 +47,7 @@ async def test_real_database_catalog_history_admission_and_duplicate_file_are_at
         "credential",
         "account",
     )
-    file = TelegramFile(1, 2, b"ref", b"peer", 3, 1024)
+    file = TelegramFile(1, 2, b"ref", b"peer", 3, 1024, True)
     try:
         repo = FileRepository(pool, None, 123)
         await repo.initialize()

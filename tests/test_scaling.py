@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from telethon import errors
+from video_fixture import mp4_header
 
 from downloader_bot.bot.delivery import TelegramDelivery
 from downloader_bot.bot.handlers.quality import handle_quality
@@ -176,7 +177,7 @@ async def test_only_two_remux_streams_can_run_and_waiters_are_cancellable(monkey
     active = peak = 0
     started, finish = asyncio.Event(), asyncio.Event()
 
-    async def chunks(*args):
+    async def chunks(*args, **kwargs):
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
@@ -184,7 +185,7 @@ async def test_only_two_remux_streams_can_run_and_waiters_are_cancellable(monkey
             started.set()
         try:
             await finish.wait()
-            yield b"test"
+            yield mp4_header()
         finally:
             active -= 1
 

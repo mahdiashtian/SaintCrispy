@@ -57,6 +57,11 @@ class TelegramFile:
     origin_peer: bytes
     message_id: int
     size_bytes: int | None = None
+    video_streaming: bool | None = None
+
+
+def streamable_video(quality: Quality) -> bool:
+    return quality.mime_type.startswith("video/") and quality.extension.lower() == "mp4"
 
 
 class DownloadError(Exception):

@@ -18,7 +18,8 @@ class PostgresMediaRepository:
 
     async def get(self, site: str, content_id: str, quality: str) -> TelegramFile | None:
         row = await self.pool.fetchrow(
-            """SELECT document_id, access_hash, file_reference, origin_peer, message_id, size_bytes
+            """SELECT document_id, access_hash, file_reference, origin_peer, message_id, size_bytes,
+            video_streaming
             FROM media_files WHERE site=$1 AND content_id=$2 AND quality=$3
             AND telegram_account_id=$4""",
             site,
@@ -36,12 +37,13 @@ class PostgresMediaRepository:
         await self.pool.execute(
             """INSERT INTO media_files
             (site, content_id, quality, telegram_account_id, document_id,
-             access_hash, file_reference, origin_peer, message_id, size_bytes)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+             access_hash, file_reference, origin_peer, message_id, size_bytes, video_streaming)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
             ON CONFLICT (site, content_id, quality, telegram_account_id) DO UPDATE SET
               document_id=EXCLUDED.document_id, access_hash=EXCLUDED.access_hash,
               file_reference=EXCLUDED.file_reference, origin_peer=EXCLUDED.origin_peer,
-              message_id=EXCLUDED.message_id, size_bytes=EXCLUDED.size_bytes, updated_at=now()""",
+              message_id=EXCLUDED.message_id, size_bytes=EXCLUDED.size_bytes,
+              video_streaming=EXCLUDED.video_streaming, updated_at=now()""",
             site,
             content_id,
             quality,
@@ -52,6 +54,7 @@ class PostgresMediaRepository:
             file.origin_peer,
             file.message_id,
             file.size_bytes,
+            file.video_streaming,
         )
 
     async def accounts(self, site: str) -> list[dict]:

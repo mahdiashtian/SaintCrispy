@@ -12,7 +12,7 @@ from downloader_bot.services.download import DownloadService
 
 QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "url")
 MEDIA = Media("youtube", "jNQXAC9IVRw", "Title", "Author", 19, "page", None, (QUALITY,))
-FILE = TelegramFile(1, 2, b"ref", b"peer", 3, 1000)
+FILE = TelegramFile(1, 2, b"ref", b"peer", 3, 1000, True)
 
 
 async def test_one_thousand_recipients_download_once_then_send_concurrently():

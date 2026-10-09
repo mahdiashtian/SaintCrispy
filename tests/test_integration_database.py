@@ -26,7 +26,7 @@ async def test_real_postgres_redis_quality_persistence_and_multiple_accounts():
         repo = FileRepository(pool, cache, 123)
         await repo.initialize()
         for quality, document in (("aac_160", 1), ("aac_96", 2)):
-            file = TelegramFile(document, 3, b"ref", b"peer", 4, 1024)
+            file = TelegramFile(document, 3, b"ref", b"peer", 4, 1024, True)
             await repo.save("soundcloud", "2373831104", quality, file)
             assert await repo.get("soundcloud", "2373831104", quality) == file
         assert await pool.fetchval("SELECT count(*) FROM media_files") == 2
@@ -39,7 +39,8 @@ async def test_real_postgres_redis_quality_persistence_and_multiple_accounts():
             )
         assert len(await repo.accounts("soundcloud")) == 10
         restarted = FileRepository(pool, None, 123)
-        assert (await restarted.get("soundcloud", "2373831104", "aac_96")).document_id == 2
+        from_sql = await restarted.get("soundcloud", "2373831104", "aac_96")
+        assert from_sql.document_id == 2 and from_sql.video_streaming is True
         # SQL admission stays atomic across concurrent calls, restarts and Redis outages.
         results = await asyncio.gather(
             *(restarted.claim_request(77, "download", 60) for _ in range(30))

@@ -7,7 +7,13 @@ from downloader_bot.core.locks import KeyedLocks
 from downloader_bot.core.request_context import request_user
 from downloader_bot.downloaders.base import Downloader
 from downloader_bot.repositories.interfaces.media import MediaDelivery, MediaRepository
-from downloader_bot.schemas.media import DownloadError, Media, Quality, TelegramFile
+from downloader_bot.schemas.media import (
+    DownloadError,
+    Media,
+    Quality,
+    TelegramFile,
+    streamable_video,
+)
 from downloader_bot.schemas.transfer import TransferState as TransferProgress
 from downloader_bot.services.observability import (
     Telemetry,
@@ -212,10 +218,26 @@ class DownloadService:
         produced = False
         with timed("cache_lookup"):
             stored = await self.repository.get(media.site, media.content_id, quality.key)
-        if stored is None:
+        needs_check = (
+            streamable_video(quality) and stored is not None and stored.video_streaming is not True
+        )
+        if stored is None or needs_check:
             async with acquired(self._locks.hold(key), "deduplication_wait"):
                 with timed("cache_lookup"):
                     stored = await self.repository.get(media.site, media.content_id, quality.key)
+                if (
+                    stored is not None
+                    and streamable_video(quality)
+                    and stored.video_streaming is not True
+                ):
+                    with timed("cached_video_check"):
+                        fresh = await self.delivery.prepare_cached(stored, quality)
+                    if fresh is not None and fresh != stored:
+                        with timed("database_save"):
+                            await self.repository.save(
+                                media.site, media.content_id, quality.key, fresh
+                            )
+                    stored = fresh
                 if stored is None:
                     self._raise_recent_failure("transfer", key)
                     try:

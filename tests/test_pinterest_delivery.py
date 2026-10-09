@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from telethon import errors, types
+from telethon import errors, functions, types
 
 from downloader_bot.bot.delivery import TelegramDelivery
 from downloader_bot.schemas.media import Media, Quality, Source
@@ -20,9 +20,24 @@ async def test_pinterest_external_url_is_given_to_telegram_without_fetching_medi
     peer = types.InputPeerUser(1, 2)
 
     class Client:
+        async def __call__(self, request):
+            assert isinstance(request, functions.messages.UploadMediaRequest)
+            assert request.media.url == url
+            return SimpleNamespace(
+                document=SimpleNamespace(
+                    id=4,
+                    access_hash=5,
+                    file_reference=b"reference",
+                    attributes=[types.DocumentAttributeVideo(1, 32, 32, supports_streaming=True)],
+                )
+            )
+
         async def send_file(self, target, value, **kwargs):
             assert target == peer
-            assert isinstance(value, types.InputMediaDocumentExternal) and value.url == url
+            if mime == "video/mp4":
+                assert isinstance(value, types.InputMediaDocument) and value.id.id == 4
+            else:
+                assert isinstance(value, types.InputMediaDocumentExternal) and value.url == url
             return SimpleNamespace(
                 id=3, document=SimpleNamespace(id=4, access_hash=5, file_reference=b"reference")
             )

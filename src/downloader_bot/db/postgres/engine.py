@@ -38,7 +38,15 @@ CREATE TABLE IF NOT EXISTS download_menus (
 CREATE INDEX IF NOT EXISTS download_menus_owner
     ON download_menus (telegram_account_id, user_id, chat_id, created_at);
 """
-MIGRATIONS = ((1, "existing_media_schema", SCHEMA), (2, "durable_bot_workflow", WORKFLOW_SCHEMA))
+MIGRATIONS = (
+    (1, "existing_media_schema", SCHEMA),
+    (2, "durable_bot_workflow", WORKFLOW_SCHEMA),
+    (
+        3,
+        "streamable_video_references",
+        "ALTER TABLE media_files ADD COLUMN IF NOT EXISTS video_streaming BOOLEAN;",
+    ),
+)
 
 
 @asynccontextmanager

@@ -134,19 +134,23 @@ async def media_chunks(
     quality: Quality,
     ffmpeg: str,
     progress: TransferProgress | None = None,
+    *,
+    remux_progressive: bool = False,
 ) -> AsyncIterator[bytes]:
     trace = current_transfer.get()
     if trace is not None:
         trace.start_phase("download")
     try:
         with timed("source_stream"):
-            async with aclosing(_media_chunks(http, source, quality, ffmpeg, progress)) as chunks:
+            async with aclosing(
+                _media_chunks(http, source, quality, ffmpeg, progress, remux_progressive)
+            ) as chunks:
                 async for chunk in chunks:
                     if trace is not None:
                         trace.add("stream_read_bytes", len(chunk))
                         key = (
                             "progressive_download_bytes"
-                            if source.protocol == "progressive"
+                            if source.protocol == "progressive" and not remux_progressive
                             else "ffmpeg_output_bytes"
                         )
                         trace.add(key, len(chunk))
@@ -162,8 +166,9 @@ async def _media_chunks(
     quality: Quality,
     ffmpeg: str,
     progress: TransferProgress | None,
+    remux_progressive: bool = False,
 ) -> AsyncIterator[bytes]:
-    if source.protocol == "progressive":
+    if source.protocol == "progressive" and not remux_progressive:
         async with AsyncExitStack() as stack:
             if source.proxy is not None:
                 http = await stack.enter_async_context(
@@ -177,7 +182,9 @@ async def _media_chunks(
                 async for chunk in chunks:
                     yield chunk
         return
-    if source.protocol not in {"hls", "dash"}:
+    if source.protocol not in {"hls", "dash"} and not (
+        source.protocol == "progressive" and remux_progressive
+    ):
         raise DownloadError("روش انتقال این کیفیت پشتیبانی نشده است.")
     # Remux in a separate process without re-encoding the selected media.
     environment = None

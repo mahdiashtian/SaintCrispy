@@ -33,7 +33,9 @@ from downloader_bot.services.download import DownloadService
 from downloader_bot.services.observability import Telemetry
 
 SIZE = 4 * 1024 * 1024 + 123
-QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "")
+QUALITY = Quality(
+    "original", "Original", "binary", None, "bin", "application/octet-stream", "progressive", ""
+)
 MEDIA = Media("loadtest", "", "Public test bytes", "", 10, "", None, (QUALITY,))
 PEER = types.InputPeerUser(1, 2)
 FILE = TelegramFile(10, 20, b"test-reference", bytes(PEER), 1)
@@ -119,7 +121,7 @@ async def run(args):
             writer.write(
                 (
                     f"HTTP/1.1 200 OK\r\nContent-Length: {SIZE}\r\n"
-                    "Content-Type: video/mp4\r\nConnection: close\r\n\r\n"
+                    "Content-Type: application/octet-stream\r\nConnection: close\r\n\r\n"
                 ).encode()
             )
             remaining = SIZE
@@ -150,7 +152,7 @@ async def run(args):
     async with AsyncExitStack() as stack:
         server = await asyncio.start_server(serve, "127.0.0.1", 0, backlog=max(100, args.requests))
         await stack.enter_async_context(server)
-        url = f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}/file.mp4"
+        url = f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}/file.bin"
         repository = MemoryRepository()
         pool = cache = None
         if args.database:

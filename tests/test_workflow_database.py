@@ -10,13 +10,14 @@ import pytest
 from downloader_bot.bot.state.manager import ConversationManager
 from downloader_bot.bot.state.menus import PersistentMenuStore
 from downloader_bot.bot.state.states import ConversationState
-from downloader_bot.db.postgres.engine import migrate
+from downloader_bot.db.postgres.engine import WORKFLOW_SCHEMA, migrate
 from downloader_bot.repositories.postgres.workflow import WorkflowRepository
 from downloader_bot.repositories.redis.media import FileRepository
 from downloader_bot.schemas.media import Media, Quality, TelegramFile
 
 
-async def test_additive_upgrade_preserves_files_and_recovers_conversations():
+@pytest.mark.parametrize("already_migrated", [False, True])
+async def test_additive_upgrade_preserves_files_and_recovers_conversations(already_migrated):
     url = os.environ.get("TEST_DATABASE_URL")
     if not url:
         pytest.skip("Set TEST_DATABASE_URL for workflow integration tests")
@@ -31,11 +32,29 @@ async def test_additive_upgrade_preserves_files_and_recovers_conversations():
         from downloader_bot.db.postgres.schema import SCHEMA
 
         await pool.execute(SCHEMA)
+        if already_migrated:
+            await pool.execute(WORKFLOW_SCHEMA)
+            await pool.execute("""CREATE TABLE app_schema_migrations (
+                version INTEGER PRIMARY KEY, name TEXT NOT NULL,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT now());
+                INSERT INTO app_schema_migrations (version,name) VALUES
+                (1,'existing_media_schema'),(2,'durable_bot_workflow');""")
         files = FileRepository(pool, None, 123)
         file = TelegramFile(1, 2, b"ref", b"peer", 3, 2048)
-        await files.save("youtube", "video", "high", file)
+        await pool.execute(
+            """INSERT INTO media_files
+            (site,content_id,quality,telegram_account_id,document_id,access_hash,
+             file_reference,origin_peer,message_id,size_bytes)
+            VALUES ('youtube','video','high',123,$1,$2,$3,$4,$5,$6)""",
+            file.document_id,
+            file.access_hash,
+            file.file_reference,
+            file.origin_peer,
+            file.message_id,
+            file.size_bytes,
+        )
         await asyncio.gather(migrate(pool), migrate(pool))
-        assert await pool.fetchval("SELECT count(*) FROM app_schema_migrations") == 2
+        assert await pool.fetchval("SELECT count(*) FROM app_schema_migrations") == 3
         assert await files.get("youtube", "video", "high") == file
         workflow = WorkflowRepository(pool, 123)
         manager = ConversationManager(workflow)

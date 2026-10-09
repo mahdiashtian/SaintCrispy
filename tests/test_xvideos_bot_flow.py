@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from telethon import errors, functions, types
+from video_fixture import mp4_header
 
 from downloader_bot.bot.delivery import TelegramDelivery
 from downloader_bot.bot.handlers import register_handlers
@@ -16,7 +17,7 @@ from downloader_bot.services.download import DownloadService
 
 PAGE_URL = "https://www.xvideos.com/video.demo/test"
 PAGE = "<title>Demo</title>setVideoUrlHigh('https://cdn.example/video.mp4')"
-MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isommp42" + b"x" * (600 * 1024)
+MP4 = mp4_header() + b"x" * (600 * 1024)
 
 
 @pytest.fixture
@@ -119,6 +120,9 @@ async def test_xvideos_menu_transfer_progress_and_success_only_cache(method, hls
                         access_hash=5,
                         file_reference=b"reference",
                         size=len(MP4),
+                        attributes=[
+                            types.DocumentAttributeVideo(1, 32, 32, supports_streaming=True)
+                        ],
                     )
                 )
             uploads.append(request.bytes)

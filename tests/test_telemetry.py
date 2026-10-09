@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from telethon import errors, functions, types
+from video_fixture import mp4_header
 
 from downloader_bot.bot.delivery import TelegramDelivery
 from downloader_bot.bot.jobs.transfers import TransferJobs
@@ -28,7 +29,7 @@ from downloader_bot.services.observability import (
 QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "")
 MEDIA = Media("youtube", "stable-id", "PRIVATE TITLE", "", 3, "PRIVATE URL", None, (QUALITY,))
 PEER = types.InputPeerUser(1, 2)
-FILE = TelegramFile(1, 2, b"private-reference", bytes(PEER), 3, 123)
+FILE = TelegramFile(1, 2, b"private-reference", bytes(PEER), 3, 123, True)
 
 
 def test_provider_failure_codes_are_logged_without_the_exception_text():
@@ -96,7 +97,13 @@ class Telegram:
             if not self.external:
                 raise errors.WebpageCurlFailedError(request=None)
             return SimpleNamespace(
-                document=SimpleNamespace(id=1, access_hash=2, file_reference=b"ref", size=self.size)
+                document=SimpleNamespace(
+                    id=1,
+                    access_hash=2,
+                    file_reference=b"ref",
+                    size=self.size,
+                    attributes=[types.DocumentAttributeVideo(3, 32, 32, supports_streaming=True)],
+                )
             )
         self.calls += 1
         if self.flood and self.calls == 1:
@@ -130,7 +137,7 @@ async def make_service(http, telegram, telemetry, repository=None):
 
 
 async def test_streamed_transfer_logs_exact_bytes_stages_and_batch_without_secrets():
-    data = b"x" * (PART_SIZE + 17)
+    data = mp4_header() + b"x" * (PART_SIZE + 17)
     writer = MemoryWriter()
     telemetry = Telemetry(writer)
     async with httpx.AsyncClient(
@@ -194,7 +201,7 @@ async def test_external_and_cached_files_do_not_invent_local_download_upload_tim
 
 
 async def test_explicit_flood_wait_records_retried_payload_separately_from_acknowledged_bytes():
-    data = b"x" * 123
+    data = mp4_header() + b"x" * 123
     writer = MemoryWriter()
     telemetry = Telemetry(writer)
     async with httpx.AsyncClient(
@@ -434,7 +441,8 @@ async def test_admission_cancellation_and_job_errors_have_safe_correlated_events
 async def test_interrupted_source_logs_partial_bytes_without_fictitious_success():
     class BrokenStream(httpx.AsyncByteStream):
         async def __aiter__(self):
-            yield b"x" * PART_SIZE
+            header = mp4_header()
+            yield header + b"x" * (PART_SIZE - len(header))
             await asyncio.sleep(0.01)
             raise OSError("PRIVATE SECRET")
 

@@ -37,6 +37,8 @@ class MediaRepository(FileStore, MediaCatalog, UserHistory, Protocol):
 
 
 class MediaDelivery(Protocol):
+    async def prepare_cached(self, file: TelegramFile, quality: Quality) -> TelegramFile | None: ...
+
     async def new_file(
         self,
         peer,
