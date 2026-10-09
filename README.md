@@ -319,7 +319,7 @@ Live provider probes use the current network and optional account settings. `--t
 
 ## Troubleshooting
 
-- **Missing environment variables:** fill `.env` in the repository root and launch `python main.py`, which reads it automatically.
+- **Missing or invalid settings:** startup failures include `configuration_error` and `configuration_fields`, which identify the problem and affected variable names without printing their values. Fill `API_ID`, `API_HASH`, `BOT_TOKEN` and `DATABASE_URL` in the repository's `.env`; whitespace-only values count as missing. `API_ID` must be a positive integer. Launch `python main.py`, which reads `.env` automatically. `python tools/setup_services.py` configures database addresses; it does not supply Telegram credentials.
 - **FFmpeg cannot start:** verify `ffmpeg -version` and `FFMPEG_PATH`; YouTube separate streams and HLS require FFmpeg.
 - **YouTube login/bot challenge:** use an authorized session and an accepted network route. PO tokens do not grant access to private or unavailable content.
 - **No available quality or HTTP 429:** source availability, authentication and rate limits apply. Provider cooldowns prevent repeated bursts against a rejected origin.

@@ -2,13 +2,28 @@ import os
 from dataclasses import dataclass, field
 
 
+class ConfigurationError(RuntimeError):
+    """Identify setting failures without including values in diagnostics."""
+
+    def __init__(self, message: str, *, code: str, fields: tuple[str, ...]):
+        super().__init__(message)
+        self.code = code
+        self.fields = fields
+
+
 def integer_setting(name: str, default: int, minimum: int, maximum: int) -> int:
     try:
         value = int(os.environ.get(name, str(default)))
     except ValueError as error:
-        raise RuntimeError(f"{name} must be an integer") from error
+        raise ConfigurationError(
+            f"{name} must be an integer", code="invalid_integer", fields=(name,)
+        ) from error
     if not minimum <= value <= maximum:
-        raise RuntimeError(f"{name} must be between {minimum} and {maximum}")
+        raise ConfigurationError(
+            f"{name} must be between {minimum} and {maximum}",
+            code="out_of_range",
+            fields=(name,),
+        )
     return value
 
 
@@ -43,12 +58,16 @@ class Settings:
     @classmethod
     def from_environment(cls):
         required = ("API_ID", "API_HASH", "BOT_TOKEN", "DATABASE_URL")
-        missing = [name for name in required if not os.environ.get(name)]
+        missing = tuple(name for name in required if not os.environ.get(name, "").strip())
         if missing:
-            raise RuntimeError("Missing environment variables: " + ", ".join(missing))
+            raise ConfigurationError(
+                "Missing environment variables: " + ", ".join(missing),
+                code="missing_required_settings",
+                fields=missing,
+            )
         requests = integer_setting("MAX_CONCURRENT_REQUESTS", 1000, 1, 10000)
         return cls(
-            api_id=int(os.environ["API_ID"]),
+            api_id=integer_setting("API_ID", 0, 1, 2**31 - 1),
             api_hash=os.environ["API_HASH"],
             bot_token=os.environ["BOT_TOKEN"],
             database_url=os.environ["DATABASE_URL"],

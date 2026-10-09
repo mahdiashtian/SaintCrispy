@@ -2,7 +2,9 @@
 
 import importlib.util
 import json
+import os
 import socket
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -162,6 +164,66 @@ def test_native_entry_reads_its_own_env_literally_even_from_another_directory(
     monkeypatch.setattr(entry.runpy, "run_module", application)
     entry.main()
     assert calls == [("downloader_bot", "__main__")]
+
+
+@pytest.mark.parametrize("key", ["API_ID", "API_HASH", "BOT_TOKEN", "DATABASE_URL"])
+@pytest.mark.parametrize("value", [None, "", " \t "])
+def test_missing_required_setting_is_identified_without_logging_other_values(
+    monkeypatch, key, value
+):
+    from downloader_bot.config import ConfigurationError, Settings
+    from downloader_bot.telemetry import error_fields
+
+    for name in ("API_ID", "API_HASH", "BOT_TOKEN", "DATABASE_URL"):
+        monkeypatch.setenv(name, "123" if name == "API_ID" else "PRIVATE-CONFIG-VALUE")
+    if value is None:
+        monkeypatch.delenv(key)
+    else:
+        monkeypatch.setenv(key, value)
+    with pytest.raises(ConfigurationError) as failure:
+        Settings.from_environment()
+    record = error_fields(failure.value)
+    assert record["configuration_error"] == "missing_required_settings"
+    assert record["configuration_fields"] == [key]
+    assert "PRIVATE-CONFIG-VALUE" not in json.dumps(record)
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "code"),
+    [
+        ("API_HASH", "", "missing_required_settings"),
+        ("API_ID", "PRIVATE-BAD-NUMBER", "invalid_integer"),
+        ("API_ID", "0", "out_of_range"),
+        ("MAX_CONCURRENT_REQUESTS", "PRIVATE-BAD-NUMBER", "invalid_integer"),
+    ],
+)
+def test_native_startup_reports_config_fields_before_connecting(tmp_path, key, value, code):
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "main.py").write_text((ROOT / "main.py").read_text(encoding="utf-8"), encoding="utf-8")
+    values = {
+        "API_ID": "123",
+        "API_HASH": "PRIVATE-HASH",
+        "BOT_TOKEN": "PRIVATE-TOKEN",
+        "DATABASE_URL": "postgresql://user:PRIVATE-PASSWORD@127.0.0.1:1/private",
+        key: value,
+    }
+    create_env(root, **values)
+    result = subprocess.run(
+        [sys.executable, str(root / "main.py")],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 1 and result.stdout == ""
+    record = json.loads(result.stderr)
+    assert record["event"] == "startup_or_runtime_failure"
+    assert record["configuration_error"] == code
+    assert record["configuration_fields"] == [key]
+    assert "runtime_started" not in result.stderr
+    assert "PRIVATE-" not in result.stderr
 
 
 async def test_startup_wait_logs_explain_cooldown_without_credentials(monkeypatch):

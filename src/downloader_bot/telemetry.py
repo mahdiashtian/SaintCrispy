@@ -14,6 +14,7 @@ from pathlib import Path
 
 import psutil
 
+from downloader_bot.config import ConfigurationError
 from downloader_bot.log_writer import JsonLogWriter
 
 current_transfer = ContextVar("current_transfer", default=None)
@@ -34,6 +35,9 @@ def error_fields(error: BaseException) -> dict:
             for frame, line in frames
         ],
     }
+    if isinstance(error, ConfigurationError):
+        result["configuration_error"] = error.code
+        result["configuration_fields"] = list(error.fields)
     response = getattr(error, "response", None)
     status = getattr(response, "status_code", None) or getattr(error, "status", None)
     if isinstance(status, int):
