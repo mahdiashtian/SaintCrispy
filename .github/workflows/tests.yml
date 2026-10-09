@@ -69,13 +69,13 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.audit_providers
         run: >-
           python tools/audit_providers.py --all-qualities --stream --strict
-          --max-stream-mib 256 --case-timeout 900 --transfer-timeout 240
+          --max-stream-mib 512 --case-timeout 900 --transfer-timeout 240
           --url soundcloud=https://soundcloud.com/quavoofficial/away
           --url soundcloud=https://soundcloud.com/octobersveryown/quebec
           --url soundcloud=https://soundcloud.com/gdaal/mojezeh
+          --url instagram=https://www.instagram.com/p/BQ0eAlwhDrw/
           --url instagram=https://www.instagram.com/reel/Chunk8-jurw/
           --url instagram=https://www.instagram.com/reel/DZwzHDsiVlk/
-          --url instagram=https://www.instagram.com/p/BQ0eAlwhDrw/
           --url pinterest=https://www.pinterest.com/pin/2885187256207927/
           --url pinterest=https://www.pinterest.com/pin/664281013778109217/
           --url xvideos=https://www.xvideos.com/video4588838/_
