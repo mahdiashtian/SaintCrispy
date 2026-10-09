@@ -81,7 +81,8 @@ class InstagramClient:
             )
             if node := find_media(response, code):
                 return node, page_url, code
-            if (response.get("data") or {}).get("xig_polaris_media", False) is None:
+            data = response.get("data")
+            if isinstance(data, dict) and data.get("xig_polaris_media", False) is None:
                 raise DownloadError("این پست اینستاگرام حذف شده یا برای این نشست قابل دسترسی نیست.")
             response = await self._graphql(
                 "https://www.instagram.com/graphql/query",
@@ -170,6 +171,10 @@ class InstagramClient:
             data, _ = await self._read(url, **kwargs)
         except SiteHTTPError as error:
             if error.status not in {403, 404, 405, 410, 500, 502, 503, 504}:
+                raise
+            return {}
+        except DownloadError as error:
+            if not isinstance(error.__cause__, (httpx.HTTPError, TimeoutError)):
                 raise
             return {}
         try:

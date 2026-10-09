@@ -346,6 +346,7 @@ async def test_hls_lists_playable_resolutions_and_resolves_selected_video_and_au
         source = await downloader.resolve(media, media.qualities[1])
     assert source.url == "https://cdn.example/1080.m3u8?token=2"
     assert source.audio_url == "https://cdn.example/audio.m3u8"
+    assert source.require_audio
     assert source.duration == 120
     assert media.qualities[1].duration == 120
     assert not any(".mp4" in url or "720.m3u8" in url or "360.m3u8" in url for url in visits)

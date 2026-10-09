@@ -265,7 +265,9 @@ async def test_selection_refreshes_url_and_preserves_actual_resolution_and_audio
         assert (await downloader.resolve(media, direct)).url.endswith("token=2")
         assert not any(".m3u8" in url for url in visits)
         visits.clear()
-        assert (await downloader.resolve(media, hls)).audio_url == CDN + "audio.m3u8"
+        source = await downloader.resolve(media, hls)
+        assert source.audio_url == CDN + "audio.m3u8"
+        assert source.require_audio and source.duration == 12
         assert not any("360.m3u8" in url or ".mp4" in url for url in visits)
 
 
@@ -460,3 +462,50 @@ async def test_failed_pin_api_falls_back_to_verified_public_page_media(failure):
         media = await downloader.inspect(PAGE)
         assert media.content_id == PIN and media.qualities
         assert (await downloader.resolve(media, media.qualities[0])).url.startswith(CDN)
+
+
+async def test_enrichment_page_rate_limit_is_not_hidden_by_a_successful_pin_api():
+    def respond(request):
+        return api(pin_data()) if request.url.path.startswith("/resource/") else httpx.Response(429)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        with pytest.raises(DownloadError) as failure:
+            await PinterestDownloader(PinterestClient(http)).inspect(PAGE)
+    assert failure.value.status == 429
+
+
+async def test_one_rate_limited_hls_variant_is_not_hidden_by_a_healthy_variant():
+    def respond(request):
+        if request.url.path.startswith("/resource/"):
+            data = pin_data()
+            data["videos"]["video_list"] = {"V_HLSV4": data["videos"]["video_list"]["V_HLSV4"]}
+            return api(data)
+        if request.url.host == "www.pinterest.com":
+            return httpx.Response(200, text="")
+        if request.url.path.endswith("master.m3u8"):
+            return httpx.Response(200, text=MASTER)
+        if request.url.path.endswith("360.m3u8"):
+            return httpx.Response(429)
+        return httpx.Response(200, text=PLAYLIST)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        with pytest.raises(DownloadError) as failure:
+            await PinterestDownloader(PinterestClient(http)).inspect(PAGE)
+    assert failure.value.status == 429
+
+
+async def test_leaf_hls_retains_its_duration_for_transfer_completeness_checks():
+    def respond(request):
+        if request.url.path.startswith("/resource/"):
+            data = pin_data()
+            data["videos"]["video_list"] = {"V_HLSV4": data["videos"]["video_list"]["V_HLSV4"]}
+            return api(data)
+        if request.url.host == "www.pinterest.com":
+            return httpx.Response(200, text="")
+        return httpx.Response(200, text=PLAYLIST)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        downloader = PinterestDownloader(PinterestClient(http))
+        media = await downloader.inspect(PAGE)
+        source = await downloader.resolve(media, media.qualities[0])
+    assert source.duration == 12

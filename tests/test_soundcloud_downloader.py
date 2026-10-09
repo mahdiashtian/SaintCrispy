@@ -53,6 +53,7 @@ async def test_failed_progressive_endpoint_falls_back_to_full_hls_without_changi
         source = await downloader.resolve(media, quality)
     assert source.protocol == "hls"
     assert source.url == "https://cdn.example/full.m3u8"
+    assert source.duration == 120
 
 
 async def test_preview_url_is_rejected_during_inspection_and_after_menu_selection():

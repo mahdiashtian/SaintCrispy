@@ -106,6 +106,12 @@ class PinterestClient:
                 self._enrich(api_pin, page_pin)
                 return api_pin
             return page_pin
+        except SiteHTTPError as error:
+            if error.status == 429:
+                raise
+            if api_pin is not None:
+                return api_pin
+            raise
         except DownloadError:
             if api_pin is not None:
                 return api_pin

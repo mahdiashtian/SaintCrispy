@@ -218,7 +218,8 @@ async def test_new_graphql_flow_refreshes_signed_urls_and_does_not_leak_cookies(
         assert len([r for r in calls if r.url.path == "/api/graphql"]) == 2
 
 
-async def test_unavailable_optional_apis_do_not_hide_the_working_shortcode_query():
+@pytest.mark.parametrize("failure", ["status", "timeout", "malformed"])
+async def test_unavailable_optional_apis_do_not_hide_the_working_shortcode_query(failure):
     queried = []
 
     def respond(request):
@@ -228,8 +229,14 @@ async def test_unavailable_optional_apis_do_not_hide_the_working_shortcode_query
         if request.url.path.startswith("/p/"):
             return httpx.Response(200, text="<html></html>")
         if request.url.path.endswith("get_ruling_for_content/"):
+            if failure == "timeout":
+                raise httpx.ConnectTimeout("optional endpoint timeout")
             return httpx.Response(503)
         if request.url.path == "/api/graphql":
+            if failure == "timeout":
+                raise httpx.ConnectTimeout("optional endpoint timeout")
+            if failure == "malformed":
+                return httpx.Response(200, json={"data": []})
             return httpx.Response(403)
         assert request.url.path == "/graphql/query"
         return httpx.Response(200, json=fixture())
@@ -276,6 +283,41 @@ async def test_guest_story_requires_an_authorized_session_before_any_request():
             await InstagramDownloader(InstagramClient(http)).inspect(
                 "https://instagram.com/stories/user/123/"
             )
+
+
+async def test_a_directly_configured_authorized_client_can_inspect_and_resolve_a_story():
+    cookie = "sessionid=private"
+    visits = []
+    story = {
+        "pk": "123",
+        "media_type": 1,
+        "image_versions2": {
+            "candidates": [
+                {
+                    "url": "https://scontent.cdninstagram.com/story.jpg",
+                    "width": 1080,
+                    "height": 1920,
+                }
+            ]
+        },
+    }
+
+    def respond(request):
+        visits.append(request.url.path)
+        if request.url.host.endswith("cdninstagram.com"):
+            assert "cookie" not in request.headers
+            return httpx.Response(200, content=b"\xff\xd8\xffimage")
+        assert request.headers["cookie"] == cookie
+        if request.url.path.endswith("web_profile_info/"):
+            return httpx.Response(200, json={"data": {"user": {"id": "456", "username": "user"}}})
+        return httpx.Response(200, json={"reels": {"456": {"items": [story]}}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        downloader = InstagramDownloader(InstagramClient(http, cookie))
+        media = await downloader.inspect("https://instagram.com/stories/user/123/")
+        source = await downloader.resolve(media, media.qualities[0])
+    assert media.content_id == "story_123"
+    assert source.url.endswith("story.jpg")
 
 
 async def test_router_and_instagram_menu_use_the_shared_delivery_contract():

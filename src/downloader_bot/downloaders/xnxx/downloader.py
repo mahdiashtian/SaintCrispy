@@ -152,6 +152,7 @@ class XNXXDownloader(Downloader):
                     "hls",
                     self.client.source_headers(media.page_url),
                     audio_url,
+                    require_audio=variant.require_audio,
                     duration=seconds,
                 ),
                 seconds,

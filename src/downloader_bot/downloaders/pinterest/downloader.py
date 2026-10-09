@@ -158,8 +158,13 @@ class PinterestDownloader(Downloader):
             manifest, url = await self.client.manifest(quality.endpoint)
             self._validate_manifest(manifest, url)
             if "#EXT-X-STREAM-INF:" not in manifest:
-                hls_duration(manifest, url, quality.duration or 0)
-                return [(replace(quality, endpoint=url), Source(url, "hls", HEADERS.copy()))]
+                duration = hls_duration(manifest, url, quality.duration or 0)
+                return [
+                    (
+                        replace(quality, endpoint=url, duration=duration),
+                        Source(url, "hls", HEADERS.copy(), duration=duration),
+                    )
+                ]
             variants = read_hls_variants(manifest, url)
             variants = tuple(
                 item
@@ -172,6 +177,8 @@ class PinterestDownloader(Downloader):
             available = []
             errors = []
             for result in results:
+                if isinstance(result, SiteHTTPError) and result.status == 429:
+                    raise result
                 if isinstance(result, DownloadError):
                     errors.append(result)
                 elif isinstance(result, BaseException):
@@ -213,7 +220,14 @@ class PinterestDownloader(Downloader):
                 if abs(audio_duration - duration) > max(3, duration * 0.05):
                     raise DownloadError("مدت صوت و تصویر HLS با هم مطابقت ندارد.")
             quality = replace(self._quality(base, variant), endpoint=url, duration=duration)
-            return quality, Source(url, "hls", HEADERS.copy(), audio_url)
+            return quality, Source(
+                url,
+                "hls",
+                HEADERS.copy(),
+                audio_url,
+                require_audio=variant.require_audio,
+                duration=duration,
+            )
         except SiteHTTPError as error:
             if error.status not in {401, 403, 404, 410}:
                 raise

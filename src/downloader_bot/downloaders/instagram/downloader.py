@@ -24,7 +24,7 @@ class InstagramDownloader(Downloader):
     async def inspect(self, url: str) -> Media:
         kind, _ = content_path(url)
         clients = list(self.accounts.items())
-        if kind != "story":
+        if kind != "story" or self.client.cookie:
             clients.insert(0, ("guest", self.client))
         error = DownloadError("دریافت استوری به نشست مجاز اینستاگرام در تنظیمات ربات نیاز دارد.")
         for account_id, client in clients:

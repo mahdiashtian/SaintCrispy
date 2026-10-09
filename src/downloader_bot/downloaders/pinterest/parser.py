@@ -523,6 +523,7 @@ class HLSVariant:
     height: int | None
     codec: str
     audio_url: str | None
+    require_audio: bool = False
 
     def quality(self) -> Quality:
         identity = (
@@ -605,6 +606,8 @@ def read_hls_variants(manifest: str, manifest_url: str) -> tuple[HLSVariant, ...
                     int(resolution[2]) or None if resolution else None,
                     video_codec,
                     audio,
+                    bool(rendition)
+                    or any(name in codecs for name in ("mp4a", "opus", "ac-3", "ec-3")),
                 )
                 key = variant.quality().key
                 if key not in variants or variant.bandwidth > variants[key].bandwidth:

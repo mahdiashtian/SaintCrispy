@@ -252,7 +252,7 @@ class SoundCloudDownloader(Downloader):
                     or is_preview_url(url, duration)
                 ):
                     continue
-                return candidate, Source(url, candidate.protocol)
+                return candidate, Source(url, candidate.protocol, duration=duration or None)
             if failure is not None:
                 raise failure
         return None
