@@ -123,7 +123,9 @@ async def check_quality(provider, media, quality, args):
                 expected_media_seconds=source.duration,
                 telegram_url_candidate=source.protocol == "progressive" and not source.audio_url,
             )
-            async with httpx.AsyncClient(proxy=source.proxy, trust_env=False, timeout=20) as http:
+            async with httpx.AsyncClient(
+                proxy=source.proxy or None, trust_env=False, timeout=20
+            ) as http:
                 row.update(
                     await sample_source(
                         http,

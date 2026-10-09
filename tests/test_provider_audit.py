@@ -109,7 +109,9 @@ async def test_audit_checks_later_qualities_after_a_resolution_failure(monkeypat
     async def resolve(_, quality):
         if quality.key == "broken":
             raise DownloadError("Unavailable rendition", code="test_unavailable")
-        return Source("https://cdn.example/audio?token=PRIVATE", "progressive", size_bytes=12)
+        return Source(
+            "https://cdn.example/audio?token=PRIVATE", "progressive", proxy="", size_bytes=12
+        )
 
     monkeypatch.setattr(
         audit, "SoundCloudDownloader", lambda _: SimpleNamespace(inspect=inspect, resolve=resolve)
