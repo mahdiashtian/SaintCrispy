@@ -328,6 +328,8 @@ python tools/load_test_transfers.py --requests 1000 --unique-downloads 1000 --al
 
 Live provider probes use the current network and optional account settings. `--telegram` registers media with Telegram but does not send chat messages. The local load test uses real HTTP and, with `--database`, the configured database/cache, while simulating Telegram. `--provider-mix` cycles site labels; it does not run real provider extraction. The benchmark removes only rows and cache keys for its private test account.
 
+Audit cases for one site run sequentially so the diagnostic does not create its own metadata burst; different sites remain concurrent. Instagram refreshes metadata on the first quality resolution, then reuses that session's snapshot for up to 15 seconds (at most 128 snapshots). It checks the selected CDN source every time and refreshes rejected cached URLs before failing. Cookies and snapshots remain isolated by client session.
+
 ## Troubleshooting
 
 - **Provider extraction failures:** `inspection_finished` records include a safe `error_code` when a provider can identify the cause, such as `soundcloud_protected_stream`, `youtube_login_required`, `youtube_js_challenge_failed` or `youtube_cdn_unavailable`. A single unavailable format does not hide verified alternatives; HTTP 429 remains visible. SoundCloud refreshes unusable HTML transcodings from its own API and supports standard AES-128 `encrypted-hls`; CTR/CBC DRM formats remain unavailable. Only full, accessible streams are offered.

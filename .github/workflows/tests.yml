@@ -67,9 +67,9 @@ jobs:
       - name: Download public qualities to EOF
         id: provider_audit
         if: github.event_name == 'workflow_dispatch' && inputs.audit_providers
-        continue-on-error: true
         run: >-
           python tools/audit_providers.py --all-qualities --stream --strict
+          --max-stream-mib 256 --case-timeout 900 --transfer-timeout 240
           --url soundcloud=https://soundcloud.com/quavoofficial/away
           --url soundcloud=https://soundcloud.com/octobersveryown/quebec
           --url soundcloud=https://soundcloud.com/gdaal/mojezeh
@@ -80,6 +80,7 @@ jobs:
           --url pinterest=https://www.pinterest.com/pin/664281013778109217/
           --url xvideos=https://www.xvideos.com/video4588838/_
           --url xvideos=https://www.xvideos.com/embedframe/4588838
+          --url xvideos=https://www.xvideos.com/video.uptoip6a0b/_
           --url xnxx=https://www.xnxx.com/video-bykb3e9/video
           --url xnxx=https://www.xnxx.com/video-55awb78/video
           --output '${{ runner.temp }}/provider-audit.json'

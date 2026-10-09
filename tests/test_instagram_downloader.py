@@ -218,6 +218,66 @@ async def test_new_graphql_flow_refreshes_signed_urls_and_does_not_leak_cookies(
         assert len([r for r in calls if r.url.path == "/api/graphql"]) == 2
 
 
+@pytest.mark.parametrize("invalidate", ["expired", "cdn_denied", "changed_identity"])
+async def test_resolution_snapshot_is_bounded_fresh_and_refreshes_invalid_sources(
+    monkeypatch, invalidate
+):
+    now = 100.0
+    calls = 0
+    reject_old = False
+    node = find_media(fixture(), "Chunk8-jurw")
+    media, formats = read_media(node, PAGE, "Chunk8-jurw")
+
+    async def content(client, url):
+        nonlocal calls
+        calls += 1
+        fresh = (
+            replace(media, content_id="replacement")
+            if calls == 2 and invalidate == "changed_identity"
+            else media
+        )
+        return fresh, [
+            replace(fmt, source=replace(fmt.source, url=fmt.source.url + f"&generation={calls}"))
+            for fmt in formats
+        ]
+
+    async def sample(url, page_url, **kwargs):
+        if reject_old and "generation=1" in url:
+            raise SiteHTTPError(403, "Expired URL")
+        return sample_mp4(audio=False)
+
+    monkeypatch.setattr(
+        "downloader_bot.downloaders.instagram.downloader.time",
+        SimpleNamespace(monotonic=lambda: now),
+    )
+    async with httpx.AsyncClient() as http:
+        client = InstagramClient(http)
+        monkeypatch.setattr(client, "sample", sample)
+        downloader = InstagramDownloader(client)
+        monkeypatch.setattr(downloader, "_media", content)
+        quality = next(q for q in media.qualities if "_mp4_" in q.key)
+        selected = await downloader._selected(client, media, formats, quality)
+        quality = selected[0].quality
+        media = replace(media, qualities=(quality,))
+        first, second = await asyncio.gather(
+            downloader.resolve(media, quality), downloader.resolve(media, quality)
+        )
+        assert calls == 1 and first.url == second.url
+        assert "generation=1" in first.url
+        if invalidate == "cdn_denied":
+            reject_old = True
+        else:
+            now += 16
+        if invalidate == "changed_identity":
+            with pytest.raises(DownloadError, match="تغییر"):
+                await downloader.resolve(media, quality)
+        else:
+            third = await downloader.resolve(media, quality)
+            assert "generation=2" in third.url
+        assert calls == 2
+        assert len(downloader._resolution_cache) <= 128
+
+
 @pytest.mark.parametrize("failure", ["status", "timeout", "malformed"])
 async def test_unavailable_optional_apis_do_not_hide_the_working_shortcode_query(failure):
     queried = []

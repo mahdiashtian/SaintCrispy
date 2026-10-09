@@ -42,8 +42,8 @@ SAMPLES = {
     "youtube": "https://youtu.be/jNQXAC9IVRw",
     "instagram": "https://www.instagram.com/reel/Chunk8-jurw/",
     "pinterest": "https://www.pinterest.com/pin/2885187256207927/",
-    "xvideos": "https://www.xvideos.com/video4588838/_",
-    "xnxx": "https://www.xnxx.com/video-bykb3e9/video",
+    "xvideos": "https://www.xvideos.com/video.uptoip6a0b/_",
+    "xnxx": "https://www.xnxx.com/video-55awb78/video",
 }
 
 
@@ -282,7 +282,12 @@ async def audit(args):
                 and "error_type" not in result
             )
 
-        await asyncio.gather(*(inspect(*case) for case in requested_cases(args)))
+        async def inspect_site(site):
+            for case in requested_cases(args):
+                if case[0] == site:
+                    await inspect(*case)
+
+        await asyncio.gather(*(inspect_site(site) for site in (args.sites or SAMPLES)))
         if args.telegram and any(row.get("_sources") for row in results.values()):
             telegram = TelegramClient(
                 MemorySession(),

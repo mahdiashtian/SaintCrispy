@@ -1,4 +1,6 @@
 import asyncio
+import time
+from collections import OrderedDict
 from dataclasses import replace
 
 from downloader_bot.downloaders.base import Downloader
@@ -12,6 +14,8 @@ class InstagramDownloader(Downloader):
     def __init__(self, client: InstagramClient, accounts: dict[str, InstagramClient] | None = None):
         self.client = client
         self.accounts = accounts or {}
+        self._resolution_cache = OrderedDict()
+        self._refresh_lock = asyncio.Lock()
 
     def cache_key(self, url: str) -> str:
         kind, code = content_path(url)
@@ -55,16 +59,11 @@ class InstagramDownloader(Downloader):
         client = self.client if media.account_id == "guest" else self.accounts.get(media.account_id)
         if client is None:
             raise DownloadError("نشست اینستاگرام این درخواست دیگر فعال نیست؛ لینک را دوباره بفرست.")
-        fresh, formats = await self._media(client, media.page_url)
-        if fresh.content_id != media.content_id:
-            raise DownloadError("محتوای اینستاگرام تغییر کرده؛ لینک را دوباره بفرست.")
-        candidates = [
-            f
-            for f in formats
-            if f.quality.key == quality.key
-            or (f.quality.codec == "video" and quality.key.startswith(f.quality.key + "_"))
-        ]
-        available = await self._available(client, fresh, candidates)
+        fresh, formats, cached = await self._resolution_media(client, media)
+        available = await self._selected(client, fresh, formats, quality)
+        if not available and cached:
+            fresh, formats, _ = await self._resolution_media(client, media, refresh=True)
+            available = await self._selected(client, fresh, formats, quality)
         if not available:
             raise DownloadError("کیفیت انتخاب‌شده دیگر در دسترس نیست؛ لینک را دوباره بفرست.")
         selected = available[0]
@@ -74,6 +73,32 @@ class InstagramDownloader(Downloader):
         ) != (quality.width, quality.height):
             raise DownloadError("ابعاد کیفیت انتخاب‌شده تغییر کرده؛ لینک را دوباره بفرست.")
         return selected.source
+
+    async def _resolution_media(self, client, media, *, refresh=False):
+        # Keep one fresh snapshot for nearby quality selections in the same session.
+        key = (client, media.content_id)
+        async with self._refresh_lock:
+            entry = self._resolution_cache.get(key)
+            if not refresh and entry and entry[0] > time.monotonic():
+                self._resolution_cache.move_to_end(key)
+                return entry[1], entry[2], True
+            self._resolution_cache.pop(key, None)
+            fresh, formats = await self._media(client, media.page_url)
+            if fresh.content_id != media.content_id:
+                raise DownloadError("محتوای اینستاگرام تغییر کرده؛ لینک را دوباره بفرست.")
+            self._resolution_cache[key] = (time.monotonic() + 15, fresh, formats)
+            while len(self._resolution_cache) > 128:
+                self._resolution_cache.popitem(last=False)
+            return fresh, formats, False
+
+    async def _selected(self, client, fresh, formats, quality):
+        candidates = [
+            f
+            for f in formats
+            if f.quality.key == quality.key
+            or (f.quality.codec == "video" and quality.key.startswith(f.quality.key + "_"))
+        ]
+        return await self._available(client, fresh, candidates)
 
     async def _available(self, client, media, formats):
         results = await asyncio.gather(
