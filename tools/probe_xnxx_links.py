@@ -13,7 +13,7 @@ from telethon.sessions import MemorySession
 
 from downloader_bot.bot.progress import TransferProgress
 from downloader_bot.bot.transfers.streaming import media_chunks, upload_stream
-from downloader_bot.core.urls import extract_xnxx_url
+from downloader_bot.downloaders.router import extract_xnxx_url
 from downloader_bot.downloaders.xnxx.client import XNXXClient
 from downloader_bot.downloaders.xnxx.downloader import XNXXDownloader
 from downloader_bot.schemas.media import DownloadError
