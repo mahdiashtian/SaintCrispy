@@ -29,7 +29,21 @@ Instagram fixture tests cover a null product response, failed web pages, and an
 authorized numeric media response without a shortcode. They do not establish that
 the exact reel is publicly accessible from the production server.
 
-Validation before publication: **689 tests passed, 5 database integration tests
+The first [Linux completeness audit](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38066730469)
+passed **694 code/database tests** and decoded the reported reel's complete ordinary
+MP4: 1,468,542 bytes and 11.7 seconds against a rounded 12-second origin duration.
+It also exposed a validation error for seven VP9 renditions: the duration calculation
+omitted media samples stored in the initial `moov`. The calculation now includes
+both initial samples and fragments, with a real VP9 decoding regression test.
+Remaining live results and the final revision are recorded below when verification completes.
+
+The refreshed local 1,000-unique-input pipeline benchmark completed every transfer
+in **12.066 seconds**, reached **1,000 HTTP connections**, and kept upload parts at
+**64**. It read and uploaded 1,048,699,000 bytes each, with no source errors or dropped
+logs. Maximum measured event-loop delay was 1.266 seconds. As above, Telegram and the
+repository are simulated in this throughput measurement.
+
+Validation before final publication: **693 tests passed, 5 database integration tests
 skipped** locally; PostgreSQL/Redis integration runs additionally on Linux CI.
 No production server connection or production Telegram message was used.
 

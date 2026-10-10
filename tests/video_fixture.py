@@ -5,7 +5,7 @@ def box(kind, data):
     return (len(data) + 8).to_bytes(4, "big") + kind + data
 
 
-def mp4_header(width=32, height=32, duration=1, codec=b"avc1"):
+def mp4_header(width=32, height=32, duration=1, codec=b"avc1", *, handler=b"vide"):
     tkhd = bytearray(84)
     tkhd[40:44] = (65536).to_bytes(4, "big")
     tkhd[56:60] = (65536).to_bytes(4, "big")
@@ -17,7 +17,7 @@ def mp4_header(width=32, height=32, duration=1, codec=b"avc1"):
     stsd = box(b"stsd", b"\0" * 4 + (1).to_bytes(4, "big") + box(codec, b""))
     mdia = box(
         b"mdia",
-        box(b"hdlr", b"\0" * 8 + b"vide") + box(b"mdhd", mdhd) + box(b"minf", box(b"stbl", stsd)),
+        box(b"hdlr", b"\0" * 8 + handler) + box(b"mdhd", mdhd) + box(b"minf", box(b"stbl", stsd)),
     )
     moov = box(b"moov", box(b"trak", box(b"tkhd", tkhd) + mdia))
     return box(b"ftyp", b"isom\0\0\0\0isommp42") + moov

@@ -237,7 +237,7 @@ class TelegramDelivery:
                     duration = next(
                         (
                             a.duration
-                            for a in getattr(document, "attributes", ())
+                            for a in (getattr(document, "attributes", None) or ())
                             if isinstance(a, kind)
                         ),
                         None,
@@ -376,6 +376,10 @@ class TelegramDelivery:
             )
 
         video = streamable_video(quality)
+        if quality.mime_type == "audio/mp4" and source.protocol == "progressive":
+            chunks = media_chunks(self.http, source, quality, self.ffmpeg, progress)
+            checked = validated_mp4(chunks, progress, source.duration, audio_only=True)
+            return await upload(checked), None
         if video and source.protocol == "progressive":
             async with inspect_mp4(
                 media_chunks(self.http, source, quality, self.ffmpeg, progress),

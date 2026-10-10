@@ -77,6 +77,7 @@ def video_info(moov, prefix_size: int) -> VideoInfo | None:
             b"hvc1": "h265",
             b"hev1": "h265",
             b"av01": "av1",
+            b"vp09": "vp9",
         }
         codec = codecs.get(sample[0]) if sample else None
         return VideoInfo(width, height, duration, codec, has_audio, prefix_size)

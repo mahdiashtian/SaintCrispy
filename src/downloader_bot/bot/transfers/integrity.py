@@ -189,7 +189,9 @@ class MP4Integrity:
                 track.fragment_ticks += sample_duration
                 self._sample_bytes += sample_size
 
-    def finish(self, expected: float | None, require_audio: bool = False) -> float:
+    def finish(
+        self, expected: float | None, require_audio: bool = False, *, audio_only: bool = False
+    ) -> float:
         if (
             self._header
             or (self._kind and not self._open_ended)
@@ -198,24 +200,25 @@ class MP4Integrity:
         ):
             self._invalid()
         durations = {
-            track.kind: track.fragment_ticks / track.timescale
+            track.kind: track.duration + track.fragment_ticks / track.timescale
             if self._fragmented
             else track.duration
             for track in self.tracks.values()
             if track.kind in {b"vide", b"soun"}
         }
-        if b"vide" not in durations or (require_audio and b"soun" not in durations):
+        primary = b"soun" if audio_only else b"vide"
+        if primary not in durations or (require_audio and b"soun" not in durations):
             self._invalid()
         for kind, duration in durations.items():
-            if kind == b"vide" or require_audio:
+            if kind == primary or require_audio:
                 require_duration(duration, expected)
-        return durations[b"vide"]
+        return durations[primary]
 
 
-async def validated_mp4(chunks, progress, expected, require_audio=False):
+async def validated_mp4(chunks, progress, expected, require_audio=False, *, audio_only=False):
     validator = MP4Integrity()
     async with aclosing(chunks):
         async for chunk in chunks:
             validator.feed(chunk)
             yield chunk
-        progress.seconds = validator.finish(expected, require_audio)
+        progress.seconds = validator.finish(expected, require_audio, audio_only=audio_only)

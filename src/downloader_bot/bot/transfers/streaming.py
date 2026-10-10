@@ -66,13 +66,17 @@ def _input_options(source: Source, headers: dict[str, str], protocol: str) -> li
     return options
 
 
-def remux_arguments(source: Source, quality: Quality) -> list[str]:
+def remux_arguments(source: Source, quality: Quality, *, pipe_input: bool = False) -> list[str]:
     """Build a codec-copy command; media discovery stays inside each provider."""
-    inputs = [
-        *_input_options(source, source.headers, source.input_protocol or source.protocol),
-        "-i",
-        source.url,
-    ]
+    inputs = (
+        ["-i", "pipe:0"]
+        if pipe_input
+        else [
+            *_input_options(source, source.headers, source.input_protocol or source.protocol),
+            "-i",
+            source.url,
+        ]
+    )
     if source.audio_url:
         inputs.extend(
             [
@@ -198,10 +202,15 @@ async def _media_chunks(
             if key.lower() not in {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
         }
     try:
+        pipe_input = (
+            source.protocol == "progressive"
+            and source.chunk_size
+            and quality.mime_type.startswith("audio/")
+        )
         process = await asyncio.create_subprocess_exec(
             ffmpeg,
-            *remux_arguments(source, quality),
-            stdin=asyncio.subprocess.DEVNULL,
+            *remux_arguments(source, quality, pipe_input=bool(pipe_input)),
+            stdin=asyncio.subprocess.PIPE if pipe_input else asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=environment,
@@ -226,12 +235,36 @@ async def _media_chunks(
                         progress.seconds = media_seconds
 
     errors = asyncio.create_task(drain_errors())
+
+    async def feed_input():
+        try:
+            # Preserve the provider's small HTTP ranges while copying audio codecs.
+            async with AsyncExitStack() as stack:
+                input_http = http
+                if source.proxy is not None:
+                    input_http = await stack.enter_async_context(
+                        httpx.AsyncClient(proxy=source.proxy or None, trust_env=False, timeout=30)
+                    )
+                async with aclosing(progressive_chunks(input_http, source, None)) as chunks:
+                    async for chunk in chunks:
+                        if (trace := current_transfer.get()) is not None:
+                            trace.add("progressive_input_bytes", len(chunk))
+                        process.stdin.write(chunk)
+                        await process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # The process exit status below still decides whether output is valid.
+        finally:
+            process.stdin.close()
+
+    feeder = asyncio.create_task(feed_input()) if pipe_input else None
     try:
         while chunk := await process.stdout.read(READ_SIZE):
             if progress is not None:
                 progress.downloaded += len(chunk)
             yield chunk
         returncode = await process.wait()
+        if feeder is not None:
+            await feeder
         await errors
         if returncode != 0 or skipped_segment:
             raise DownloadError(
@@ -245,6 +278,10 @@ async def _media_chunks(
     finally:
         if process.returncode is None:
             process.kill()
+        if feeder is not None:
+            if not feeder.done():
+                feeder.cancel()
+            await asyncio.gather(feeder, return_exceptions=True)
         await process.wait()
         await errors
 

@@ -88,13 +88,23 @@ async def integrity_origin(tmp_path):
             "+faststart",
         ],
     )
-    await create("audio.m4a", ["-i", str(tmp_path / "full.mp4"), "-vn", "-c", "copy"])
+    await create(
+        "audio.m4a",
+        ["-i", str(tmp_path / "full.mp4"), "-vn", "-c", "copy", "-movflags", "+faststart"],
+    )
+    await create(
+        "short-audio.m4a",
+        ["-i", str(tmp_path / "short.mp4"), "-vn", "-c", "copy", "-movflags", "+faststart"],
+    )
+    await create("audio.webm", ["-i", str(tmp_path / "full.mp4"), "-vn", "-c:a", "libopus"])
     files = {"/" + p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    requests = []
 
     async def respond(reader, writer):
         try:
             request = (await reader.readuntil(b"\r\n\r\n")).decode("latin1")
             method, path, _ = request.splitlines()[0].split()
+            requests.append(request)
             body = files[path]
             start, stop = 0, len(body) - 1
             match = re.search(r"(?im)^range: bytes=(\d+)-(\d*)", request)
@@ -118,6 +128,7 @@ async def integrity_origin(tmp_path):
             url=f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}",
             files=files,
             ffmpeg=ffmpeg,
+            requests=requests,
         )
 
 
@@ -224,7 +235,7 @@ async def test_real_audio_preserves_full_length_and_rejects_preview(integrity_or
             PEER,
             media,
             quality,
-            Source(origin.url + ("/full.mp4" if full else "/short.mp4"), "progressive"),
+            Source(origin.url + ("/audio.m4a" if full else "/short-audio.m4a"), "progressive"),
             progress,
         )
         if not full:
@@ -236,6 +247,126 @@ async def test_real_audio_preserves_full_length_and_rejects_preview(integrity_or
     data = b"".join(client.parts[i] for i in sorted(client.parts))
     assert await decoded_seconds(origin.ffmpeg, data, ["-map", "0:a:0"]) >= 17.9
     assert progress.seconds >= 17.9
+
+
+@pytest.mark.parametrize("mime,extension", [("audio/mp4", "m4a"), ("audio/webm", "webm")])
+async def test_progressive_audio_validation_preserves_required_small_http_ranges(
+    integrity_origin, mime, extension
+):
+    origin = integrity_origin
+    quality = replace(QUALITY, mime_type=mime, extension=extension)
+    media = Media("youtube", "id", "Public audio", "", 18, "page", None, (quality,))
+    client = TelegramMock()
+    async with httpx.AsyncClient(trust_env=False) as http:
+        reference = await TelegramDelivery(client, http, origin.ffmpeg).new_file(
+            PEER,
+            media,
+            quality,
+            Source(origin.url + f"/audio.{extension}", "progressive", chunk_size=4096),
+        )
+    assert reference.verified_complete
+    assert len(origin.requests) > 2 and all("Range: bytes=" in r for r in origin.requests)
+    data = b"".join(client.parts[i] for i in sorted(client.parts))
+    assert await decoded_seconds(origin.ffmpeg, data, ["-map", "0:a:0"]) >= 17.9
+
+
+async def test_fragmented_vp9_includes_samples_in_the_initial_moov(tmp_path):
+    import imageio_ffmpeg
+
+    from downloader_bot.bot.transfers.streaming import media_chunks
+
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    video = tmp_path / "vp9.mp4"
+    process = await asyncio.create_subprocess_exec(
+        ffmpeg,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=blue:s=80x48:r=30",
+        "-t",
+        "11.7",
+        "-an",
+        "-c:v",
+        "libvpx-vp9",
+        str(video),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, diagnostic = await process.communicate()
+    assert process.returncode == 0, diagnostic.decode(errors="replace")
+    quality = replace(QUALITY, codec="vp9", protocol="dash")
+    validator = MP4Integrity()
+    async with httpx.AsyncClient() as http:
+        data = b"".join(
+            [
+                c
+                async for c in media_chunks(
+                    http,
+                    Source(str(video), "dash", duration=12),
+                    quality,
+                    ffmpeg,
+                )
+            ]
+        )
+    validator.feed(data)
+    duration = validator.finish(12)
+    track = next(t for t in validator.tracks.values() if t.kind == b"vide")
+    assert track.duration > 0 and track.fragment_ticks > 0
+    assert duration == pytest.approx(
+        await decoded_seconds(ffmpeg, data, ["-map", "0:v:0"]), abs=0.05
+    )
+
+
+async def test_cancelling_ranged_audio_closes_http_feeder_and_ffmpeg(integrity_origin, monkeypatch):
+    from downloader_bot.bot.transfers.streaming import media_chunks
+
+    ready, closed = asyncio.Event(), asyncio.Event()
+    process = None
+    original_start = asyncio.create_subprocess_exec
+
+    async def start(*args, **kwargs):
+        nonlocal process
+        process = await original_start(*args, **kwargs)
+        return process
+
+    monkeypatch.setattr(
+        "downloader_bot.bot.transfers.streaming.asyncio.create_subprocess_exec", start
+    )
+
+    class WaitingBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            try:
+                ready.set()
+                await asyncio.Future()
+                yield b"unused"
+            finally:
+                closed.set()
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=WaitingBody()))
+    ) as http:
+        quality = replace(QUALITY, mime_type="audio/webm", extension="webm")
+
+        async def consume():
+            async for _ in media_chunks(
+                http,
+                Source("https://cdn.example/audio", "progressive", chunk_size=4096),
+                quality,
+                integrity_origin.ffmpeg,
+                remux_progressive=True,
+            ):
+                pass
+
+        task = asyncio.create_task(consume())
+        await asyncio.wait_for(ready.wait(), 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 2)
+    assert closed.is_set() and process.returncode is not None
 
 
 def test_mp4_validation_rejects_partial_boxes_even_if_http_length_looks_complete():

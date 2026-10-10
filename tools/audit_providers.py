@@ -109,12 +109,18 @@ async def stream_source(http, source, quality, args, row):
 
 
 def checked_chunks(http, source, quality, args, progress):
-    audio = quality.mime_type.startswith("audio/") and bool(source.duration)
+    audio = (
+        quality.mime_type.startswith("audio/")
+        and quality.mime_type != "audio/mp4"
+        and bool(source.duration)
+    )
     chunks = media_chunks(http, source, quality, args.ffmpeg, progress, remux_progressive=audio)
     if quality.mime_type == "video/mp4":
         return validated_mp4(
             chunks, progress, source.duration or quality.duration, source.require_audio
         )
+    if quality.mime_type == "audio/mp4":
+        return validated_mp4(chunks, progress, source.duration, audio_only=True)
     return chunks
 
 
@@ -189,7 +195,7 @@ async def register_quality(telegram, quality, source, args, row):
                 seconds = next(
                     (
                         a.duration
-                        for a in getattr(document, "attributes", ())
+                        for a in (getattr(document, "attributes", None) or ())
                         if isinstance(a, kind)
                     ),
                     None,

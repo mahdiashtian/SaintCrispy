@@ -387,7 +387,12 @@ async def test_header_inspection_cancellation_closes_source():
 
 
 def test_header_prefix_is_bounded_and_reads_modern_codecs():
-    for codec, expected in ((b"avc1", "h264"), (b"hvc1", "h265"), (b"av01", "av1")):
+    for codec, expected in (
+        (b"avc1", "h264"),
+        (b"hvc1", "h265"),
+        (b"av01", "av1"),
+        (b"vp09", "vp9"),
+    ):
         complete, info = mp4_header(header_fixture(80, 48, 4.25, codec))
         assert complete and info.codec == expected and info.duration == 4.25
     assert mp4_header(box(b"free", b"x" * MAX_HEADER_BYTES)) == (True, None)

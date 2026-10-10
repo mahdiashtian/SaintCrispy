@@ -74,14 +74,18 @@ duration must match before publication. A shorter or unclassified document falls
 back to the capped local stream. Progressive MP4 uploads validate complete boxes and
 track duration. Fragmented MP4 validates the received video and required audio tracks
 independently, including sample payload lengths, before finalizing the upload.
-Supported progressive audio is copied through the bounded FFmpeg queue and checked
-against its expected duration. HLS/DASH still require successful process completion,
+Progressive M4A/MP4 audio retains its original bytes and validates its audio track
+directly. Other supported progressive audio uses the bounded FFmpeg queue; sources
+requiring small HTTP ranges feed FFmpeg through a cancellable bounded pipe while
+retaining the provider's proxy/headers. HLS/DASH still require successful process completion,
 no skipped segments and a complete duration. MP4 preparation and audio validation use
 codec copy, not re-encoding, and do not save a complete media file locally.
 
 `transfer_finished` now reports `expected_media_seconds`, `received_media_seconds`
 and `completeness_verified`, alongside sizes, stage timings and traffic totals.
-FFmpeg output, HTTP input and mixed measurements are identified separately.
+FFmpeg output, HTTP input and mixed measurements are identified separately;
+`progressive_input_bytes` measures HTTP input for piped remuxing. MP4 duration counts
+both initial sample-table media and later fragments, including VP9 renditions.
 Unknown-duration or opaque original files retain byte/EOF validation; origin metadata
 and Telegram attributes cannot establish an independent duration in every format.
 
