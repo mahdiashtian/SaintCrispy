@@ -69,6 +69,56 @@ cannot prove a previously truncated file was complete. The replacement is saved 
 after successful validation and publication. The unique content/quality/account key
 and shared producer lock remain unchanged. No database, user history or menu is deleted.
 
+### Video previews and server registration (October 10 follow-up)
+
+The previous upload path supplied streaming flags and dimensions but no JPEG
+thumbnail. A real Telegram registration of a neutral generated MP4 returned no
+thumbnails when none was supplied, and one thumbnail when a JPEG was supplied.
+Telegram Desktop's [video renderer](https://github.com/telegramdesktop/tdesktop/blob/dev/Telegram/SourceFiles/history/view/media/history_view_gif.cpp)
+uses the thumbnail for the displayed aspect ratio; without it that calculation
+falls back to a square. A requested streaming flag alone therefore does not
+establish that a client has a correctly displayed video preview.
+
+MP4 relay uploads now retain at most 1 MiB of bytes already being uploaded and
+decode one frame in a cancellable FFmpeg process. The JPEG is bounded to 320 pixels
+per side and 20 KiB, and is uploaded through the shared part window. There is no
+second source download or local media file. Preview preparation shares the existing
+FFmpeg concurrency bound and does not change the video or audio codecs.
+
+Before publishing an uploaded MP4, the bot registers it with `UploadMediaRequest`
+and checks Telegram's returned video attribute, positive dimensions/duration,
+streaming flag, MIME type and thumbnail. URL registration also requires a usable
+thumbnail; otherwise it falls back to the relay. Rejected registrations are never
+published or saved as successfully delivered files. `video_registration_checked`
+records these returned fields without file IDs, credentials or source URLs.
+`preview_upload_attempt_bytes` and `preview_upload_acked_bytes` are separate from
+the video payload counters.
+
+Migration 5 adds nullable `media_files.video_preview`. A verified old reference with
+an unknown preview is checked against its original Telegram message once. A usable
+reference is retained; a missing preview or invalid video attribute is rebuilt once
+from the selected source and quality. Failed repairs preserve the old reference.
+Unverified legacy files still require the completeness repair introduced above.
+Redis writes include the same preview state, and restarting uses a fresh cache
+namespace. History, catalogs and existing messages are preserved. Request the video
+again after updating and restarting the coordinator; old messages are not edited.
+
+Restored menus may fill previously missing dimensions for the same content and
+quality key. A change in a known dimension or content identity remains rejected.
+Bounded MP4 header inspection also preserves oversized input chunks when replaying
+the stream, rather than dropping the excess bytes.
+
+The neutral real-Telegram probe registered the production relay output with a
+thumbnail and streaming attributes, then decoded its first frame from 16,384 of
+39,965 bytes fetched back from Telegram. It published no chat messages. This verifies
+partial-file decoding and returned Telegram metadata; it does not verify playback
+in the user's Telegram Desktop instance or the supplied source-specific video.
+
+Validation: 711 tests passed on Windows/Python 3.14 and 711 on Linux/Python 3.12
+with real PostgreSQL/Redis and FFmpeg. Ruff lint/format checks passed. Coverage
+includes preview persistence, missing-preview cache repair/reuse, invalid server
+registration rejection, unknown-dimension menu recovery and 1,000-request deduplication.
+
 For direct Telegram URL registration, known source size and expected audio/video
 duration must match before publication. A shorter or unclassified document falls
 back to the capped local stream. Progressive MP4 uploads validate complete boxes and

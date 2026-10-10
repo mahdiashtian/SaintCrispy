@@ -253,6 +253,44 @@ async def test_download_reply_is_only_attached_in_original_chat():
     assert "reply_to" not in calls[1]
 
 
+@pytest.mark.parametrize("dimensions", [(None, None), (1280, None), (None, 720), (1280, 720)])
+async def test_restored_quality_can_fill_missing_dimensions_without_changing_identity(dimensions):
+    from unittest.mock import AsyncMock
+
+    quality = replace(QUALITY, width=dimensions[0], height=dimensions[1], endpoint="")
+    stored = replace(MEDIA, qualities=(quality,), requires_refresh=True)
+    actual = replace(QUALITY, width=1280, height=720)
+    fresh = replace(MEDIA, qualities=(actual,))
+    provider = SimpleNamespace(
+        inspect=AsyncMock(return_value=fresh),
+        resolve=AsyncMock(return_value=Source("source", "progressive")),
+    )
+    repository = SimpleNamespace(save=AsyncMock())
+    delivery = SimpleNamespace(
+        new_file=AsyncMock(
+            return_value=TelegramFile(1, 2, b"ref", b"peer", 3, verified_complete=True)
+        )
+    )
+    await DownloadService(provider, repository, delivery)._transfer(1, stored, quality, None)
+    provider.resolve.assert_awaited_once_with(fresh, actual)
+    repository.save.assert_awaited_once()
+
+
+@pytest.mark.parametrize("dimensions", [(1920, 720), (1280, 1080)])
+async def test_restored_quality_still_rejects_a_change_in_known_dimensions(dimensions):
+    from unittest.mock import AsyncMock
+
+    quality = replace(QUALITY, width=1280, height=720)
+    stored = replace(MEDIA, qualities=(quality,), requires_refresh=True)
+    fresh = replace(MEDIA, qualities=(replace(quality, width=dimensions[0], height=dimensions[1]),))
+    provider = SimpleNamespace(inspect=AsyncMock(return_value=fresh), resolve=AsyncMock())
+    delivery = SimpleNamespace(new_file=AsyncMock())
+    with pytest.raises(DownloadError):
+        await DownloadService(provider, None, delivery)._transfer(1, stored, quality, None)
+    provider.resolve.assert_not_awaited()
+    delivery.new_file.assert_not_awaited()
+
+
 def test_custom_emoji_uses_telegram_utf16_offsets():
     presentation = BotPresentation()
     presentation.emojis = {"🎵": 101, "✅": 102}

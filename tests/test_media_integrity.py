@@ -181,7 +181,8 @@ async def test_each_provider_delivery_rejects_11_second_external_preview_and_sen
             Source(origin.url + "/full.mp4", "progressive", require_audio=True),
         )
     assert file.verified_complete and len(client.messages) == 1
-    assert isinstance(client.messages[0], types.InputMediaUploadedDocument)
+    assert isinstance(client.messages[0], types.InputMediaDocument)
+    assert client.uploaded[0].thumb and file.video_preview
     data = b"".join(client.parts[i] for i in sorted(client.parts))
     assert data == origin.files["/full.mp4"]
     assert await decoded_seconds(origin.ffmpeg, data, ["-map", "0:v:0", "-map", "0:a:0"]) >= 17.9

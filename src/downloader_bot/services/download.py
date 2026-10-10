@@ -230,7 +230,10 @@ class DownloadService:
             stored = await self.repository.get(media.site, media.content_id, quality.key)
         needs_check = stored is not None and (
             not stored.verified_complete
-            or (streamable_video(quality) and stored.video_streaming is not True)
+            or (
+                streamable_video(quality)
+                and (stored.video_streaming is not True or stored.video_preview is not True)
+            )
         )
         if stored is None or needs_check:
             async with acquired(self._locks.hold(key), "deduplication_wait"):
@@ -238,7 +241,10 @@ class DownloadService:
                     stored = await self.repository.get(media.site, media.content_id, quality.key)
                 if stored is not None and (
                     not stored.verified_complete
-                    or (streamable_video(quality) and stored.video_streaming is not True)
+                    or (
+                        streamable_video(quality)
+                        and (stored.video_streaming is not True or stored.video_preview is not True)
+                    )
                 ):
                     with timed("cached_integrity_check"):
                         fresh = await self.delivery.prepare_cached(stored, quality)
@@ -276,9 +282,12 @@ class DownloadService:
                     selected = next(
                         (item for item in fresh.qualities if item.key == quality.key), None
                     )
-                    if selected is None or (selected.width, selected.height) != (
-                        quality.width,
-                        quality.height,
+                    if selected is None or any(
+                        expected is not None and expected != actual
+                        for expected, actual in (
+                            (quality.width, selected.width),
+                            (quality.height, selected.height),
+                        )
                     ):
                         raise DownloadError("⚠️ این کیفیت دیگر موجود نیست؛ لینک را دوباره بفرست.")
                     media, quality = fresh, selected

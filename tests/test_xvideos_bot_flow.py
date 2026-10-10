@@ -90,10 +90,18 @@ async def hls_origin(method, tmp_path):
 @pytest.mark.parametrize(
     "method", ["external", "stream", "failed_upload", "cancelled_upload", "hls"]
 )
-async def test_xvideos_menu_transfer_progress_and_success_only_cache(method, hls_origin):
+async def test_xvideos_menu_transfer_progress_and_success_only_cache(
+    method, hls_origin, monkeypatch
+):
+    if not hls_origin:
+        monkeypatch.setattr(
+            "downloader_bot.bot.delivery.video_thumbnail",
+            AsyncMock(return_value=b"\xff\xd8test\xff\xd9"),
+        )
     registrations, replies, edits, visits, uploads, sends = [], [], [], [], [], []
     stored = {}
     external_fetches = []
+    prepared = []
     peer = types.InputPeerUser(1, 2)
     upload_started = asyncio.Event()
     transfer_closed = asyncio.Event()
@@ -111,8 +119,11 @@ async def test_xvideos_menu_transfer_progress_and_success_only_cache(method, hls
 
         async def __call__(self, request):
             if isinstance(request, functions.messages.UploadMediaRequest):
-                external_fetches.append(request.media)
-                if method != "external":
+                if isinstance(request.media, types.InputMediaUploadedDocument):
+                    prepared.append(request.media)
+                else:
+                    external_fetches.append(request.media)
+                if method != "external" and not prepared:
                     raise errors.WebpageCurlFailedError(request=None)
                 return SimpleNamespace(
                     document=SimpleNamespace(
@@ -123,9 +134,11 @@ async def test_xvideos_menu_transfer_progress_and_success_only_cache(method, hls
                         attributes=[
                             types.DocumentAttributeVideo(1, 32, 32, supports_streaming=True)
                         ],
+                        thumbs=[types.PhotoSize("m", 32, 32, 100)],
                     )
                 )
-            uploads.append(request.bytes)
+            if isinstance(request, functions.upload.SaveBigFilePartRequest):
+                uploads.append(request.bytes)
             if method == "cancelled_upload":
                 upload_started.set()
                 await asyncio.Event().wait()
@@ -138,7 +151,13 @@ async def test_xvideos_menu_transfer_progress_and_success_only_cache(method, hls
                 raise errors.WebpageCurlFailedError(request=None)
             return SimpleNamespace(
                 id=3,
-                document=SimpleNamespace(id=4, access_hash=5, file_reference=b"reference"),
+                document=SimpleNamespace(
+                    id=4,
+                    access_hash=5,
+                    file_reference=b"reference",
+                    attributes=[types.DocumentAttributeVideo(1, 32, 32, supports_streaming=True)],
+                    thumbs=[types.PhotoSize("m", 32, 32, 100)],
+                ),
             )
 
     async def get(site, identity, quality):
@@ -243,10 +262,10 @@ async def test_xvideos_menu_transfer_progress_and_success_only_cache(method, hls
         assert set(stored) == {("xvideos", "demo", quality_key)}
         assert stored["xvideos", "demo", quality_key].document_id == 4
         if method == "hls":
-            assert len(sends) == 1 and isinstance(sends[0], types.InputMediaUploadedDocument)
+            assert len(sends) == 1 and isinstance(sends[0], types.InputMediaDocument)
             video = next(
                 item
-                for item in sends[0].attributes
+                for item in prepared[0].attributes
                 if isinstance(item, types.DocumentAttributeVideo)
             )
             assert (video.w, video.h) == (32, 32)
@@ -275,8 +294,8 @@ async def test_xvideos_menu_transfer_progress_and_success_only_cache(method, hls
             assert isinstance(external_fetches[0], types.InputMediaDocumentExternal)
         if method == "stream":
             assert b"".join(uploads) == MP4
-            assert isinstance(sends[0], types.InputMediaUploadedDocument)
-            assert sends[0].mime_type == "video/mp4"
+            assert isinstance(sends[0], types.InputMediaDocument)
+            assert prepared[0].mime_type == "video/mp4" and prepared[0].thumb
         elif method == "external":
             assert not uploads
         assert "ارسال کامل شد" in edits[-1]

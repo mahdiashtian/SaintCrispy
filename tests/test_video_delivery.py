@@ -468,9 +468,16 @@ async def test_missing_middle_hls_segment_never_completes_the_upload(tmp_path):
 @pytest.mark.parametrize("mime_type", ["video/mp4", "audio/mp4"])
 @pytest.mark.parametrize("site", ["xnxx", "xvideos"])
 async def test_external_fallback_streams_with_headers_and_uses_correct_media_attributes(
-    mime_type, site
+    mime_type, site, monkeypatch
 ):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        "downloader_bot.bot.delivery.video_thumbnail",
+        AsyncMock(return_value=b"\xff\xd8test\xff\xd9"),
+    )
     uploaded = []
+    prepared = []
     body = mp4_header(handler=b"soun" if mime_type == "audio/mp4" else b"vide") + box(
         b"mdat", b"media data"
     )
@@ -483,7 +490,21 @@ async def test_external_fallback_streams_with_headers_and_uses_correct_media_att
     class Client:
         async def __call__(self, request):
             if isinstance(request, functions.messages.UploadMediaRequest):
+                if isinstance(request.media, types.InputMediaUploadedDocument):
+                    prepared.append(request.media)
+                    return SimpleNamespace(
+                        document=SimpleNamespace(
+                            id=4,
+                            access_hash=5,
+                            file_reference=b"ref",
+                            attributes=request.media.attributes,
+                            thumbs=[types.PhotoSize("m", 32, 32, 100)],
+                        )
+                    )
                 raise errors.WebpageCurlFailedError(request=None)
+            if isinstance(request, functions.upload.SaveFilePartRequest):
+                assert request.bytes.startswith(b"\xff\xd8")
+                return True
             assert request.bytes == body
             return True
 
@@ -512,8 +533,9 @@ async def test_external_fallback_streams_with_headers_and_uses_correct_media_att
             ),
         )
     assert file.document_id == 4
-    assert uploaded[0].mime_type == mime_type
-    attributes = uploaded[0].attributes
+    sent = prepared[0] if prepared else uploaded[0]
+    assert sent.mime_type == mime_type
+    attributes = sent.attributes
     assert any(isinstance(item, types.DocumentAttributeFilename) for item in attributes)
     assert any(isinstance(item, types.DocumentAttributeAudio) for item in attributes) == (
         mime_type == "audio/mp4"

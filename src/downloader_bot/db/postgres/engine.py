@@ -52,6 +52,11 @@ MIGRATIONS = (
         "ALTER TABLE media_files ADD COLUMN IF NOT EXISTS verified_complete "
         "BOOLEAN NOT NULL DEFAULT FALSE;",
     ),
+    (
+        5,
+        "video_preview_references",
+        "ALTER TABLE media_files ADD COLUMN IF NOT EXISTS video_preview BOOLEAN;",
+    ),
 )
 
 

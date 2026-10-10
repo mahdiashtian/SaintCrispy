@@ -117,25 +117,46 @@ class TelegramMock:
         self.parts = {}
         self.messages = []
         self.registered = []
+        self.uploaded = []
+        self.thumbnails = []
+        self.document = None
 
     async def __call__(self, request):
         if isinstance(request, functions.messages.UploadMediaRequest):
             self.registered.append(request)
+            if isinstance(request.media, types.InputMediaUploadedDocument):
+                self.uploaded.append(request.media)
+                self.document = SimpleNamespace(
+                    id=10,
+                    access_hash=20,
+                    file_reference=b"ref",
+                    size=sum(map(len, self.parts.values())),
+                    mime_type=request.media.mime_type,
+                    attributes=request.media.attributes,
+                    thumbs=[types.PhotoSize("m", 80, 48, 1024)] if request.media.thumb else [],
+                )
+                return SimpleNamespace(document=self.document)
             if self.external is None:
                 raise errors.WebpageCurlFailedError(request=None)
             return SimpleNamespace(document=self.external)
+        if isinstance(request, functions.upload.SaveFilePartRequest):
+            self.thumbnails.append(request.bytes)
+            return True
         self.parts[request.file_part] = request.bytes
         return True
 
     async def send_file(self, peer, media, **options):
         self.messages.append(media)
-        attributes = getattr(media, "attributes", self.external.attributes if self.external else [])
+        registered = self.document or self.external
+        attributes = getattr(media, "attributes", registered.attributes if registered else [])
         document = SimpleNamespace(
             id=10,
             access_hash=20,
             file_reference=b"ref",
             size=sum(map(len, self.parts.values())),
             attributes=attributes,
+            mime_type="video/mp4",
+            thumbs=getattr(registered, "thumbs", []),
         )
         return SimpleNamespace(id=30, document=document)
 
@@ -187,13 +208,16 @@ async def test_real_video_with_unknown_dimensions_is_playable_before_full_downlo
             progress,
         )
     assert len(client.messages) == 1 and reference.video_streaming is True
-    media = client.messages[0]
+    assert isinstance(client.messages[0], types.InputMediaDocument)
+    media = client.uploaded[0]
     attribute = next(
         item for item in media.attributes if isinstance(item, types.DocumentAttributeVideo)
     )
     assert (attribute.w, attribute.h) == (80, 48) and attribute.supports_streaming
     assert attribute.video_codec == "h264" and attribute.preload_prefix_size > 0
     assert not attribute.nosound and media.nosound_video and not media.force_file
+    assert media.thumb and reference.video_preview is True
+    assert client.thumbnails[0].startswith(b"\xff\xd8")
     data = b"".join(client.parts[index] for index in sorted(client.parts))
     assert mp4_header(data)[1] is not None
     await decode(origin.ffmpeg, data)
@@ -213,6 +237,7 @@ async def test_external_streamable_video_keeps_the_zero_local_download_path():
         file_reference=b"ref",
         size=1024,
         attributes=[types.DocumentAttributeVideo(4, 80, 48, supports_streaming=True)],
+        thumbs=[types.PhotoSize("m", 80, 48, 1024)],
     )
     client = TelegramMock(document)
     reference = await TelegramDelivery(client, None, "").new_file(
@@ -243,9 +268,112 @@ async def test_nonstreamable_external_document_is_not_published_and_is_repaired(
             Source(origin.url + "/fast.mp4", "progressive"),
         )
     assert reference.document_id == 10 and reference.video_streaming is True
-    assert len(client.messages) == 1 and isinstance(
-        client.messages[0], types.InputMediaUploadedDocument
+    assert len(client.messages) == 1 and isinstance(client.messages[0], types.InputMediaDocument)
+    assert len(client.uploaded) == 1 and client.uploaded[0].thumb
+
+
+async def test_streamable_url_without_a_thumbnail_is_repaired_before_publication(video_origin):
+    origin = video_origin
+    document = SimpleNamespace(
+        id=9,
+        access_hash=20,
+        file_reference=b"old",
+        size=len(origin.files["/fast.mp4"]),
+        attributes=[types.DocumentAttributeVideo(4, 80, 48, supports_streaming=True)],
+        thumbs=[],
     )
+    client = TelegramMock(document)
+    async with httpx.AsyncClient(trust_env=False) as http:
+        file = await TelegramDelivery(client, http, origin.ffmpeg).new_file(
+            PEER, MEDIA, QUALITY, Source(origin.url + "/fast.mp4", "progressive")
+        )
+    assert file.video_preview and file.document_id == 10
+    assert len(client.uploaded) == len(client.messages) == 1
+
+
+@pytest.mark.parametrize("thumbnail", [False, True])
+async def test_legacy_verified_cache_checks_telegram_preview_once(video_origin, thumbnail):
+    origin = video_origin
+    old = TelegramFile(1, 2, b"old", bytes(PEER), 3, 1024, True, True)
+    stored = old
+    refreshes = []
+    client = TelegramMock()
+
+    async def get_messages(*args, **kwargs):
+        refreshes.append(1)
+        return SimpleNamespace(
+            document=SimpleNamespace(
+                id=1,
+                access_hash=2,
+                file_reference=b"new",
+                size=1024,
+                attributes=[types.DocumentAttributeVideo(4, 80, 48, supports_streaming=True)],
+                thumbs=[types.PhotoSize("m", 80, 48, 1024)] if thumbnail else [],
+            )
+        )
+
+    client.get_messages = get_messages
+
+    async def get(*args):
+        return stored
+
+    async def save(*args):
+        nonlocal stored
+        stored = args[-1]
+
+    provider = SimpleNamespace(
+        resolve=AsyncMock(return_value=Source(origin.url + "/fast.mp4", "progressive"))
+    )
+    async with httpx.AsyncClient(trust_env=False) as http:
+        service = DownloadService(
+            provider,
+            SimpleNamespace(key=lambda *args: "id", get=get, save=save),
+            TelegramDelivery(client, http, origin.ffmpeg),
+        )
+        assert await service.deliver(PEER, MEDIA, QUALITY) == (
+            "reused" if thumbnail else "transferred"
+        )
+        assert await service.deliver(PEER, MEDIA, QUALITY) == "reused"
+    assert refreshes == [1] and provider.resolve.await_count == (0 if thumbnail else 1)
+    assert stored.video_preview is True
+
+
+@pytest.mark.parametrize("missing", ["video", "preview", "mime"])
+async def test_rejected_server_video_registration_never_publishes(video_origin, missing):
+    from downloader_bot.schemas.media import DownloadError
+
+    origin = video_origin
+
+    class RejectedRegistration(TelegramMock):
+        async def __call__(self, request):
+            result = await super().__call__(request)
+            if isinstance(request, functions.messages.UploadMediaRequest) and self.document:
+                if missing == "video":
+                    self.document.attributes = []
+                elif missing == "preview":
+                    self.document.thumbs = []
+                else:
+                    self.document.mime_type = "application/octet-stream"
+            return result
+
+    client = RejectedRegistration()
+    async with httpx.AsyncClient(trust_env=False) as http:
+        with pytest.raises(DownloadError) as failure:
+            await TelegramDelivery(client, http, origin.ffmpeg).new_file(
+                PEER, MEDIA, QUALITY, Source(origin.url + "/fast.mp4", "progressive")
+            )
+    assert failure.value.code == "video_registration_failed" and not client.messages
+
+
+async def test_bounded_header_peek_replays_an_oversized_read_without_losing_bytes():
+    data = header_fixture() + box(b"mdat", b"x" * (MAX_HEADER_BYTES + 17))
+
+    async def chunks():
+        yield data
+
+    async with inspect_mp4(chunks()) as (stream, info):
+        assert info and (info.width, info.height) == (32, 32)
+        assert b"".join([part async for part in stream]) == data
 
 
 async def test_old_nonstreamable_cache_is_replaced_once_then_reused(video_origin):
@@ -297,7 +425,9 @@ async def test_legacy_ready_reference_is_not_trusted_from_its_duration_attribute
 
 async def test_thousand_requests_share_one_legacy_video_repair_and_publish_concurrently():
     old = TelegramFile(1, 2, b"old", bytes(PEER), 3, 1024, False)
-    fresh = replace(old, document_id=10, video_streaming=True, verified_complete=True)
+    fresh = replace(
+        old, document_id=10, video_streaming=True, verified_complete=True, video_preview=True
+    )
     stored = old
     all_followers = asyncio.Event()
     active = peak = 0

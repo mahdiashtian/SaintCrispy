@@ -5,6 +5,7 @@ import queue
 import weakref
 from dataclasses import replace
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -29,7 +30,16 @@ from downloader_bot.services.observability import (
 QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "")
 MEDIA = Media("youtube", "stable-id", "PRIVATE TITLE", "", 3, "PRIVATE URL", None, (QUALITY,))
 PEER = types.InputPeerUser(1, 2)
-FILE = TelegramFile(1, 2, b"private-reference", bytes(PEER), 3, 123, True, True)
+FILE = TelegramFile(1, 2, b"private-reference", bytes(PEER), 3, 123, True, True, True)
+
+
+@pytest.fixture(autouse=True)
+def mock_structural_fixture_thumbnail(monkeypatch):
+    # These tests measure transport counters using structural (non-decodable) MP4s.
+    monkeypatch.setattr(
+        "downloader_bot.bot.delivery.video_thumbnail",
+        AsyncMock(return_value=b"\xff\xd8test\xff\xd9"),
+    )
 
 
 def test_provider_failure_codes_are_logged_without_the_exception_text():
@@ -94,7 +104,7 @@ class Telegram:
 
     async def __call__(self, request):
         if isinstance(request, functions.messages.UploadMediaRequest):
-            if not self.external:
+            if not self.external and isinstance(request.media, types.InputMediaDocumentExternal):
                 raise errors.WebpageCurlFailedError(request=None)
             return SimpleNamespace(
                 document=SimpleNamespace(
@@ -103,6 +113,7 @@ class Telegram:
                     file_reference=b"ref",
                     size=self.size,
                     attributes=[types.DocumentAttributeVideo(3, 32, 32, supports_streaming=True)],
+                    thumbs=[types.PhotoSize("m", 32, 32, 100)],
                 )
             )
         self.calls += 1
@@ -161,6 +172,10 @@ async def test_streamed_transfer_logs_exact_bytes_stages_and_batch_without_secre
         == len(data)
     )
     assert record["counters"]["external_fallbacks"] == 1
+    registration = next(r for r in writer.records if r["event"] == "video_registration_checked")
+    assert registration["video_preview"] and registration["video_supports_streaming"]
+    assert registration["video_width"] == registration["video_height"] == 32
+    assert record["bytes"]["preview_upload_acked_bytes"] > 0
     assert record["download_seconds"] > 0 and record["upload_seconds"] > 0
     assert {"producer_wait", "resolve_wait", "resolve", "publish", "database_save"} <= record[
         "stages_seconds"

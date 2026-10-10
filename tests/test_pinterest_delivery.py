@@ -29,6 +29,7 @@ async def test_pinterest_external_url_is_given_to_telegram_without_fetching_medi
                     access_hash=5,
                     file_reference=b"reference",
                     attributes=[types.DocumentAttributeVideo(1, 32, 32, supports_streaming=True)],
+                    thumbs=[types.PhotoSize("m", 32, 32, 100)],
                 )
             )
 

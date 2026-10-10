@@ -1,15 +1,17 @@
 import asyncio
+import hashlib
 import re
 import time
-from contextlib import nullcontext
+from contextlib import aclosing, nullcontext
 from dataclasses import replace
 
 import httpx
-from telethon import TelegramClient, errors, functions, types, utils
+from telethon import TelegramClient, errors, functions, helpers, types, utils
 from telethon.extensions import BinaryReader
 
 from downloader_bot.bot.progress import TransferProgress
 from downloader_bot.bot.transfers.integrity import require_duration, validated_mp4
+from downloader_bot.bot.transfers.preview import MAX_PREVIEW_INPUT, video_thumbnail
 from downloader_bot.bot.transfers.streaming import media_chunks, source_size, upload_stream
 from downloader_bot.bot.transfers.video import inspect_mp4, require_video_info
 from downloader_bot.core.request_context import request_chat, request_message
@@ -132,8 +134,13 @@ class TelegramDelivery:
     async def _upload_part(self, request):
         # Part RPCs share the same explicit Telegram cooldown as file publication.
         async def send():
-            count("upload_part_attempts")
-            count("upload_attempt_bytes", len(request.bytes))
+            prefix = (
+                "preview_upload"
+                if isinstance(request, functions.upload.SaveFilePartRequest)
+                else "upload"
+            )
+            count(f"{prefix}_part_attempts")
+            count(f"{prefix}_attempt_bytes", len(request.bytes))
             with timed("upload_rpc"):
                 return await self.client(request)
 
@@ -248,8 +255,14 @@ class TelegramDelivery:
                         raise ExternalMediaIncomplete from error
                     if trace is not None:
                         trace.received_media_seconds = duration
-                if streamable_video(quality) and document_streaming(document) is not True:
+                if streamable_video(quality) and (
+                    document_streaming(document) is not True
+                    or document_preview(document) is not True
+                ):
+                    record_video_document(document)
                     raise ExternalVideoNotStreamable
+                if streamable_video(quality):
+                    record_video_document(document)
                 external = types.InputMediaDocument(
                     types.InputDocument(
                         document.id,
@@ -310,7 +323,10 @@ class TelegramDelivery:
                 # This is an estimate until remuxing ends and the exact output size is known.
                 progress.estimated_total = quality.bitrate * 1000 * media.duration // 8
         counters = progress or TransferProgress()
-        handle, info = await self._upload(source, quality, filename, counters)
+        prefix = bytearray() if streamable_video(quality) else None
+        handle, info = await self._upload(
+            source, quality, filename, counters, preview_prefix=prefix
+        )
         if (trace := current_transfer.get()) is not None:
             trace.received_media_seconds = counters.seconds or None
             trace.completeness_verified = True
@@ -352,6 +368,40 @@ class TelegramDelivery:
             force_file=True if quality.mime_type.startswith("image/") else None,
             nosound_video=True if quality.mime_type.startswith("video/") else None,
         )
+        if info is not None:
+            # A video flag alone does not provide a usable preview in Telegram clients.
+            # Reuse bytes already transferred; never fetch or store the whole video again.
+            async with acquired(self._remux_slots, "preview_wait"):
+                with timed("preview_prepare"):
+                    jpeg = await video_thumbnail(self.ffmpeg, bytes(prefix))
+            prefix.clear()
+            identity = helpers.generate_random_long()
+            async with self._upload_slots:
+                async with asyncio.timeout(45):
+                    accepted = await self._upload_part(
+                        functions.upload.SaveFilePartRequest(identity, 0, jpeg)
+                    )
+            if not accepted:
+                raise DownloadError("آپلود پیش‌نمایش ویدیو ناموفق بود.")
+            count("preview_upload_acked_bytes", len(jpeg))
+            uploaded.thumb = types.InputFile(
+                identity, 1, "preview.jpg", hashlib.md5(jpeg).hexdigest()
+            )
+            # Verify the server's document before publishing. A missing attribute or
+            # thumbnail must not be silently certified from our requested attributes.
+            registered = await self._request(
+                lambda: self.client(functions.messages.UploadMediaRequest(peer, uploaded))
+            )
+            document = getattr(registered, "document", None)
+            record_video_document(document)
+            if document_streaming(document) is not True or document_preview(document) is not True:
+                raise DownloadError(
+                    "تلگرام ویدیو را برای پخش هنگام دانلود تأیید نکرد؛ فایل ارسال نشد.",
+                    code="video_registration_failed",
+                )
+            uploaded = types.InputMediaDocument(
+                types.InputDocument(document.id, document.access_hash, document.file_reference)
+            )
         message = await self._send_file(
             peer,
             uploaded,
@@ -363,11 +413,19 @@ class TelegramDelivery:
             message, peer, video_hint=True if info is not None else None, verified_complete=True
         )
 
-    async def _upload(self, source, quality, filename, progress):
+    async def _upload(self, source, quality, filename, progress, *, preview_prefix=None):
         async def upload(chunks):
+            async def capture():
+                async with aclosing(chunks):
+                    async for chunk in chunks:
+                        if preview_prefix is not None and len(preview_prefix) < MAX_PREVIEW_INPUT:
+                            take = min(len(chunk), MAX_PREVIEW_INPUT - len(preview_prefix))
+                            preview_prefix.extend(memoryview(chunk)[:take])
+                        yield chunk
+
             return await upload_stream(
                 self._upload_part,
-                chunks,
+                capture(),
                 filename,
                 progress=progress,
                 parallelism=self.upload_parallelism,
@@ -427,14 +485,16 @@ class TelegramDelivery:
         # duration attribute. Rebuild once; never certify them from attributes alone.
         if not file.verified_complete:
             return None
-        if not streamable_video(quality) or file.video_streaming is True:
+        if not streamable_video(quality):
             return file
-        if file.video_streaming is None:
+        if file.video_streaming is True and file.video_preview is True:
+            return file
+        if file.video_streaming is None or file.video_preview is None:
             try:
                 file = await self._refresh(file)
             except (DownloadError, errors.RPCError):
                 return None
-        return file if file.video_streaming is True else None
+        return file if file.video_streaming is True and file.video_preview is True else None
 
     async def resend(
         self,
@@ -484,6 +544,7 @@ class TelegramDelivery:
             file_reference=message.document.file_reference,
             size_bytes=size,
             video_streaming=document_streaming(message.document, file.video_streaming),
+            video_preview=document_preview(message.document),
         )
 
 
@@ -501,12 +562,45 @@ def document_streaming(document, fallback=None) -> bool | None:
     attributes = getattr(document, "attributes", None)
     if attributes is None:
         return fallback
+    if getattr(document, "mime_type", "video/mp4") != "video/mp4":
+        return False
     return any(
         isinstance(item, types.DocumentAttributeVideo)
         and item.supports_streaming
         and item.w > 0
         and item.h > 0
+        and item.duration > 0
         for item in attributes
+    )
+
+
+def document_preview(document) -> bool | None:
+    thumbnails = getattr(document, "thumbs", None)
+    if thumbnails is None:
+        return None
+    return any(getattr(item, "w", 0) > 0 and getattr(item, "h", 0) > 0 for item in thumbnails)
+
+
+def record_video_document(document) -> None:
+    if (trace := current_transfer.get()) is None:
+        return
+    video = next(
+        (
+            item
+            for item in (getattr(document, "attributes", None) or ())
+            if isinstance(item, types.DocumentAttributeVideo)
+        ),
+        None,
+    )
+    trace.telemetry.emit(
+        "video_registration_checked",
+        **trace.fields(),
+        video_mime_type=getattr(document, "mime_type", None),
+        video_width=getattr(video, "w", None),
+        video_height=getattr(video, "h", None),
+        video_duration_seconds=getattr(video, "duration", None),
+        video_supports_streaming=document_streaming(document),
+        video_preview=document_preview(document),
     )
 
 
@@ -523,4 +617,5 @@ def capture_file(message, peer, video_hint=None, *, verified_complete=False) -> 
         getattr(document, "size", None),
         document_streaming(document, video_hint),
         verified_complete,
+        document_preview(document),
     )

@@ -105,11 +105,12 @@ async def inspect_mp4(chunks, max_file_bytes: int = 0):
     async with aclosing(chunks):
         prefix = bytearray()
         info = None
+        remainder = b""
         async for chunk in chunks:
             check_file_size(len(prefix) + len(chunk), max_file_bytes)
-            if len(prefix) + len(chunk) > MAX_HEADER_BYTES:
-                break
-            prefix.extend(chunk)
+            take = min(len(chunk), MAX_HEADER_BYTES - len(prefix))
+            prefix.extend(memoryview(chunk)[:take])
+            remainder = chunk[take:]
             complete, info = mp4_header(prefix)
             if complete:
                 break
@@ -117,6 +118,8 @@ async def inspect_mp4(chunks, max_file_bytes: int = 0):
         async def replay():
             if prefix:
                 yield bytes(prefix)
+            if remainder:
+                yield remainder
             async for chunk in chunks:
                 yield chunk
 
