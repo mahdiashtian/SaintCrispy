@@ -30,12 +30,38 @@ authorized numeric media response without a shortcode. They do not establish tha
 the exact reel is publicly accessible from the production server.
 
 The first [Linux completeness audit](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38066730469)
-passed **694 code/database tests** and decoded the reported reel's complete ordinary
+passed **694 code/database tests** and read the reported reel's complete ordinary
 MP4: 1,468,542 bytes and 11.7 seconds against a rounded 12-second origin duration.
 It also exposed a validation error for seven VP9 renditions: the duration calculation
 omitted media samples stored in the initial `moov`. The calculation now includes
 both initial samples and fragments, with a real VP9 decoding regression test.
-Remaining live results and the final revision are recorded below when verification completes.
+The final [Linux completeness audit](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38067377477)
+at `b8c94b4` passed **698 code/database tests** and completed **60 full public quality
+streams** across five providers. The separate [push test run](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38067376736)
+passed lint, formatting and the same code/database suite.
+
+| Provider | Full streams completed | Remaining observations |
+| --- | ---: | --- |
+| SoundCloud | 3 | Both reported protected tracks still require DRM; their original guest download is blocked |
+| Instagram | 8 | Every rendition of `DeR9eU8idi0` passed; later carousel/reel requests hit HTTP 429 |
+| Pinterest | 29 | Both inputs and every offered quality passed |
+| XVideos | 13 | Two working samples passed; two obsolete public/embedded inputs returned 404 |
+| XNXX | 7 | The working sample passed all qualities; the other input returned 404 |
+| YouTube | 0 | The reported video and public fixture both required login on the runner's egress |
+
+The exact Instagram reel passed its ordinary MP4 and all seven VP9 DASH renditions,
+including separate audio. Validated durations were 11.7 to 11.815 seconds against the
+origin's rounded 12 seconds; output sizes were 359,898 to 2,232,676 bytes. These live
+checks read every byte and validate track duration and container completeness; full
+decoding is covered separately by neutral generated codec fixtures. The longest
+successful source was approximately 1,238 seconds, with a largest output of
+420,388,463 bytes. No preview was substituted for a protected or inaccessible source.
+
+The strict live step remains visibly failed for the listed origin restrictions.
+Those failures are not counted as successful downloads. Available samples/formats
+change between runs, which explains the different totals. Linux CI did not use
+production cookies or verify Telegram registration; it sent no messages and saved
+no complete media file to disk. Code changes are published in `38ecbf7` and `b8c94b4`.
 
 The refreshed local 1,000-unique-input pipeline benchmark completed every transfer
 in **12.066 seconds**, reached **1,000 HTTP connections**, and kept upload parts at
