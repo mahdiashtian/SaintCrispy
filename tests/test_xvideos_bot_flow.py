@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from telegram_fixture import HeaderClient
 from telethon import errors, functions, types
 from video_fixture import box, mp4_header
 
@@ -113,7 +114,7 @@ async def test_xvideos_menu_transfer_progress_and_success_only_cache(
         async def aclose(self):
             transfer_closed.set()
 
-    class Client:
+    class Client(HeaderClient):
         def add_event_handler(self, callback, event):
             registrations.append((callback, event))
 

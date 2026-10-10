@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from telegram_fixture import HeaderClient
 from telethon import errors, functions, types
 
 from downloader_bot.bot.delivery import TelegramDelivery
@@ -19,7 +20,7 @@ async def test_pinterest_external_url_is_given_to_telegram_without_fetching_medi
     url = f"https://i.pinimg.com/originals/demo.{extension}"
     peer = types.InputPeerUser(1, 2)
 
-    class Client:
+    class Client(HeaderClient):
         async def __call__(self, request):
             assert isinstance(request, functions.messages.UploadMediaRequest)
             assert request.media.url == url

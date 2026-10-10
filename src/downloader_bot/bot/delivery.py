@@ -10,10 +10,11 @@ from telethon import TelegramClient, errors, functions, helpers, types, utils
 from telethon.extensions import BinaryReader
 
 from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.transfers.faststart import prepared_video
 from downloader_bot.bot.transfers.integrity import require_duration, validated_mp4
 from downloader_bot.bot.transfers.preview import MAX_PREVIEW_INPUT, video_thumbnail
 from downloader_bot.bot.transfers.streaming import media_chunks, source_size, upload_stream
-from downloader_bot.bot.transfers.video import inspect_mp4, require_video_info
+from downloader_bot.bot.transfers.video import MAX_HEADER_BYTES, inspect_mp4, require_video_info
 from downloader_bot.core.request_context import request_chat, request_message
 from downloader_bot.schemas.media import (
     DownloadError,
@@ -263,6 +264,12 @@ class TelegramDelivery:
                     raise ExternalVideoNotStreamable
                 if streamable_video(quality):
                     record_video_document(document)
+                    try:
+                        indexed = await self._telegram_faststart(document)
+                    except (errors.RPCError, TimeoutError, OSError, ValueError) as error:
+                        raise ExternalVideoNotStreamable from error
+                    if not indexed:
+                        raise ExternalVideoNotStreamable
                 external = types.InputMediaDocument(
                     types.InputDocument(
                         document.id,
@@ -299,6 +306,7 @@ class TelegramDelivery:
                 peer,
                 video_hint=True if streamable_video(quality) else None,
                 verified_complete=True,
+                video_faststart=True if streamable_video(quality) else None,
             )
         return None
 
@@ -410,7 +418,11 @@ class TelegramDelivery:
             progress=progress,
         )
         return capture_file(
-            message, peer, video_hint=True if info is not None else None, verified_complete=True
+            message,
+            peer,
+            video_hint=True if info is not None else None,
+            verified_complete=True,
+            video_faststart=info.faststart if info is not None else None,
         )
 
     async def _upload(self, source, quality, filename, progress, *, preview_prefix=None):
@@ -443,7 +455,7 @@ class TelegramDelivery:
                 media_chunks(self.http, source, quality, self.ffmpeg, progress),
                 self.max_file_bytes,
             ) as (chunks, info):
-                if info is not None:
+                if info is not None and info.faststart:
                     stream = validated_mp4(chunks, progress, source.duration, source.require_audio)
                     return await upload(stream), info
             # Close the first response before remuxing a source with its index at the end.
@@ -474,10 +486,20 @@ class TelegramDelivery:
                 remux_progressive=video or audio,
             )
             if video:
-                async with inspect_mp4(chunks, self.max_file_bytes) as (stream, info):
-                    info = require_video_info(info)
-                    checked = validated_mp4(stream, progress, source.duration, source.require_audio)
-                    return await upload(checked), info
+                # A fragmented pipe decodes sequentially, but a seekable player may
+                # scan future fragments before starting. Finalize a classic MP4 first.
+                checked = validated_mp4(chunks, progress, source.duration, source.require_audio)
+                async with prepared_video(
+                    checked, self.ffmpeg, progress, self.max_file_bytes
+                ) as prepared:
+                    async with inspect_mp4(prepared, self.max_file_bytes) as (stream, info):
+                        info = require_video_info(info)
+                        if not info.faststart:
+                            raise DownloadError("فهرست پخش ویدیو کامل نیست؛ فایل ارسال نشد.")
+                        checked = validated_mp4(
+                            stream, progress, source.duration, source.require_audio
+                        )
+                        return await upload(checked), info
             return await upload(chunks), None
 
     async def prepare_cached(self, file: TelegramFile, quality: Quality) -> TelegramFile | None:
@@ -487,14 +509,54 @@ class TelegramDelivery:
             return None
         if not streamable_video(quality):
             return file
-        if file.video_streaming is True and file.video_preview is True:
+        if (
+            file.video_streaming is True
+            and file.video_preview is True
+            and file.video_faststart is True
+        ):
             return file
         if file.video_streaming is None or file.video_preview is None:
             try:
                 file = await self._refresh(file)
             except (DownloadError, errors.RPCError):
                 return None
-        return file if file.video_streaming is True and file.video_preview is True else None
+        if file.video_streaming is not True or file.video_preview is not True:
+            return None
+        if file.video_faststart is None:
+            try:
+                location = types.InputDocumentFileLocation(
+                    file.document_id, file.access_hash, file.file_reference, ""
+                )
+                try:
+                    indexed = await self._telegram_faststart(location)
+                except REFERENCE_FAILURES:
+                    file = await self._refresh(file)
+                    location = types.InputDocumentFileLocation(
+                        file.document_id, file.access_hash, file.file_reference, ""
+                    )
+                    indexed = await self._telegram_faststart(location)
+                file = replace(file, video_faststart=indexed)
+            except (DownloadError, errors.RPCError, TimeoutError, OSError, ValueError):
+                return None
+        return file if file.video_faststart is True else None
+
+    async def _telegram_faststart(self, document) -> bool:
+        # Inspect only the registered file's header, never trust a streaming flag
+        # or preview as evidence of its complete sample index.
+        async with asyncio.timeout(20):
+            async with self.client.iter_download(
+                document,
+                request_size=64 * 1024,
+                chunk_size=64 * 1024,
+                limit=MAX_HEADER_BYTES // (64 * 1024),
+            ) as chunks:
+
+                async def read_header():
+                    async for chunk in chunks:
+                        yield chunk
+
+                async with inspect_mp4(read_header()) as (_, info):
+                    return info is not None and info.faststart
 
     async def resend(
         self,
@@ -604,7 +666,9 @@ def record_video_document(document) -> None:
     )
 
 
-def capture_file(message, peer, video_hint=None, *, verified_complete=False) -> TelegramFile:
+def capture_file(
+    message, peer, video_hint=None, *, verified_complete=False, video_faststart=None
+) -> TelegramFile:
     if not message.document:
         raise DownloadError("تلگرام فایل قابل استفاده مجدد برنگرداند.")
     document = message.document
@@ -618,4 +682,5 @@ def capture_file(message, peer, video_hint=None, *, verified_complete=False) -> 
         document_streaming(document, video_hint),
         verified_complete,
         document_preview(document),
+        video_faststart,
     )

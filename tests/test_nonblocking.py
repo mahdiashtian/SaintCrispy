@@ -30,6 +30,20 @@ def test_runtime_does_not_call_blocking_disk_network_or_subprocess_apis():
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 if name(node.func) == "asyncio.to_thread":
+                    if (
+                        path.relative_to(Path(__file__).parents[1] / "src").as_posix()
+                        == "downloader_bot/bot/transfers/faststart.py"
+                    ):
+                        # Video staging uses isolated disk workers; FFmpeg stays an
+                        # async subprocess. No filesystem operation runs on the loop.
+                        assert name(node.args[0]) in {"function", "tempfile.mkdtemp"}
+                        assert any(
+                            isinstance(function, ast.AsyncFunctionDef)
+                            and function.name in {"disk_call", "workspace"}
+                            and node in ast.walk(function)
+                            for function in ast.walk(tree)
+                        )
+                        continue
                     # Only system sampling and log-thread shutdown may use an I/O worker.
                     assert path.relative_to(Path(__file__).parents[1] / "src").as_posix() in {
                         "downloader_bot/services/observability.py",
@@ -43,3 +57,31 @@ def test_runtime_does_not_call_blocking_disk_network_or_subprocess_apis():
                     }
                     continue
                 assert name(node.func) not in banned, f"{path.name}:{node.lineno}"
+
+
+def test_video_staging_disk_helpers_are_only_dispatched_to_io_workers():
+    path = Path(__file__).parents[1] / "src/downloader_bot/bot/transfers/faststart.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    helpers = {"append", "read_at"}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            assert node.func.id not in helpers  # Functions are passed to disk_call.
+        if isinstance(node.func, ast.Attribute) and node.func.attr in {
+            "open",
+            "read",
+            "write",
+            "seek",
+        }:
+            assert (
+                any(
+                    isinstance(function, ast.FunctionDef)
+                    and function.name in helpers
+                    and node in ast.walk(function)
+                    for function in tree.body
+                )
+                or node.func.attr == "read"
+                and isinstance(node.func.value, ast.Attribute)
+                and node.func.value.attr == "stderr"
+            )

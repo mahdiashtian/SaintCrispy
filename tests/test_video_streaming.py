@@ -1,5 +1,6 @@
 import asyncio
 import re
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -120,6 +121,18 @@ class TelegramMock:
         self.uploaded = []
         self.thumbnails = []
         self.document = None
+        self.remote_data = header_fixture()
+        self.header_reads = 0
+
+    @asynccontextmanager
+    async def iter_download(self, document, **options):
+        async def chunks():
+            size = options["chunk_size"]
+            for start in range(0, min(len(self.remote_data), options["limit"] * size), size):
+                self.header_reads += 1
+                yield self.remote_data[start : start + size]
+
+        yield chunks()
 
     async def __call__(self, request):
         if isinstance(request, functions.messages.UploadMediaRequest):
@@ -225,9 +238,8 @@ async def test_real_video_with_unknown_dimensions_is_playable_before_full_downlo
         assert data == original  # No remux or quality change for a ready source.
     else:
         assert data != original
-        first_media_end = next(end for kind, _, end in boxes(data) if kind == b"mdat")
-        assert first_media_end < len(data)
-        await decode(origin.ffmpeg, data[:first_media_end], one_frame=True)
+        assert mp4_header(data)[1].faststart
+        assert b"moof" not in [kind for kind, _, _ in boxes(data)]
 
 
 async def test_external_streamable_video_keeps_the_zero_local_download_path():
@@ -247,7 +259,43 @@ async def test_external_streamable_video_keeps_the_zero_local_download_path():
         Source("https://example.org/video.mp4", "progressive", size_bytes=1024),
     )
     assert reference.video_streaming is True and not client.parts
+    assert reference.video_faststart and client.header_reads == 1
     assert len(client.messages) == len(client.registered) == 1
+
+
+@pytest.mark.parametrize("problem", ["fragmented", "unavailable"])
+async def test_external_streaming_flags_do_not_certify_a_missing_classic_index(
+    video_origin, problem
+):
+    origin = video_origin
+    document = SimpleNamespace(
+        id=9,
+        access_hash=20,
+        file_reference=b"old",
+        size=len(origin.files["/fast.mp4"]),
+        attributes=[types.DocumentAttributeVideo(4, 80, 48, supports_streaming=True)],
+        thumbs=[types.PhotoSize("m", 80, 48, 1024)],
+    )
+    client = TelegramMock(document)
+    if problem == "fragmented":
+        client.remote_data = b"".join(
+            box(kind, bytes(body) + (box(b"mvex", b"") if kind == b"moov" else b""))
+            for kind, body, _ in boxes(header_fixture())
+        )
+    else:
+
+        @asynccontextmanager
+        async def unsupported(*args, **kwargs):
+            raise ValueError("Unsupported remote download")
+            yield
+
+        client.iter_download = unsupported
+    async with httpx.AsyncClient(trust_env=False) as http:
+        file = await TelegramDelivery(client, http, origin.ffmpeg).new_file(
+            PEER, MEDIA, QUALITY, Source(origin.url + "/fast.mp4", "progressive")
+        )
+    assert file.video_faststart and file.document_id == 10
+    assert len(client.uploaded) == len(client.messages) == 1
 
 
 async def test_nonstreamable_external_document_is_not_published_and_is_repaired(video_origin):
@@ -426,7 +474,12 @@ async def test_legacy_ready_reference_is_not_trusted_from_its_duration_attribute
 async def test_thousand_requests_share_one_legacy_video_repair_and_publish_concurrently():
     old = TelegramFile(1, 2, b"old", bytes(PEER), 3, 1024, False)
     fresh = replace(
-        old, document_id=10, video_streaming=True, verified_complete=True, video_preview=True
+        old,
+        document_id=10,
+        video_streaming=True,
+        verified_complete=True,
+        video_preview=True,
+        video_faststart=True,
     )
     stored = old
     all_followers = asyncio.Event()

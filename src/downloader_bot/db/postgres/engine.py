@@ -57,6 +57,11 @@ MIGRATIONS = (
         "video_preview_references",
         "ALTER TABLE media_files ADD COLUMN IF NOT EXISTS video_preview BOOLEAN;",
     ),
+    (
+        6,
+        "indexed_video_references",
+        "ALTER TABLE media_files ADD COLUMN IF NOT EXISTS video_faststart BOOLEAN;",
+    ),
 )
 
 

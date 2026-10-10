@@ -232,7 +232,11 @@ class DownloadService:
             not stored.verified_complete
             or (
                 streamable_video(quality)
-                and (stored.video_streaming is not True or stored.video_preview is not True)
+                and (
+                    stored.video_streaming is not True
+                    or stored.video_preview is not True
+                    or stored.video_faststart is not True
+                )
             )
         )
         if stored is None or needs_check:
@@ -243,7 +247,11 @@ class DownloadService:
                     not stored.verified_complete
                     or (
                         streamable_video(quality)
-                        and (stored.video_streaming is not True or stored.video_preview is not True)
+                        and (
+                            stored.video_streaming is not True
+                            or stored.video_preview is not True
+                            or stored.video_faststart is not True
+                        )
                     )
                 ):
                     with timed("cached_integrity_check"):

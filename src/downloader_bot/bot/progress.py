@@ -55,8 +55,13 @@ class TransferProgress(TransferState):
         upload = percentage(self.uploaded, total, self.upload_done) if total else "حجم کل نامشخص"
         if self.total is None and self.estimated_total:
             upload += " (حدودی)"
+        preparing = (
+            "🎬 در حال آماده‌سازی فایل برای پخش حین دانلود…\n"
+            if self.phase == "preparing_video"
+            else ""
+        )
         return (
-            f"📥 دانلود: {download} · {megabytes(self.downloaded)} MB\n"
+            preparing + f"📥 دانلود: {download} · {megabytes(self.downloaded)} MB\n"
             f"📤 آپلود: {upload} · {megabytes(self.uploaded)} MB"
         )
 

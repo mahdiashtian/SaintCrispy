@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from telegram_fixture import HeaderClient
 from telethon import errors, functions, types
 from video_fixture import box, mp4_header
 
@@ -30,7 +31,7 @@ from downloader_bot.services.observability import (
 QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "")
 MEDIA = Media("youtube", "stable-id", "PRIVATE TITLE", "", 3, "PRIVATE URL", None, (QUALITY,))
 PEER = types.InputPeerUser(1, 2)
-FILE = TelegramFile(1, 2, b"private-reference", bytes(PEER), 3, 123, True, True, True)
+FILE = TelegramFile(1, 2, b"private-reference", bytes(PEER), 3, 123, True, True, True, True)
 
 
 @pytest.fixture(autouse=True)
@@ -95,7 +96,7 @@ class Repository:
         self.files[args[:3]] = args[3]
 
 
-class Telegram:
+class Telegram(HeaderClient):
     def __init__(self, size, *, external=False, flood=False):
         self.size = size
         self.external = external

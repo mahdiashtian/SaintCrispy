@@ -15,6 +15,26 @@ class VideoInfo:
     codec: str | None
     has_audio: bool
     prefix_size: int
+    faststart: bool
+
+
+def indexed_track(track) -> bool:
+    stbl = child(child(child(track, b"mdia"), b"minf"), b"stbl")
+    # Classic MP4 needs complete timing, sample sizes and chunk offsets up front.
+    timing = child(stbl, b"stts")
+    sizes = child(stbl, b"stsz") or child(stbl, b"stz2")
+    offsets = child(stbl, b"stco") or child(stbl, b"co64")
+    mapping = child(stbl, b"stsc")
+    return (
+        len(timing) >= 8
+        and int.from_bytes(timing[4:8], "big") > 0
+        and len(sizes) >= 12
+        and int.from_bytes(sizes[8:12], "big") > 0
+        and len(offsets) >= 8
+        and int.from_bytes(offsets[4:8], "big") > 0
+        and len(mapping) >= 8
+        and int.from_bytes(mapping[4:8], "big") > 0
+    )
 
 
 def boxes(data):
@@ -44,6 +64,11 @@ def child(data, name):
 def video_info(moov, prefix_size: int) -> VideoInfo | None:
     tracks = [body for kind, body, _ in boxes(moov) if kind == b"trak"]
     has_audio = any(child(child(track, b"mdia"), b"hdlr")[8:12] == b"soun" for track in tracks)
+    indexed = not any(kind == b"mvex" for kind, _, _ in boxes(moov)) and all(
+        indexed_track(track)
+        for track in tracks
+        if child(child(track, b"mdia"), b"hdlr")[8:12] in (b"vide", b"soun")
+    )
     for track in tracks:
         mdia = child(track, b"mdia")
         if child(mdia, b"hdlr")[8:12] != b"vide":
@@ -80,7 +105,9 @@ def video_info(moov, prefix_size: int) -> VideoInfo | None:
             b"vp09": "vp9",
         }
         codec = codecs.get(sample[0]) if sample else None
-        return VideoInfo(width, height, duration, codec, has_audio, prefix_size)
+        return VideoInfo(
+            width, height, duration, codec, has_audio, prefix_size, indexed and duration > 0
+        )
     return None
 
 

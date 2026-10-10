@@ -10,10 +10,10 @@ Supported providers: **SoundCloud, YouTube, Instagram, Pinterest, XVideos and XN
 2. The bot identifies the content using the provider's stable ID and the selected quality.
 3. If that file already exists in Telegram, the saved document reference is reused.
 4. Otherwise, a complete progressive URL is offered to Telegram first. The fetched document is checked before publication when its size is known or a size limit is configured.
-5. If URL fetching fails, times out before publication, or returns a different size, the original source is streamed into Telegram uploads. HLS and separate audio/video streams are remuxed through FFmpeg with codec copy.
+5. If URL fetching fails or returns an unsuitable file, audio and ready progressive MP4 sources use bounded relay uploads. HLS/DASH video, fragmented MP4 and MP4 with its index at the end are fully received, validated and copied into classic `faststart` MP4 before upload. FFmpeg preserves the selected video/audio codecs and quality.
 6. Successful file references and per-user link/delivery history are persisted in PostgreSQL. Redis accelerates file lookups and rate-limit rejections.
 
-The transfer pipeline does not store complete media files on local disk. Unknown-length uploads use bounded buffers and backpressure. Concurrent requests for the same content and quality share one producer; recipient sends happen outside the creation lock.
+Direct Telegram URL fetching and already indexed progressive MP4 avoid full local media storage. Videos needing preparation use size-capped temporary files, removed after success, error or cancellation; filesystem operations run in I/O workers and FFmpeg runs as an async subprocess. Unknown-length uploads use bounded buffers and backpressure. Concurrent requests for the same content and quality share one producer; recipient sends happen outside the creation lock. See [playback while downloading](docs/OPERATIONS.md#video-playback-while-downloading) for container validation, old-cache repair and temporary disk sizing.
 
 ## Requirements
 

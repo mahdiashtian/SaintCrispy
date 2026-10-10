@@ -60,6 +60,7 @@ class TelegramFile:
     video_streaming: bool | None = None
     verified_complete: bool = False
     video_preview: bool | None = None
+    video_faststart: bool | None = None
 
 
 def streamable_video(quality: Quality) -> bool:
