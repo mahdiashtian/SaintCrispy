@@ -181,7 +181,7 @@ class SoundCloudDownloader(Downloader):
         url = data.get("redirectUri")
         if not isinstance(url, str) or not url.startswith("https://"):
             raise DownloadError("لینک دریافت این کیفیت در پاسخ SoundCloud وجود ندارد.")
-        return Source(url, quality.protocol)
+        return Source(url, quality.protocol, duration=media.duration or None)
 
     async def _original(self, client: SoundCloudClient, track: dict) -> Quality | None:
         endpoint = f"https://api-v2.soundcloud.com/tracks/{track['id']}/download"

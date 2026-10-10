@@ -218,7 +218,7 @@ async def test_restored_menu_refreshes_before_upload_and_checks_content_identity
 
     async def new_file(*args):
         sent.append(1)
-        return TelegramFile(1, 2, b"ref", b"peer", 3)
+        return TelegramFile(1, 2, b"ref", b"peer", 3, verified_complete=True)
 
     async def save(*args):
         pass

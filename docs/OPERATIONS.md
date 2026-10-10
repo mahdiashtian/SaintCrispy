@@ -54,6 +54,53 @@ Tests use neutral generated video and mock Telegram RPCs. They decode the full r
 
 Validation on 2026-10-09: 670 tests passed on Windows/Python 3.14 and 670 on Linux/Python 3.12, both with real PostgreSQL/Redis and FFmpeg. Lint and formatting checks passed. The suite includes adoption of both a legacy database and already-applied migrations 1/2, failed-repair preservation, and 1,000 concurrent requests sharing one legacy repair with concurrent follower publications. The update was integrated with upstream `main` at `2b30936`; no running coordinator was restarted during integration.
 
+## Full menus and complete media (October 10 update)
+
+Repeated links discover the provider's complete quality list after the short metadata
+TTL or a restart. The list is independent of `media_files`; saving one quality never
+removes other choices. If discovery fails temporarily, the complete redacted catalog
+can restore a menu for ten seconds. An uncached selection refreshes its identity and
+quality before resolving. `inspection_finished.path=database_fallback` includes the
+safe `origin_error_type`/`origin_error_code` so an outage is visible in logs.
+
+Migration 4 adds `media_files.verified_complete` with a false default. Old audio,
+video and image references are rebuilt once on demand; old duration attributes alone
+cannot prove a previously truncated file was complete. The replacement is saved only
+after successful validation and publication. The unique content/quality/account key
+and shared producer lock remain unchanged. No database, user history or menu is deleted.
+
+For direct Telegram URL registration, known source size and expected audio/video
+duration must match before publication. A shorter or unclassified document falls
+back to the capped local stream. Progressive MP4 uploads validate complete boxes and
+track duration. Fragmented MP4 validates the received video and required audio tracks
+independently, including sample payload lengths, before finalizing the upload.
+Supported progressive audio is copied through the bounded FFmpeg queue and checked
+against its expected duration. HLS/DASH still require successful process completion,
+no skipped segments and a complete duration. MP4 preparation and audio validation use
+codec copy, not re-encoding, and do not save a complete media file locally.
+
+`transfer_finished` now reports `expected_media_seconds`, `received_media_seconds`
+and `completeness_verified`, alongside sizes, stage timings and traffic totals.
+FFmpeg output, HTTP input and mixed measurements are identified separately.
+Unknown-duration or opaque original files retain byte/EOF validation; origin metadata
+and Telegram attributes cannot establish an independent duration in every format.
+
+Stop the running Python coordinator, update and restart without deleting Docker volumes:
+
+```bash
+cd ~/SaintCrispy
+git pull --ff-only
+source .venv/bin/activate
+python -m pip install -e .
+docker compose -p saintcrispy up -d postgres redis
+python main.py
+```
+
+The Python application applies the additive migrations during startup. Existing
+verified files continue to use Telegram references; concurrent repair requests still
+share one origin transfer. File decoding tests do not establish the playback behavior
+of every Telegram client or unrestricted access from the production network.
+
 ## Logs
 
 All destinations are local and excluded from Git. Serialization and disk I/O run in bounded background writer queues.

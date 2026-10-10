@@ -113,8 +113,8 @@ class DownloadService:
             await self.repository.finish_link_view(user_id, identity, media)
         return media
 
-    def _remember_metadata(self, key: str, media: Media) -> None:
-        self._metadata[key] = time.monotonic() + self._metadata_ttl, media
+    def _remember_metadata(self, key: str, media: Media, *, ttl: float | None = None) -> None:
+        self._metadata[key] = time.monotonic() + (self._metadata_ttl if ttl is None else ttl), media
         if len(self._metadata) > self._metadata_capacity:
             self._metadata.popitem(last=False)
 
@@ -136,20 +136,29 @@ class DownloadService:
                     if observation is not None:
                         observation["path"] = "memory_cache"
                     return cached
-                if self.repository is not None and catalog_key is not None:
-                    if stored := await self.repository.known_media(catalog_key):
-                        # This menu offers only qualities already stored in Telegram.
-                        # It survives restarts and needs no new request to the origin site.
-                        self._remember_metadata(key, stored)
-                        if observation is not None:
-                            observation["path"] = "database_catalog"
-                        return stored
-                self._raise_recent_failure("inspect", key)
                 try:
+                    self._raise_recent_failure("inspect", key)
                     if observation is not None:
                         observation["path"] = "provider"
                     async with self._metadata_slots, asyncio.timeout(90):
                         media = await self.downloader.inspect(url)
+                except (DownloadError, OSError, TimeoutError) as error:
+                    self._remember_failure("inspect", key, error)
+                    if self.repository is not None and catalog_key is not None:
+                        if stored := await self.repository.known_media(catalog_key):
+                            # Discovery and the file cache are independent. An outage
+                            # can restore the complete menu, never just saved qualities.
+                            self._remember_metadata(key, stored, ttl=min(self._metadata_ttl, 10))
+                            if observation is not None:
+                                observation["path"] = "database_fallback"
+                                observation["origin_error_type"] = type(error).__name__
+                                observation["origin_error_code"] = (
+                                    error.code if isinstance(error, DownloadError) else None
+                                )
+                            return stored
+                    raise
+                self._failures.pop(("inspect", key), None)
+                try:
                     if self.repository is not None and catalog_key is not None:
                         canonical = getattr(self.downloader, "catalog_key", lambda value: value)(
                             media.page_url
@@ -178,6 +187,7 @@ class DownloadService:
             trace = current_transfer.get()
             if trace is not None:
                 trace.file_size = stored.size_bytes
+                trace.completeness_verified = stored.verified_complete
                 if trace.method == "unknown":
                     trace.method = "reused"
             if progress is not None:
@@ -218,19 +228,19 @@ class DownloadService:
         produced = False
         with timed("cache_lookup"):
             stored = await self.repository.get(media.site, media.content_id, quality.key)
-        needs_check = (
-            streamable_video(quality) and stored is not None and stored.video_streaming is not True
+        needs_check = stored is not None and (
+            not stored.verified_complete
+            or (streamable_video(quality) and stored.video_streaming is not True)
         )
         if stored is None or needs_check:
             async with acquired(self._locks.hold(key), "deduplication_wait"):
                 with timed("cache_lookup"):
                     stored = await self.repository.get(media.site, media.content_id, quality.key)
-                if (
-                    stored is not None
-                    and streamable_video(quality)
-                    and stored.video_streaming is not True
+                if stored is not None and (
+                    not stored.verified_complete
+                    or (streamable_video(quality) and stored.video_streaming is not True)
                 ):
-                    with timed("cached_video_check"):
+                    with timed("cached_integrity_check"):
                         fresh = await self.delivery.prepare_cached(stored, quality)
                     if fresh is not None and fresh != stored:
                         with timed("database_save"):
@@ -276,6 +286,11 @@ class DownloadService:
         target = self.storage_peer if self.storage_peer is not None else peer
         with timed("delivery"):
             reference = await self.delivery.new_file(target, media, quality, source, progress)
+        if not reference.verified_complete:
+            raise DownloadError(
+                "دریافت جریان رسانه کامل نشد؛ فایل ناقص ذخیره نمی‌شود.",
+                code="media_stream_incomplete",
+            )
         if (trace := current_transfer.get()) is not None:
             trace.file_size = reference.size_bytes
         # Every successful transfer method reaches the same persistence step.

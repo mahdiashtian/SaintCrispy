@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 import httpx
 import pytest
 from telethon import errors, functions, types
-from video_fixture import mp4_header
+from video_fixture import box, mp4_header
 
 from downloader_bot.bot.delivery import TelegramDelivery
 from downloader_bot.bot.progress import TransferProgress
@@ -468,10 +468,20 @@ async def test_missing_middle_hls_segment_never_completes_the_upload(tmp_path):
 @pytest.mark.parametrize("mime_type", ["video/mp4", "audio/mp4"])
 @pytest.mark.parametrize("site", ["xnxx", "xvideos"])
 async def test_external_fallback_streams_with_headers_and_uses_correct_media_attributes(
-    mime_type, site
+    mime_type, site, monkeypatch
 ):
     uploaded = []
-    body = (mp4_header() if mime_type == "video/mp4" else b"") + b"media data"
+    body = mp4_header() + box(b"mdat", b"media data")
+    if mime_type == "audio/mp4":
+
+        async def audio_chunks(http, source, quality, ffmpeg, progress, **options):
+            assert options["remux_progressive"]
+            response = await http.get(source.url, headers=source.headers)
+            progress.seconds = 1
+            progress.downloaded = len(response.content)
+            yield response.content
+
+        monkeypatch.setattr("downloader_bot.bot.delivery.media_chunks", audio_chunks)
     quality = Quality(
         "high", "High", "video", None, "mp4", mime_type, "progressive", "url", width=32, height=32
     )

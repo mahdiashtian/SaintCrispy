@@ -87,6 +87,40 @@ def api(data):
     return httpx.Response(200, json={"resource_response": {"data": data}})
 
 
+async def test_progressive_preview_is_not_offered_as_the_complete_pin_video():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from downloader_bot.schemas.media import Quality
+
+    quality = Quality(
+        "v_asset_mp4_720x1280",
+        "MP4 · 720×1280 · H264",
+        "h264",
+        None,
+        "mp4",
+        "video/mp4",
+        "progressive",
+        CDN + "video.mp4",
+        duration=31,
+    )
+    provider = PinterestDownloader(
+        SimpleNamespace(
+            probe_media=AsyncMock(
+                return_value=SimpleNamespace(
+                    valid=True,
+                    duration=11,
+                    width=720,
+                    height=1280,
+                    codec="h264",
+                    size_bytes=1000,
+                )
+            )
+        )
+    )
+    assert await provider._format(quality, None) == []
+
+
 @pytest.mark.parametrize(
     "text",
     [

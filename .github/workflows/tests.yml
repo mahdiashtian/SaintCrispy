@@ -75,6 +75,7 @@ jobs:
           --url soundcloud=https://soundcloud.com/quavoofficial/away
           --url soundcloud=https://soundcloud.com/octobersveryown/quebec
           --url soundcloud=https://soundcloud.com/gdaal/mojezeh
+          --url instagram=https://www.instagram.com/reel/DeR9eU8idi0/
           --url instagram=https://www.instagram.com/p/BQ0eAlwhDrw/
           --url instagram=https://www.instagram.com/reel/Chunk8-jurw/
           --url instagram=https://www.instagram.com/reel/DZwzHDsiVlk/

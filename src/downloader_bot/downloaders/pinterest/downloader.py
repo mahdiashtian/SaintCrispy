@@ -112,6 +112,14 @@ class PinterestDownloader(Downloader):
                 probe = await self.client.probe_media(quality.endpoint, quality.mime_type)
                 if probe.valid:
                     if quality.mime_type == "video/mp4":
+                        if (
+                            quality.duration
+                            and probe.duration is not None
+                            and (
+                                probe.duration < quality.duration - max(1, quality.duration * 0.005)
+                            )
+                        ):
+                            return []  # A preview cannot replace the advertised full asset.
                         old = (
                             f"{quality.width}×{quality.height}"
                             if quality.width and quality.height
@@ -126,9 +134,7 @@ class PinterestDownloader(Downloader):
                             quality,
                             width=probe.width,
                             height=probe.height,
-                            duration=probe.duration
-                            if probe.duration is not None
-                            else quality.duration,
+                            duration=quality.duration or probe.duration,
                             key=quality.key.rsplit("_", 1)[0]
                             + f"_{probe.width or 0}x{probe.height or 0}",
                             label=quality.label.replace(old, dimensions).rsplit(" · ", 1)[0]
@@ -151,6 +157,7 @@ class PinterestDownloader(Downloader):
                                     "progressive",
                                     HEADERS.copy(),
                                     size_bytes=probe.size_bytes,
+                                    duration=quality.duration or None,
                                 ),
                             )
                         ]

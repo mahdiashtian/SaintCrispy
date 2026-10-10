@@ -26,7 +26,7 @@ async def test_real_postgres_redis_quality_persistence_and_multiple_accounts():
         repo = FileRepository(pool, cache, 123)
         await repo.initialize()
         for quality, document in (("aac_160", 1), ("aac_96", 2)):
-            file = TelegramFile(document, 3, b"ref", b"peer", 4, 1024, True)
+            file = TelegramFile(document, 3, b"ref", b"peer", 4, 1024, True, True)
             await repo.save("soundcloud", "2373831104", quality, file)
             assert await repo.get("soundcloud", "2373831104", quality) == file
         assert await pool.fetchval("SELECT count(*) FROM media_files") == 2

@@ -12,7 +12,7 @@ from downloader_bot.services.download import DownloadService
 
 QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "url")
 MEDIA = Media("youtube", "jNQXAC9IVRw", "Title", "Author", 19, "page", None, (QUALITY,))
-FILE = TelegramFile(1, 2, b"ref", b"peer", 3, 1000, True)
+FILE = TelegramFile(1, 2, b"ref", b"peer", 3, 1000, True, verified_complete=True)
 
 
 async def test_one_thousand_recipients_download_once_then_send_concurrently():
@@ -163,20 +163,81 @@ async def test_user_context_tracks_every_view_including_cached_and_failed_inspec
     assert repository.finish_link_view.call_args_list[-1].args == (3, "hash")
 
 
-async def test_durable_catalog_reuses_only_saved_qualities_without_origin_requests():
-    known = replace(MEDIA, qualities=(replace(QUALITY, endpoint=""),))
+async def test_repeated_link_discovers_all_qualities_instead_of_only_the_saved_file():
+    known = replace(MEDIA, qualities=(replace(QUALITY, endpoint=""),), requires_refresh=True)
+    full = replace(MEDIA, qualities=(QUALITY, replace(QUALITY, key="1080p")))
     repository = SimpleNamespace(
         known_media=AsyncMock(return_value=known),
         remember_media=AsyncMock(),
     )
-    extractor = AsyncMock(side_effect=AssertionError("Origin must not be fetched"))
+    extractor = AsyncMock(return_value=full)
     service = DownloadService(
         SimpleNamespace(inspect=extractor, cache_key=lambda _: "id"), repository, None
     )
-    assert await service.inspect("short-link") == known
-    assert await service.inspect("watch-link") == known
-    repository.known_media.assert_awaited_once_with("id")
-    extractor.assert_not_awaited()
+    assert await service.inspect("short-link") == full
+    assert await service.inspect("watch-link") == full
+    service._metadata.clear()  # Restart or TTL expiry must rediscover the whole menu.
+    assert await service.inspect("watch-link") == full
+    assert extractor.await_count == 2
+    repository.known_media.assert_not_awaited()
+
+
+async def test_origin_outage_restores_full_catalog_and_later_recovers(monkeypatch):
+    now = 100.0
+    monkeypatch.setattr("downloader_bot.services.download.time.monotonic", lambda: now)
+    full = replace(MEDIA, qualities=(QUALITY, replace(QUALITY, key="1080p")))
+    known = replace(full, requires_refresh=True)
+    repository = SimpleNamespace(
+        known_media=AsyncMock(return_value=known), remember_media=AsyncMock()
+    )
+    extractor = AsyncMock(side_effect=[DownloadError("temporary outage"), full])
+    service = DownloadService(SimpleNamespace(inspect=extractor), repository, None)
+    results = await asyncio.gather(*(service.inspect("same") for _ in range(1000)))
+    assert results == [known] * 1000 and extractor.await_count == 1
+    assert len(results[0].qualities) == 2
+    now += 11
+    assert await service.inspect("same") == full
+    assert extractor.await_count == 2 and not service._failures
+
+
+@pytest.mark.parametrize(
+    "site", ["soundcloud", "youtube", "instagram", "pinterest", "xvideos", "xnxx"]
+)
+async def test_saved_quality_does_not_hide_an_uncached_quality_after_restart(site):
+    first = replace(QUALITY, key="720p")
+    second = replace(QUALITY, key="1080p")
+    full = replace(MEDIA, site=site, qualities=(first, second))
+    files = {first.key: FILE}
+
+    async def get(site, identity, quality):
+        return files.get(quality)
+
+    async def save(site, identity, quality, reference):
+        files[quality] = reference
+
+    repository = SimpleNamespace(
+        key=lambda site, identity, quality: quality,
+        get=get,
+        save=save,
+        known_media=AsyncMock(return_value=replace(full, requires_refresh=True)),
+        remember_media=AsyncMock(),
+    )
+    provider = SimpleNamespace(
+        inspect=AsyncMock(return_value=full),
+        resolve=AsyncMock(return_value=Source("url", "progressive")),
+    )
+    delivery = SimpleNamespace(
+        new_file=AsyncMock(return_value=FILE), resend=AsyncMock(return_value=FILE)
+    )
+    service = DownloadService(provider, repository, delivery)
+    media = await service.inspect("link")
+    assert [q.key for q in media.qualities] == ["720p", "1080p"]
+    assert await service.deliver(1, media, media.qualities[0]) == "reused"
+    assert await service.deliver(2, media, media.qualities[1]) == "transferred"
+    assert await service.deliver(3, media, media.qualities[1]) == "reused"
+    provider.resolve.assert_awaited_once_with(full, second)
+    delivery.new_file.assert_awaited_once()
+    assert set(files) == {"720p", "1080p"}
 
 
 async def test_mutable_alias_reassignment_rediscovers_content_instead_of_resending_the_old_file():

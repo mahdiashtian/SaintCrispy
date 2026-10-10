@@ -11,7 +11,7 @@ import pytest
 
 from downloader_bot.core.request_context import user_request
 from downloader_bot.repositories.redis.media import FileRepository
-from downloader_bot.schemas.media import Media, Quality, TelegramFile
+from downloader_bot.schemas.media import DownloadError, Media, Quality, TelegramFile
 from downloader_bot.services.download import DownloadService
 
 
@@ -47,12 +47,12 @@ async def test_real_database_catalog_history_admission_and_duplicate_file_are_at
         "credential",
         "account",
     )
-    file = TelegramFile(1, 2, b"ref", b"peer", 3, 1024, True)
+    file = TelegramFile(1, 2, b"ref", b"peer", 3, 1024, True, True)
     try:
         repo = FileRepository(pool, None, 123)
         await repo.initialize()
         await repo.remember_media(("youtube:jNQXAC9IVRw",), media)
-        assert await repo.known_media("youtube:jNQXAC9IVRw") is None
+        assert (await repo.known_media("youtube:jNQXAC9IVRw")).requires_refresh
         await asyncio.gather(
             *(repo.save(media.site, media.content_id, q.key, file) for _ in range(1000))
         )
@@ -68,7 +68,7 @@ async def test_real_database_catalog_history_admission_and_duplicate_file_are_at
         known = await restarted.known_media("youtube:jNQXAC9IVRw")
         assert known.content_id == media.content_id and known.qualities[0].key == q.key
         assert not known.qualities[0].endpoint and known.authorization is None
-        extractor = AsyncMock(side_effect=AssertionError("Cache reuse must not contact YouTube"))
+        extractor = AsyncMock(side_effect=DownloadError("Origin unavailable"))
         delivery = SimpleNamespace(resend=AsyncMock(return_value=file))
         service = DownloadService(
             SimpleNamespace(cache_key=lambda _: "youtube:jNQXAC9IVRw", inspect=extractor),
@@ -90,7 +90,7 @@ async def test_real_database_catalog_history_admission_and_duplicate_file_are_at
             == 1000
         )
         assert await pool.fetchval("SELECT count(*) FROM media_files") == 1
-        extractor.assert_not_awaited()
+        extractor.assert_awaited_once()
         await visit(1)
         assert await pool.fetchval("SELECT view_count FROM user_link_history WHERE user_id=1") == 2
         assert (
@@ -103,11 +103,11 @@ async def test_real_database_catalog_history_admission_and_duplicate_file_are_at
         )
         assert claims.count(0) == 1
         assert await FileRepository(pool, None, 123).claim_request(2000, "inspect", 60) > 0
-        # Qualities without saved Telegram files never appear in a catalog-only menu.
+        # The full catalog survives independently of which qualities have saved files.
         await restarted.remember_media(
             ("youtube:jNQXAC9IVRw",), replace(media, qualities=(q, replace(q, key="1080p")))
         )
-        assert len((await restarted.known_media("youtube:jNQXAC9IVRw")).qualities) == 1
+        assert len((await restarted.known_media("youtube:jNQXAC9IVRw")).qualities) == 2
     finally:
         await pool.close()
         await connection.execute(f'DROP SCHEMA "{schema}" CASCADE')

@@ -61,12 +61,24 @@ class InstagramClient:
             if kind == "story":
                 return await self._story(code)
             page_url = f"https://www.instagram.com/p/{code}/"
-            page, _ = await self._read(page_url)
-            page = page.decode("utf-8", errors="replace")
+            if self.cookie:
+                response = await self._optional_json(
+                    f"https://www.instagram.com/api/v1/media/{media_id(code)}/info/"
+                )
+                if node := find_media(response, code):
+                    return node, page_url, code
+            page = await self._optional_page(page_url)
             if node := page_media(page, code):
                 return node, page_url, code
             lsd = re.search(r'\["LSD",\[\],\{"token":"([^"\r\n]+)"', page)
             token = lsd[1] if lsd else ""
+            if not token:
+                eqmc = re.search(r'<script[^>]*\bid="__eqmc"[^>]*>(.*?)</script>', page, re.S)
+                if eqmc:
+                    try:
+                        token = str(json.loads(eqmc[1]).get("l") or "")
+                    except (ValueError, AttributeError):
+                        pass
             await self._optional_json(
                 "https://www.instagram.com/api/v1/web/get_ruling_for_content/",
                 params={"content_type": "MEDIA", "target_id": media_id(code)},
@@ -81,9 +93,6 @@ class InstagramClient:
             )
             if node := find_media(response, code):
                 return node, page_url, code
-            data = response.get("data")
-            if isinstance(data, dict) and data.get("xig_polaris_media", False) is None:
-                raise DownloadError("این پست اینستاگرام حذف شده یا برای این نشست قابل دسترسی نیست.")
             response = await self._graphql(
                 "https://www.instagram.com/graphql/query",
                 self.shortcode_doc_id,
@@ -97,18 +106,25 @@ class InstagramClient:
             )
             if node := find_media(response, code):
                 return node, page_url, code
-            embed, _ = await self._read(page_url + "embed/captioned/")
-            if node := page_media(embed.decode("utf-8", errors="replace"), code):
+            embed = await self._optional_page(page_url + "embed/captioned/")
+            if node := page_media(embed, code):
                 return node, page_url, code
-            if self.cookie:
-                response = await self._optional_json(
-                    f"https://i.instagram.com/api/v1/media/{media_id(code)}/info/"
-                )
-                if node := find_media(response, code):
-                    return node, page_url, code
             raise DownloadError(
                 "اینستاگرام داده رسانه نداد؛ پست ممکن است خصوصی، محدود یا نیازمند نشست مجاز باشد."
             )
+
+    async def _optional_page(self, url: str) -> str:
+        # A missing/blocked web page does not prove the public media APIs are empty.
+        try:
+            data, _ = await self._read(url)
+            return data.decode("utf-8", errors="replace")
+        except SiteHTTPError as error:
+            if error.status not in {401, 403, 404, 410, 500, 502, 503, 504}:
+                raise
+        except DownloadError as error:
+            if not isinstance(error.__cause__, (httpx.HTTPError, TimeoutError)):
+                raise
+        return ""
 
     async def _story(self, code: str) -> tuple[dict, str, str]:
         if not self.cookie:
@@ -202,7 +218,7 @@ class InstagramClient:
     async def sample(
         self, url: str, page_url: str, *, metadata: bool = False, tail: bool = False
     ) -> bytes:
-        limit = 128 * 1024 if metadata else 1024
+        limit = 1024 * 1024 if metadata else 1024
         data, _ = await self._read(
             url,
             headers={

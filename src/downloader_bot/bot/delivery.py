@@ -9,6 +9,7 @@ from telethon import TelegramClient, errors, functions, types, utils
 from telethon.extensions import BinaryReader
 
 from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.transfers.integrity import require_duration, validated_mp4
 from downloader_bot.bot.transfers.streaming import media_chunks, source_size, upload_stream
 from downloader_bot.bot.transfers.video import inspect_mp4, require_video_info
 from downloader_bot.core.request_context import request_chat, request_message
@@ -46,6 +47,10 @@ class ExternalFileMismatch(Exception):
 
 class ExternalVideoNotStreamable(Exception):
     """The unpublished URL registration needs local preparation before publication."""
+
+
+class ExternalMediaIncomplete(Exception):
+    """Telegram registered a preview or could not establish the full duration."""
 
 
 class TelegramDelivery:
@@ -154,14 +159,19 @@ class TelegramDelivery:
     ) -> TelegramFile:
         if quality.duration is not None:
             media = replace(media, duration=quality.duration)
+        if quality.mime_type.startswith(("audio/", "video/")):
+            source = replace(source, duration=source.duration or media.duration or None)
         caption = f"{media.title}\n{media.artist}\n{quality.label}"
         if (trace := current_transfer.get()) is not None:
             trace.protocol = source.protocol
             trace.source_size = source.size_bytes
+            trace.expected_media_seconds = source.duration
         with timed("size_probe"):
             size = await self._checked_source_size(source)
         if trace is not None:
             trace.source_size = size
+        if size is not None and source.protocol == "progressive":
+            source = replace(source, size_bytes=size)
         # Unknown-size sources use the byte-capped stream instead of unrestricted URL fetching.
         if source.protocol == "progressive" and (not self.max_file_bytes or size is not None):
             reference = await self._try_external(peer, source, caption, size, progress, quality)
@@ -204,6 +214,7 @@ class TelegramDelivery:
                 or self.max_file_bytes
                 or size is not None
                 or streamable_video(quality)
+                or source.duration
             ):
                 # Fetch first without publishing a message. Cancelling this wait
                 # prevents the later send, even if Telegram finishes its own fetch.
@@ -217,6 +228,26 @@ class TelegramDelivery:
                 check_file_size(actual_size, self.max_file_bytes)
                 if size is not None and actual_size != size:
                     raise ExternalFileMismatch
+                if source.duration:
+                    kind = (
+                        types.DocumentAttributeVideo
+                        if quality.mime_type.startswith("video/")
+                        else types.DocumentAttributeAudio
+                    )
+                    duration = next(
+                        (
+                            a.duration
+                            for a in getattr(document, "attributes", ())
+                            if isinstance(a, kind)
+                        ),
+                        None,
+                    )
+                    try:
+                        require_duration(duration, source.duration)
+                    except DownloadError as error:
+                        raise ExternalMediaIncomplete from error
+                    if trace is not None:
+                        trace.received_media_seconds = duration
                 if streamable_video(quality) and document_streaming(document) is not True:
                     raise ExternalVideoNotStreamable
                 external = types.InputMediaDocument(
@@ -238,6 +269,7 @@ class TelegramDelivery:
             ExternalFetchTimeout,
             ExternalFileMismatch,
             ExternalVideoNotStreamable,
+            ExternalMediaIncomplete,
         ) as error:
             count("external_fallbacks")
             if trace is not None:
@@ -247,8 +279,13 @@ class TelegramDelivery:
                 )
             message = None
         if message is not None:
+            if trace is not None:
+                trace.completeness_verified = True
             return capture_file(
-                message, peer, video_hint=True if streamable_video(quality) else None
+                message,
+                peer,
+                video_hint=True if streamable_video(quality) else None,
+                verified_complete=True,
             )
         return None
 
@@ -274,12 +311,15 @@ class TelegramDelivery:
                 progress.estimated_total = quality.bitrate * 1000 * media.duration // 8
         counters = progress or TransferProgress()
         handle, info = await self._upload(source, quality, filename, counters)
+        if (trace := current_transfer.get()) is not None:
+            trace.received_media_seconds = counters.seconds or None
+            trace.completeness_verified = True
         # Explicit typed media avoids Telethon's filesystem checks and sync metadata readers.
         attributes = [types.DocumentAttributeFilename(filename)]
         if quality.mime_type.startswith("audio/"):
             attributes.append(
                 types.DocumentAttributeAudio(
-                    duration=media.duration,
+                    duration=round(counters.seconds or media.duration),
                     title=media.title,
                     performer=media.artist,
                 )
@@ -319,7 +359,9 @@ class TelegramDelivery:
             parse_mode=None,
             progress=progress,
         )
-        return capture_file(message, peer, video_hint=True if info is not None else None)
+        return capture_file(
+            message, peer, video_hint=True if info is not None else None, verified_complete=True
+        )
 
     async def _upload(self, source, quality, filename, progress):
         async def upload(chunks):
@@ -340,12 +382,23 @@ class TelegramDelivery:
                 self.max_file_bytes,
             ) as (chunks, info):
                 if info is not None:
-                    return await upload(chunks), info
+                    stream = validated_mp4(chunks, progress, source.duration, source.require_audio)
+                    return await upload(stream), info
             # Close the first response before remuxing a source with its index at the end.
             progress.downloaded = 0
             progress.download_done = False
             progress.total = None
-        remux = source.protocol in {"hls", "dash"} or video
+        audio = quality.mime_type.startswith("audio/") and quality.extension in {
+            "mp3",
+            "m4a",
+            "mp4",
+            "opus",
+            "ogg",
+            "webm",
+            "wav",
+            "flac",
+        }
+        remux = source.protocol in {"hls", "dash"} or video or audio
         if remux:
             progress.phase = "waiting_process"
         async with acquired(self._remux_slots, "remux_wait") if remux else nullcontext():
@@ -356,15 +409,20 @@ class TelegramDelivery:
                 quality,
                 self.ffmpeg,
                 progress,
-                remux_progressive=video,
+                remux_progressive=video or audio,
             )
             if video:
                 async with inspect_mp4(chunks, self.max_file_bytes) as (stream, info):
                     info = require_video_info(info)
-                    return await upload(stream), info
+                    checked = validated_mp4(stream, progress, source.duration, source.require_audio)
+                    return await upload(checked), info
             return await upload(chunks), None
 
     async def prepare_cached(self, file: TelegramFile, quality: Quality) -> TelegramFile | None:
+        # Legacy references may contain an incomplete stream with a correct-looking
+        # duration attribute. Rebuild once; never certify them from attributes alone.
+        if not file.verified_complete:
+            return None
         if not streamable_video(quality) or file.video_streaming is True:
             return file
         if file.video_streaming is None:
@@ -448,7 +506,7 @@ def document_streaming(document, fallback=None) -> bool | None:
     )
 
 
-def capture_file(message, peer, video_hint=None) -> TelegramFile:
+def capture_file(message, peer, video_hint=None, *, verified_complete=False) -> TelegramFile:
     if not message.document:
         raise DownloadError("تلگرام فایل قابل استفاده مجدد برنگرداند.")
     document = message.document
@@ -460,4 +518,5 @@ def capture_file(message, peer, video_hint=None) -> TelegramFile:
         message.id,
         getattr(document, "size", None),
         document_streaming(document, video_hint),
+        verified_complete,
     )

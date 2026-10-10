@@ -55,6 +55,9 @@ class TransferTrace:
         self.protocol = None
         self.file_size = None
         self.source_size = None
+        self.expected_media_seconds = None
+        self.received_media_seconds = None
+        self.completeness_verified = False
         self.result = None
         self.failed_stage = None
         self._stage_errors = deque(maxlen=16)
@@ -129,7 +132,14 @@ class TransferTrace:
         if self.protocol in {"hls", "dash"}:
             measurement = "ffmpeg_output"
         elif self.protocol == "progressive" and self.method != "external":
-            measurement = "http_body"
+            measurement = (
+                "mixed_http_and_ffmpeg"
+                if self.counters["ffmpeg_output_bytes"]
+                and self.counters["progressive_download_bytes"]
+                else "ffmpeg_output"
+                if self.counters["ffmpeg_output_bytes"]
+                else "http_body"
+            )
         fields = {
             **self.fields(),
             "outcome": outcome,
@@ -138,6 +148,9 @@ class TransferTrace:
             "source_protocol": self.protocol,
             "file_size_bytes": self.file_size,
             "source_size_bytes": self.source_size,
+            "expected_media_seconds": self.expected_media_seconds,
+            "received_media_seconds": self.received_media_seconds,
+            "completeness_verified": self.completeness_verified,
             "file_size_mib": round(self.file_size / 1024**2, 4)
             if self.file_size is not None
             else None,

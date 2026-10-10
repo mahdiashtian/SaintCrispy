@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from telethon import errors, functions, types
-from video_fixture import mp4_header
+from video_fixture import box, mp4_header
 
 from downloader_bot.bot.delivery import TelegramDelivery
 from downloader_bot.bot.handlers import register_handlers
@@ -17,7 +17,7 @@ from downloader_bot.services.download import DownloadService
 
 PAGE_URL = "https://www.xvideos.com/video.demo/test"
 PAGE = "<title>Demo</title>setVideoUrlHigh('https://cdn.example/video.mp4')"
-MP4 = mp4_header() + b"x" * (600 * 1024)
+MP4 = mp4_header() + box(b"mdat", b"x" * (600 * 1024))
 
 
 @pytest.fixture

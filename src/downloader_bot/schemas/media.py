@@ -58,6 +58,7 @@ class TelegramFile:
     message_id: int
     size_bytes: int | None = None
     video_streaming: bool | None = None
+    verified_complete: bool = False
 
 
 def streamable_video(quality: Quality) -> bool:

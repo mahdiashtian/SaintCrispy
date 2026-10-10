@@ -10,7 +10,16 @@ from downloader_bot.bot.jobs.transfers import TransferJobs
 from downloader_bot.bot.progress import TransferProgress
 from downloader_bot.schemas.media import Media, Quality, Source
 
-QUALITY = Quality("mp3_sq", "MP3", "mp3", None, "mp3", "audio/mpeg", "progressive", "endpoint")
+QUALITY = Quality(
+    "transport",
+    "Transport",
+    "binary",
+    None,
+    "bin",
+    "application/octet-stream",
+    "progressive",
+    "endpoint",
+)
 MEDIA = Media("soundcloud", "track", "Title", "Artist", 30, "url", None, (QUALITY,))
 PEER = types.InputPeerUser(1, 2)
 

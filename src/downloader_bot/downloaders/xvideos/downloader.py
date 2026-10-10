@@ -107,6 +107,7 @@ class XVideosDownloader(Downloader):
             if result is None:
                 return []
             source, dimensions = result
+            source = replace(source, duration=media.duration or None)
             selected = replace(quality, endpoint=source.url)
             if dimensions:
                 width, height = dimensions

@@ -188,6 +188,8 @@ async def test_new_graphql_flow_refreshes_signed_urls_and_does_not_leak_cookies(
         if request.url.path.endswith("get_ruling_for_content/"):
             assert request.url.params["target_id"] == "2913440072144448240"
             return httpx.Response(200, json={"status": "ok"})
+        if request.url.path.endswith("/info/"):
+            return httpx.Response(404)
         assert request.url.path == "/api/graphql"
         assert request.headers["x-fb-lsd"] == "fresh-lsd"
         assert request.headers["x-csrftoken"] == "secret"
@@ -304,6 +306,56 @@ async def test_unavailable_optional_apis_do_not_hide_the_working_shortcode_query
         media = await InstagramDownloader(InstagramClient(http)).inspect(PAGE)
     assert media.content_id == "Chunk8-jurw" and media.qualities
     assert "/graphql/query" in queried
+
+
+@pytest.mark.parametrize("page_status", [200, 403, 404])
+async def test_reported_reel_null_root_response_still_tries_the_shortcode_api(page_status):
+    code = "DeR9eU8idi0"
+    node = find_media(fixture(), "Chunk8-jurw")
+    node = {**node, "code": code, "pk": media_id(code)}
+    paths = []
+
+    def respond(request):
+        paths.append(request.url.path)
+        if request.url.host.endswith("cdninstagram.com"):
+            return httpx.Response(206, content=sample_mp4(audio=False))
+        if request.url.path.startswith("/p/"):
+            return httpx.Response(page_status, text="<html></html>")
+        if request.url.path == "/api/graphql":
+            return httpx.Response(200, json={"data": {"xig_polaris_media": None}})
+        if request.url.path == "/graphql/query":
+            return httpx.Response(200, json={"data": {"xdt_shortcode_media": node}})
+        return httpx.Response(200, json={"status": "ok"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        provider = InstagramDownloader(InstagramClient(http))
+        media = await provider.inspect(f"https://www.instagram.com/reel/{code}/?dlrf=tracking")
+        assert media.content_id == code and media.qualities
+        assert (await provider.resolve(media, media.qualities[0])).url
+    assert "/graphql/query" in paths
+
+
+async def test_authorized_product_without_shortcode_matches_numeric_identity_before_web_page():
+    code = "DeR9eU8idi0"
+    node = find_media(fixture(), "Chunk8-jurw")
+    node.pop("code", None)
+    node.pop("shortcode", None)
+    node["pk"] = media_id(code) + "_123"
+
+    def respond(request):
+        if request.url.host.endswith("cdninstagram.com"):
+            assert "cookie" not in request.headers
+            return httpx.Response(206, content=sample_mp4(audio=False))
+        assert request.url.path == f"/api/v1/media/{media_id(code)}/info/"
+        assert request.headers["cookie"] == "sessionid=private"
+        return httpx.Response(200, json={"items": [node]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        media = await InstagramDownloader(InstagramClient(http, "sessionid=private")).inspect(
+            f"https://www.instagram.com/reel/{code}/"
+        )
+    assert media.content_id == code and media.qualities
+    assert find_media({"items": [{**node, "pk": "123"}]}, code) is None
 
 
 async def test_rate_limit_has_cooldown_and_no_recursive_retry_storm():

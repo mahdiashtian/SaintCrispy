@@ -277,7 +277,7 @@ async def test_old_nonstreamable_cache_is_replaced_once_then_reused(video_origin
     assert len(client.messages) == 2 and isinstance(client.messages[-1], types.InputMediaDocument)
 
 
-async def test_legacy_ready_reference_is_checked_without_redownloading():
+async def test_legacy_ready_reference_is_not_trusted_from_its_duration_attribute():
     file = TelegramFile(1, 2, b"old", bytes(PEER), 3)
 
     async def get_messages(*args, **kwargs):
@@ -292,13 +292,12 @@ async def test_legacy_ready_reference_is_checked_without_redownloading():
         )
 
     delivery = TelegramDelivery(SimpleNamespace(get_messages=get_messages), None, "")
-    fresh = await delivery.prepare_cached(file, QUALITY)
-    assert fresh == replace(file, file_reference=b"new", size_bytes=1024, video_streaming=True)
+    assert await delivery.prepare_cached(file, QUALITY) is None
 
 
 async def test_thousand_requests_share_one_legacy_video_repair_and_publish_concurrently():
     old = TelegramFile(1, 2, b"old", bytes(PEER), 3, 1024, False)
-    fresh = replace(old, document_id=10, video_streaming=True)
+    fresh = replace(old, document_id=10, video_streaming=True, verified_complete=True)
     stored = old
     all_followers = asyncio.Event()
     active = peak = 0

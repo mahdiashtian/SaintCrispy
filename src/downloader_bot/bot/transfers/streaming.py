@@ -8,6 +8,7 @@ import httpx
 from telethon import functions, helpers, types
 
 from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.transfers.integrity import require_duration
 from downloader_bot.schemas.media import DownloadError, Quality, Source
 from downloader_bot.services.limits import check_file_size
 from downloader_bot.services.observability import current_transfer, timed
@@ -95,12 +96,14 @@ def remux_arguments(source: Source, quality: Quality) -> list[str]:
     else:
         tracks = ["-map", "0:a:0", "-vn", "-c:a", "copy"]
 
-    if quality.codec == "mp3":
+    if quality.extension == "mp3":
         output = ["-f", "mp3"]
     elif quality.extension in {"opus", "ogg"}:
         output = ["-f", "ogg"]
     elif quality.extension == "webm":
         output = ["-f", "webm"]
+    elif quality.extension in {"wav", "flac"}:
+        output = ["-f", quality.extension]
     else:
         output = [
             "-f",
@@ -230,14 +233,12 @@ async def _media_chunks(
             yield chunk
         returncode = await process.wait()
         await errors
-        incomplete = source.duration and media_seconds < source.duration - max(
-            1, source.duration * 0.005
-        )
-        if returncode != 0 or skipped_segment or incomplete:
+        if returncode != 0 or skipped_segment:
             raise DownloadError(
                 "دریافت جریان رسانه کامل نشد؛ فایل ناقص ارسال نمی‌شود.",
                 code="media_stream_incomplete",
             )
+        require_duration(media_seconds, source.duration)
         if progress is not None:
             progress.download_done = True
             progress.total = progress.downloaded

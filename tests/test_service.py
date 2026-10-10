@@ -8,7 +8,7 @@ from downloader_bot.services.download import DownloadService
 
 QUALITY = Quality("aac_160", "AAC 160", "aac", 160, "m4a", "audio/mp4", "hls", "endpoint")
 MEDIA = Media("soundcloud", "track", "Title", "Artist", 30, "url", None, (QUALITY,))
-FILE = TelegramFile(1, 2, b"ref", b"peer", 3)
+FILE = TelegramFile(1, 2, b"ref", b"peer", 3, verified_complete=True)
 
 
 @pytest.mark.parametrize("protocol", ["hls", "progressive"])
@@ -161,3 +161,20 @@ async def test_unrelated_content_keys_do_not_share_a_transfer_lock():
         service.deliver("peer", MEDIA, QUALITY), service.deliver("peer", other, QUALITY)
     )
     assert active == 2 and not service._locks._entries
+
+
+async def test_unverified_transfer_cannot_enter_the_durable_file_cache():
+    from unittest.mock import AsyncMock
+
+    repository = SimpleNamespace(
+        key=lambda *args: "id", get=AsyncMock(return_value=None), save=AsyncMock()
+    )
+    service = DownloadService(
+        SimpleNamespace(resolve=AsyncMock(return_value=Source("url", "progressive"))),
+        repository,
+        SimpleNamespace(new_file=AsyncMock(return_value=TelegramFile(1, 2, b"ref", b"peer", 3))),
+    )
+    with pytest.raises(DownloadError) as failure:
+        await service.deliver(1, MEDIA, QUALITY)
+    assert failure.value.code == "media_stream_incomplete"
+    repository.save.assert_not_awaited()

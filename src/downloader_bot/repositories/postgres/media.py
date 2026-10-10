@@ -19,7 +19,7 @@ class PostgresMediaRepository:
     async def get(self, site: str, content_id: str, quality: str) -> TelegramFile | None:
         row = await self.pool.fetchrow(
             """SELECT document_id, access_hash, file_reference, origin_peer, message_id, size_bytes,
-            video_streaming
+            video_streaming, verified_complete
             FROM media_files WHERE site=$1 AND content_id=$2 AND quality=$3
             AND telegram_account_id=$4""",
             site,
@@ -37,13 +37,15 @@ class PostgresMediaRepository:
         await self.pool.execute(
             """INSERT INTO media_files
             (site, content_id, quality, telegram_account_id, document_id,
-             access_hash, file_reference, origin_peer, message_id, size_bytes, video_streaming)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+             access_hash, file_reference, origin_peer, message_id, size_bytes, video_streaming,
+             verified_complete)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
             ON CONFLICT (site, content_id, quality, telegram_account_id) DO UPDATE SET
               document_id=EXCLUDED.document_id, access_hash=EXCLUDED.access_hash,
               file_reference=EXCLUDED.file_reference, origin_peer=EXCLUDED.origin_peer,
               message_id=EXCLUDED.message_id, size_bytes=EXCLUDED.size_bytes,
-              video_streaming=EXCLUDED.video_streaming, updated_at=now()""",
+              video_streaming=EXCLUDED.video_streaming,
+              verified_complete=EXCLUDED.verified_complete, updated_at=now()""",
             site,
             content_id,
             quality,
@@ -55,6 +57,7 @@ class PostgresMediaRepository:
             file.message_id,
             file.size_bytes,
             file.video_streaming,
+            file.verified_complete,
         )
 
     async def accounts(self, site: str) -> list[dict]:
@@ -84,10 +87,12 @@ class PostgresMediaRepository:
 
     async def remember_media(self, aliases: tuple[str, ...], media: Media) -> None:
         # Keep menu metadata only. Signed URLs, cookies and account credentials never
-        # enter the persistent catalog, whose qualities are usable only with saved files.
+        # enter the persistent catalog. Uncached qualities resolve fresh before transfer.
         data = asdict(media)
         data.pop("authorization")
         data.pop("account_id")
+        data["thumbnail"] = None
+        data["requires_refresh"] = True
         for quality in data["qualities"]:
             quality["endpoint"] = ""
             quality["fallback_endpoint"] = None
@@ -116,9 +121,7 @@ class PostgresMediaRepository:
 
     async def known_media(self, alias: str) -> Media | None:
         row = await self.pool.fetchrow(
-            """SELECT c.metadata, ARRAY(
-                SELECT quality FROM media_files f WHERE f.telegram_account_id=c.telegram_account_id
-                AND f.site=c.site AND f.content_id=c.content_id) AS stored_qualities
+            """SELECT c.metadata
             FROM media_catalog c JOIN media_aliases a
               ON (a.telegram_account_id,a.site,a.content_id) =
                  (c.telegram_account_id,c.site,c.content_id)
@@ -126,11 +129,16 @@ class PostgresMediaRepository:
             self.bot_id,
             alias,
         )
-        if row is None or not row["stored_qualities"]:
+        if row is None:
             return None
         data = json.loads(row["metadata"])
+        data["authorization"] = None
+        data["account_id"] = "guest"
+        data["thumbnail"] = None
+        data["requires_refresh"] = True
         data["qualities"] = tuple(
-            Quality(**item) for item in data["qualities"] if item["key"] in row["stored_qualities"]
+            Quality(**{**item, "endpoint": "", "fallback_endpoint": None})
+            for item in data["qualities"]
         )
         return Media(**data) if data["qualities"] else None
 

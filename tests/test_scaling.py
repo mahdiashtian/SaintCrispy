@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from telethon import errors
-from video_fixture import mp4_header
+from video_fixture import box, mp4_header
 
 from downloader_bot.bot.delivery import TelegramDelivery
 from downloader_bot.bot.handlers.quality import handle_quality
@@ -185,7 +185,7 @@ async def test_only_two_remux_streams_can_run_and_waiters_are_cancellable(monkey
             started.set()
         try:
             await finish.wait()
-            yield mp4_header()
+            yield mp4_header() + box(b"mdat", b"samples")
         finally:
             active -= 1
 

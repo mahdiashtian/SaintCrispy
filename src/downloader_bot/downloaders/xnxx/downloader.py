@@ -108,7 +108,13 @@ class XNXXDownloader(Downloader):
             return [
                 (
                     replace(quality, endpoint=probe.url),
-                    Source(probe.url, "progressive", headers, size_bytes=probe.size_bytes),
+                    Source(
+                        probe.url,
+                        "progressive",
+                        headers,
+                        size_bytes=probe.size_bytes,
+                        duration=media.duration or None,
+                    ),
                     media.duration,
                 )
             ]

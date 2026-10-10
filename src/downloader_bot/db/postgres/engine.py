@@ -46,6 +46,12 @@ MIGRATIONS = (
         "streamable_video_references",
         "ALTER TABLE media_files ADD COLUMN IF NOT EXISTS video_streaming BOOLEAN;",
     ),
+    (
+        4,
+        "verified_complete_media",
+        "ALTER TABLE media_files ADD COLUMN IF NOT EXISTS verified_complete "
+        "BOOLEAN NOT NULL DEFAULT FALSE;",
+    ),
 )
 
 

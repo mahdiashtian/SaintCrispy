@@ -2,6 +2,37 @@
 
 Verification separates parser/unit behavior, database/concurrency behavior, full origin streams, and Telegram registration. A green unit suite cannot establish unrestricted access from every server IP.
 
+## October 10, 2026 completeness regression checks
+
+The upstream streaming-playback change `54b8350` was fetched and integrated before
+this work. Fresh quality discovery now takes precedence over the durable file cache;
+a complete redacted catalog is a temporary outage fallback. Tests cover both a saved
+quality and a new quality after restart for each provider, plus 1,000 duplicate
+requests and recovery after a catalog fallback.
+
+Generated neutral 18-second audio/video fixtures reproduce an 11-second preview.
+The delivery pipeline rejects a short Telegram registration, downloads the full
+available origin, and decodes the complete video and audio to EOF. These tests run
+against all six provider labels on the shared delivery contract; they are transport
+tests, not live site extraction tests. Separate tests reject a short progressive
+origin and an 11-second video paired with an 18-second audio track, without publishing
+or persisting the incomplete file. Legacy references are not trusted solely because
+their advertised Telegram duration looks correct.
+
+The reported Instagram reel `DeR9eU8idi0` was attempted from the workstation before
+and after the changes. The workstation connection timed out. The six-provider live
+workstation audit completed **23 full Pinterest qualities** with the new MP4 track
+validator; the other five providers failed connection/extraction from this egress.
+Those failures are recorded as failures. The explicit reel is first in the Linux
+live workflow so earlier Instagram requests cannot consume its rate-limit budget.
+Instagram fixture tests cover a null product response, failed web pages, and an
+authorized numeric media response without a shortcode. They do not establish that
+the exact reel is publicly accessible from the production server.
+
+Validation before publication: **689 tests passed, 5 database integration tests
+skipped** locally; PostgreSQL/Redis integration runs additionally on Linux CI.
+No production server connection or production Telegram message was used.
+
 ## October 9, 2026 observations
 
 The earlier Linux origin run on this date completed 71 public quality streams across five providers: SoundCloud, Instagram, Pinterest, XVideos and XNXX. The test run and sanitized result are available in [GitHub Actions run 37940691580](https://github.com/mahdiashtian/SaintCrispy/actions/runs/37940691580). The overall live check failed visibly for restricted/deleted samples and YouTube's login challenge; those failures were not counted as successes.

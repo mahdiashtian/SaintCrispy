@@ -54,7 +54,7 @@ async def test_additive_upgrade_preserves_files_and_recovers_conversations(alrea
             file.size_bytes,
         )
         await asyncio.gather(migrate(pool), migrate(pool))
-        assert await pool.fetchval("SELECT count(*) FROM app_schema_migrations") == 3
+        assert await pool.fetchval("SELECT count(*) FROM app_schema_migrations") == 4
         assert await files.get("youtube", "video", "high") == file
         workflow = WorkflowRepository(pool, 123)
         manager = ConversationManager(workflow)

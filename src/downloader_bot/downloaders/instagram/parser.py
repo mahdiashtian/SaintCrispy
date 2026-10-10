@@ -101,11 +101,16 @@ def find_media(data, code: str) -> dict | None:
         count += 1
         if isinstance(node, dict):
             identity = node.get("code") or node.get("shortcode")
-            if identity == code and any(
-                key in node
+            numeric = str(node.get("pk") or node.get("id") or "").removeprefix("POLARIS_")
+            matches = identity == code or (
+                not identity and numeric.split("_", 1)[0] == media_id(code)
+            )
+            if matches and any(
+                node.get(key)
                 for key in (
                     "video_versions",
                     "video_url",
+                    "video_dash_manifest",
                     "image_versions2",
                     "display_url",
                     "carousel_media",

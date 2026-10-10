@@ -38,7 +38,7 @@ QUALITY = Quality(
 )
 MEDIA = Media("loadtest", "", "Public test bytes", "", 10, "", None, (QUALITY,))
 PEER = types.InputPeerUser(1, 2)
-FILE = TelegramFile(10, 20, b"test-reference", bytes(PEER), 1)
+FILE = TelegramFile(10, 20, b"test-reference", bytes(PEER), 1, verified_complete=True)
 
 
 class MemoryRepository:

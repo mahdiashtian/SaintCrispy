@@ -21,6 +21,7 @@ from telethon import TelegramClient, functions, types
 from telethon.sessions import MemorySession
 
 from downloader_bot.bot.progress import TransferProgress
+from downloader_bot.bot.transfers.integrity import require_duration, validated_mp4
 from downloader_bot.bot.transfers.streaming import media_chunks, upload_stream
 from downloader_bot.downloaders.instagram.client import InstagramClient
 from downloader_bot.downloaders.instagram.downloader import InstagramDownloader
@@ -90,7 +91,7 @@ async def stream_source(http, source, quality, args, row):
     started = time.monotonic()
     row.update(stream_checked=True, stream_complete=False)
     try:
-        async with aclosing(media_chunks(http, source, quality, args.ffmpeg, progress)) as chunks:
+        async with aclosing(checked_chunks(http, source, quality, args, progress)) as chunks:
             async for chunk in chunks:
                 total += len(chunk)
                 if total > args.max_stream_mib * 1024 * 1024:
@@ -105,6 +106,16 @@ async def stream_source(http, source, quality, args, row):
             stream_seconds=round(time.monotonic() - started, 3),
             media_seconds=round(progress.seconds, 3),
         )
+
+
+def checked_chunks(http, source, quality, args, progress):
+    audio = quality.mime_type.startswith("audio/") and bool(source.duration)
+    chunks = media_chunks(http, source, quality, args.ffmpeg, progress, remux_progressive=audio)
+    if quality.mime_type == "video/mp4":
+        return validated_mp4(
+            chunks, progress, source.duration or quality.duration, source.require_audio
+        )
+    return chunks
 
 
 async def check_quality(provider, media, quality, args):
@@ -169,6 +180,26 @@ async def register_quality(telegram, quality, source, args, row):
                 telegram_bytes=document.size,
                 size_matches_origin=matched,
             )
+            if source.duration:
+                kind = (
+                    types.DocumentAttributeVideo
+                    if quality.mime_type.startswith("video/")
+                    else types.DocumentAttributeAudio
+                )
+                seconds = next(
+                    (
+                        a.duration
+                        for a in getattr(document, "attributes", ())
+                        if isinstance(a, kind)
+                    ),
+                    None,
+                )
+                try:
+                    require_duration(seconds, source.duration)
+                    row["duration_matches_origin"] = True
+                except DownloadError:
+                    row["duration_matches_origin"] = False
+                    matched = False
             if matched is not False and document.file_reference:
                 row.update(telegram_verified=True, telegram_method="external")
                 return
@@ -184,7 +215,7 @@ async def register_quality(telegram, quality, source, args, row):
         async with asyncio.timeout(args.transfer_timeout), httpx.AsyncClient(timeout=20) as http:
             handle = await upload_stream(
                 telegram,
-                media_chunks(http, source, quality, args.ffmpeg, progress),
+                checked_chunks(http, source, quality, args, progress),
                 f"origin-check.{quality.extension}",
                 progress=progress,
                 max_file_bytes=args.max_stream_mib * 1024 * 1024,
