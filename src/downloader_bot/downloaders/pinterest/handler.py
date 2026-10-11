@@ -1,9 +1,10 @@
 from functools import partial
 
 import httpx
-from telethon import Button, events, types
+from telethon import events, types
 
 from downloader_bot.bot.delivery import EXTERNAL_FAILURES
+from downloader_bot.bot.presentation import quality_buttons
 from downloader_bot.schemas.media import DownloadError
 
 from .urls import LINK_PATTERN, extract_url
@@ -20,10 +21,7 @@ async def handle_pinterest_link(event, service, menus) -> None:
         token = await menus.create(
             event.sender_id, event.chat_id, media, message_id=getattr(event, "id", None)
         )
-        buttons = [
-            [Button.inline(quality.label, data=f"pin:{token}:{index}")]
-            for index, quality in enumerate(media.qualities)
-        ]
+        buttons = quality_buttons(media.qualities, "pin", token)
         text = (
             f"📌 Pinterest\n\n🎧 {media.title}\n👤 {media.artist}\n\n📥 کیفیت دریافت را انتخاب کن:"
         )

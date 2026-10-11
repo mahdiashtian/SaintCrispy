@@ -1,9 +1,10 @@
 from functools import partial
 
 import httpx
-from telethon import Button, events, types
+from telethon import events, types
 
 from downloader_bot.bot.delivery import EXTERNAL_FAILURES
+from downloader_bot.bot.presentation import quality_buttons
 from downloader_bot.schemas.media import DownloadError
 
 from .urls import LINK_PATTERN, extract_url
@@ -20,15 +21,13 @@ async def handle_instagram_link(event, service, menus) -> None:
         token = await menus.create(
             event.sender_id, event.chat_id, media, message_id=getattr(event, "id", None)
         )
-        buttons = [
-            [Button.inline(quality.label, data=f"ig:{token}:{index}")]
-            for index, quality in enumerate(media.qualities)
-        ]
         text = (
             f"📸 Instagram\n\n🎧 {media.title}\n👤 {media.artist}\n\n📥 کیفیت دریافت را انتخاب کن:"
         )
-        for offset in range(0, len(buttons), 50):
-            chunk = buttons[offset : offset + 50]
+        for offset in range(0, len(media.qualities), 50):
+            chunk = quality_buttons(
+                media.qualities[offset : offset + 50], "ig", token, start_index=offset
+            )
             if media.thumbnail and offset == 0:
                 try:
                     await event.respond(

@@ -6,7 +6,7 @@ Supported providers: **SoundCloud, YouTube, Instagram, Pinterest, XVideos and XN
 
 ## How it works
 
-1. A user sends a supported media URL and receives a quality menu. `/start` is optional, including after a server restart.
+1. A user sends a supported media URL and receives a quality menu. Short choices share rows of three; longer labels use pairs. Audio, video and image choices start separate rows, preserving the provider's preferred order and each selection's identity. `/start` is optional, including after a server restart.
 2. The bot identifies the content using the provider's stable ID and the selected quality.
 3. If that file already exists in Telegram, the saved document reference is reused.
 4. Otherwise, a complete progressive URL is offered to Telegram first. The fetched document is checked before publication when its size is known or a size limit is configured.

@@ -3,12 +3,38 @@
 import asyncio
 import logging
 import re
+from itertools import groupby
 
-from telethon import errors, functions, types
+from telethon import Button, errors, functions, types
 
+from downloader_bot.schemas.media import Quality
 from downloader_bot.services.observability import error_fields
 
 log = logging.getLogger("telegram.presentation")
+
+
+def quality_buttons(
+    qualities: tuple[Quality, ...], prefix: str, token: str, *, start_index: int = 0
+) -> list[list[Button]]:
+    """Pack provider-ordered choices without changing their stored callback indexes."""
+    rows = []
+    for _, group in groupby(
+        enumerate(qualities, start_index), key=lambda item: item[1].mime_type.split("/", 1)[0]
+    ):
+        choices = list(group)
+        columns = 2 if any(len(quality.label) > 24 for _, quality in choices) else 3
+        offset = 0
+        while offset < len(choices):
+            # Four short choices fit better as two pairs than a row of three and a singleton.
+            count = 2 if columns == 3 and len(choices) - offset == 4 else columns
+            rows.append(
+                [
+                    Button.inline(quality.label, data=f"{prefix}:{token}:{index}")
+                    for index, quality in choices[offset : offset + count]
+                ]
+            )
+            offset += count
+    return rows
 
 
 class BotPresentation:

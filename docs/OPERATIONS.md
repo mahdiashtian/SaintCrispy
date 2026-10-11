@@ -6,6 +6,8 @@ The Python bot and Node runtime run on the host. Docker runs PostgreSQL and Redi
 
 Stop the currently running Python process through its terminal or supervisor. Keep `.env`, the existing database volumes, cookies and session files.
 
+Normal code updates and bot restarts preserve PostgreSQL file references, user history and saved quality menus. Keep the same Compose project name (default `saintcrispy`) and PostgreSQL volume; switching project names attaches a different volume. Never use `docker compose down -v` or delete the database volume during an upgrade. Redis is a disposable cache and repopulates from PostgreSQL. Telegram files remain on Telegram; temporary preparation files are cleaned up after their transfer.
+
 ```bash
 cd ~/SaintCrispy
 git pull --ff-only
