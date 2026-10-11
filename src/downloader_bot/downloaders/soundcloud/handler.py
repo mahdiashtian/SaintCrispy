@@ -1,3 +1,4 @@
+import logging
 from functools import partial
 
 import httpx
@@ -5,9 +6,12 @@ from telethon import events, types
 
 from downloader_bot.bot.delivery import EXTERNAL_FAILURES
 from downloader_bot.bot.presentation import quality_buttons
+from downloader_bot.core.diagnostics import error_fields
 from downloader_bot.schemas.media import DownloadError
 
 from .urls import LINK_PATTERN, extract_url
+
+log = logging.getLogger("activity")
 
 
 async def handle_soundcloud_link(event, service, menus) -> None:
@@ -22,9 +26,7 @@ async def handle_soundcloud_link(event, service, menus) -> None:
             event.sender_id, event.chat_id, media, message_id=getattr(event, "id", None)
         )
         buttons = quality_buttons(media.qualities, "sc", token)
-        text = (
-            f"🎵 SoundCloud\n\n🎧 {media.title}\n👤 {media.artist}\n\n📥 کیفیت دریافت را انتخاب کن:"
-        )
+        text = f"🎵 SoundCloud\n\n🎧 {media.title}\n👤 {media.artist}\n\nکدوم کیفیت رو می‌خوای؟"
         if media.thumbnail:
             try:
                 await event.respond(
@@ -41,10 +43,13 @@ async def handle_soundcloud_link(event, service, menus) -> None:
             text, buttons=buttons, parse_mode=None, reply_to=getattr(event, "id", None)
         )
     except DownloadError as error:
+        log.warning(
+            {"event": "provider_inspection_failed", "site": "soundcloud", **error_fields(error)}
+        )
         await event.respond(f"⚠️ {error}", parse_mode=None, reply_to=getattr(event, "id", None))
     except (httpx.HTTPError, TimeoutError):
         await event.respond(
-            "⚠️ دریافت اطلاعات محتوا ناموفق بود؛ کمی بعد دوباره امتحان کن.",
+            "⚠️ نتونستم اطلاعات این لینک رو بگیرم. کمی بعد دوباره بفرستش.",
             parse_mode=None,
             reply_to=getattr(event, "id", None),
         )

@@ -155,6 +155,21 @@ def page_media(page: str, code: str) -> dict | None:
     parser.feed(page)
     for script in parser.scripts:
         script = re.sub(r"^\s*window\._sharedData\s*=\s*", "", script).strip().rstrip(";")
+        # Older embeds put JSON inside this one named callback, rather than a JSON script.
+        callback = re.match(
+            r"""^window\.__additionalDataLoaded\(\s*(?:"[^"\\]*"|'[^'\\]*')\s*,\s*""",
+            script,
+        )
+        if callback:
+            try:
+                data, end = json.JSONDecoder().raw_decode(script[callback.end() :])
+                if script[callback.end() + end :].strip() != ")":
+                    continue
+                if node := find_media(data, code):
+                    return node
+            except (ValueError, RecursionError):
+                pass
+            continue
         if not script.startswith(("{", "[")):
             continue
         try:
@@ -327,9 +342,13 @@ def read_media(node: dict, page_url: str, content_id: str) -> tuple[Media, list[
                 },
             ]
         item_duration = duration(item.get("video_duration"))
-        dash, dash_duration = dash_formats(
-            item.get("video_dash_manifest") or "", item_key, item.get("has_audio"), prefix
+        dash_info = item.get("dash_info")
+        manifest = (
+            item.get("video_dash_manifest")
+            or (dash_info.get("video_dash_manifest") if isinstance(dash_info, dict) else "")
+            or ""
         )
+        dash, dash_duration = dash_formats(manifest, item_key, item.get("has_audio"), prefix)
         item_duration = item_duration or dash_duration
         seconds = max(seconds, item_duration)
         formats.extend(dash)

@@ -9,6 +9,7 @@ from downloader_bot.downloaders.xnxx.handler import register_handler as register
 from downloader_bot.downloaders.xvideos.handler import register_handler as register_xvideos
 from downloader_bot.downloaders.youtube.handler import register_handler as register_youtube
 
+from .home import handle_home
 from .limited import LimitedHandlers
 from .quality import handle_quality
 from .start import handle_start
@@ -51,6 +52,15 @@ def register_handlers(
         LimitedHandlers(client, limits, conversations, users, presentation)
         if limits is not None
         else client
+    )
+    client.add_event_handler(
+        partial(
+            handle_home,
+            jobs=jobs,
+            bot_username=bot_username,
+            interval=getattr(limits, "interval", 60),
+        ),
+        events.CallbackQuery(pattern=rb"^home:([0-9]+):(help|sites|active|main)$"),
     )
     for register in PROVIDER_HANDLERS:
         register(provider_client, service, menus)

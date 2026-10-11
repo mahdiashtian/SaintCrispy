@@ -40,6 +40,13 @@ class TransferJobs:
     def active_count(self) -> int:
         return sum(job.task is not None for job in self._jobs.values())
 
+    def for_owner(self, owner_id: int, chat_id: int) -> tuple[TransferJob, ...]:
+        return tuple(
+            job
+            for job in self._jobs.values()
+            if (job.owner_id, job.chat_id) == (owner_id, chat_id) and not job.cancelled
+        )
+
     def reserve(self, owner_id: int, chat_id: int, progress: TransferProgress) -> TransferJob:
         if self._closing or self.count >= self.capacity:
             if self.telemetry is not None:

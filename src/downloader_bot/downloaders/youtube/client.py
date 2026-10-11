@@ -1,7 +1,9 @@
 import asyncio
 import json
+import logging
 import os
 import sys
+import time
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -10,6 +12,13 @@ import httpx
 from downloader_bot.schemas.media import DownloadError, SiteHTTPError
 
 from .parser import codec, source_headers, usable
+
+log = logging.getLogger(__name__)
+RETRYABLE_EXTRACTION = {
+    "youtube_login_required",
+    "youtube_extraction_failed",
+    "youtube_cdn_forbidden",
+}
 
 
 @dataclass(frozen=True)
@@ -24,6 +33,9 @@ class YouTubeClient:
     timeout: float = 80
     _cookies_lock: asyncio.Lock = field(
         default_factory=asyncio.Lock, init=False, repr=False, compare=False
+    )
+    _cooldowns: dict[str, float] = field(
+        default_factory=dict, init=False, repr=False, compare=False
     )
 
     def __post_init__(self):
@@ -106,10 +118,45 @@ class YouTubeClient:
         if self.cookies_file:
             # yt-dlp can update its cookie file on exit; serialize workers for this account.
             async with self._cookies_lock:
-                return await self._extract(url)
-        return await self._extract(url)
+                return await self._extract_strategies(url)
+        return await self._extract_strategies(url)
 
-    async def _extract(self, url: str) -> dict:
+    async def _extract_strategies(self, url: str) -> dict:
+        for code, until in self._cooldowns.items():
+            if time.monotonic() < until:
+                raise extraction_error(b"429" if code == "youtube_rate_limited" else b"not a bot")
+        # Retry once with a different supported player, inside one overall deadline.
+        # An explicit override remains authoritative; private/429 failures never loop.
+        strategies = [self.player_clients]
+        if not self.player_clients and not self.cookies_file:
+            strategies.append("web_embedded")
+        try:
+            async with asyncio.timeout(self.timeout):
+                for index, clients in enumerate(strategies):
+                    try:
+                        data = await self._extract(url, clients)
+                        self._cooldowns.clear()
+                        log.info({"event": "youtube_extracted", "attempt": index + 1})
+                        return data
+                    except DownloadError as error:
+                        log.warning(
+                            {
+                                "event": "youtube_extraction_attempt_failed",
+                                "attempt": index + 1,
+                                "error_code": error.code,
+                            }
+                        )
+                        if error.code not in RETRYABLE_EXTRACTION or index == len(strategies) - 1:
+                            if error.code in {"youtube_login_required", "youtube_rate_limited"}:
+                                self._cooldowns[error.code] = time.monotonic() + 60
+                            raise
+        except TimeoutError as error:
+            raise DownloadError(
+                "دریافت اطلاعات یوتیوب طولانی شد. کمی بعد دوباره امتحان کن.",
+                code="youtube_extraction_timeout",
+            ) from error
+
+    async def _extract(self, url: str, player_clients: str | None = None) -> dict:
         arguments = [
             sys.executable,
             "-m",
@@ -134,8 +181,8 @@ class YouTubeClient:
         ]
         if self.cookies_file:
             arguments.extend(["--cookies", self.cookies_file])
-        if self.player_clients:
-            arguments.extend(["--extractor-args", f"youtube:player_client={self.player_clients}"])
+        if player_clients:
+            arguments.extend(["--extractor-args", f"youtube:player_client={player_clients}"])
         if self.pot_base_url:
             arguments.extend(
                 [
@@ -208,7 +255,8 @@ def extraction_error(diagnostic: bytes) -> DownloadError:
         )
     if b"not a bot" in text or b"sign in" in text:
         return DownloadError(
-            "یوتیوب فعلاً دریافت این ویدیو را روی اتصال ربات محدود کرده؛ کمی بعد دوباره امتحان کن.",
+            "یوتیوب از اتصال ربات تأیید ورود می‌خواد و فایل رو نمی‌ده. "
+            "برای ادامه، مدیر ربات باید نشست یوتیوب یا اتصال سرور رو تنظیم کنه.",
             code="youtube_login_required",
         )
     if b"429" in text:

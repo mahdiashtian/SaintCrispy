@@ -21,7 +21,7 @@ from downloader_bot.core.log_writer import JsonLogWriter
 from downloader_bot.core.logging_config import ApplicationLogging
 from downloader_bot.db.postgres.engine import create_pool
 from downloader_bot.db.redis.pool import create_redis
-from downloader_bot.downloaders.instagram.client import InstagramClient
+from downloader_bot.downloaders.instagram.client import InstagramClient, instagram_session
 from downloader_bot.downloaders.instagram.downloader import InstagramDownloader
 from downloader_bot.downloaders.pinterest.client import PinterestClient
 from downloader_bot.downloaders.pinterest.downloader import PinterestDownloader
@@ -173,7 +173,7 @@ class Container:
 
         async def instagram_client(cookie=None):
             # Each account needs an isolated cookie jar; CDN delivery uses the shared client.
-            session = await stack.enter_async_context(httpx.AsyncClient(timeout=15))
+            session = await stack.enter_async_context(instagram_session())
             return InstagramClient(
                 session,
                 cookie,

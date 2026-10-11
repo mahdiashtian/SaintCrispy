@@ -10,6 +10,40 @@ from downloader_bot.core.diagnostics import error_fields
 from .log_writer import JsonLogWriter
 from .request_context import request_chat, request_id, request_user
 
+SENSITIVE_FIELDS = {
+    "cookie",
+    "cookies",
+    "authorization",
+    "password",
+    "token",
+    "api_hash",
+    "bot_token",
+    "headers",
+    "url",
+    "proxy",
+    "message",
+    "stderr",
+    "credential",
+    "credentials",
+}
+
+
+def safe_payload(value, depth=0):
+    if depth > 8:
+        return "[truncated]"
+    if isinstance(value, dict):
+        return {
+            key: "[redacted]"
+            if str(key).lower() in SENSITIVE_FIELDS
+            else safe_payload(item, depth + 1)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [safe_payload(item, depth + 1) for item in value[:100]]
+    if isinstance(value, str):
+        return "[redacted]" if "://" in value else value[:2048]
+    return value if value is None or isinstance(value, (int, float, bool)) else type(value).__name__
+
 
 class SafeQueueHandler(logging.Handler):
     def __init__(self, writers):
@@ -18,7 +52,9 @@ class SafeQueueHandler(logging.Handler):
 
     def emit(self, record):
         # Library messages and formatted exception strings may contain secrets.
-        payload = dict(record.msg) if isinstance(record.msg, dict) else {"event": "library_log"}
+        payload = (
+            safe_payload(record.msg) if isinstance(record.msg, dict) else {"event": "library_log"}
+        )
         payload.update(
             timestamp=datetime.fromtimestamp(record.created, UTC).isoformat(),
             level=record.levelname,
@@ -32,7 +68,7 @@ class SafeQueueHandler(logging.Handler):
             payload["user_id"] = request_user.get()
         if request_chat.get() is not None:
             payload["chat_id"] = request_chat.get()
-        stream = "activity" if record.name == "activity" else "system"
+        stream = "activity" if record.name.split(".", 1)[0] == "activity" else "system"
         self.writers[stream].emit(payload)
         if record.name.startswith(("telethon", "telegram")):
             self.writers["telegram"].emit(payload)
@@ -48,6 +84,8 @@ class ApplicationLogging:
                 settings.log_backups,
                 settings.log_queue_size,
                 stdout=name == "system" and settings.log_stdout,
+                readable=True,
+                daily=True,
             )
             for name in ("system", "telegram", "activity")
         }

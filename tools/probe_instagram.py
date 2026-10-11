@@ -9,15 +9,14 @@ import argparse
 import asyncio
 import json
 import os
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, aclosing
 from urllib.parse import urlsplit
 
-import httpx
 from telethon import TelegramClient, functions, types
 from telethon.sessions import MemorySession
 
 from downloader_bot.bot.transfers.streaming import media_chunks, upload_stream
-from downloader_bot.downloaders.instagram.client import InstagramClient
+from downloader_bot.downloaders.instagram.client import InstagramClient, instagram_session
 from downloader_bot.downloaders.instagram.downloader import InstagramDownloader
 from downloader_bot.schemas.media import DownloadError
 
@@ -27,10 +26,14 @@ async def main():
     parser.add_argument("urls", nargs="+")
     parser.add_argument("--telegram", action="store_true")
     parser.add_argument("--remux", action="store_true")
+    parser.add_argument(
+        "--stream", action="store_true", help="Read one complete quality, without Telegram"
+    )
+    parser.add_argument("--quality", help="Quality key; --stream defaults to the first quality")
     parser.add_argument("--ffmpeg", default=os.environ.get("FFMPEG_PATH", "ffmpeg"))
     args = parser.parse_args()
     async with AsyncExitStack() as stack:
-        http = await stack.enter_async_context(httpx.AsyncClient(timeout=20))
+        http = await stack.enter_async_context(instagram_session())
         downloader = InstagramDownloader(InstagramClient(http, os.environ.get("INSTAGRAM_COOKIE")))
         telegram = None
         if args.telegram or args.remux:
@@ -69,6 +72,25 @@ async def main():
                         ),
                         flush=True,
                     )
+                    if args.stream:
+                        quality = (
+                            next((q for q in media.qualities if q.key == args.quality), None)
+                            if args.quality
+                            else media.qualities[0]
+                        )
+                        if quality is None:
+                            raise DownloadError("کیفیت درخواستی در فهرست نیست.")
+                        source = await downloader.resolve(media, quality)
+                        received = 0
+                        async with aclosing(
+                            media_chunks(http, source, quality, args.ffmpeg)
+                        ) as chunks:
+                            async for chunk in chunks:
+                                received += len(chunk)
+                        print(
+                            json.dumps({"quality": quality.key, "complete_stream_bytes": received}),
+                            flush=True,
+                        )
                     direct = (
                         [q for q in media.qualities if q.protocol == "progressive"]
                         if args.telegram

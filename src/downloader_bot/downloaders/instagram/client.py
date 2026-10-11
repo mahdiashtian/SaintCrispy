@@ -1,10 +1,14 @@
 import asyncio
 import json
+import logging
 import re
 import time
+from contextlib import asynccontextmanager
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+from curl_cffi.requests import AsyncSession
+from curl_cffi.requests.exceptions import RequestException
 
 from downloader_bot.schemas.media import DownloadError, SiteHTTPError
 
@@ -21,6 +25,77 @@ HEADERS = {
 }
 ROOT_QUERY = "PolarisLoggedOutDesktopWWWPostRootContentQuery"
 SHORTCODE_QUERY = "PolarisPostActionLoadPostQueryQuery"
+log = logging.getLogger(__name__)
+
+
+class InstagramResponseStream(httpx.AsyncByteStream):
+    def __init__(self, response):
+        self.response = response
+
+    async def __aiter__(self):
+        try:
+            async for chunk in self.response.aiter_content():
+                yield chunk
+        except RequestException as error:
+            raise httpx.ReadError("Instagram response interrupted") from error
+
+    async def aclose(self):
+        await self.response.aclose()
+
+
+class InstagramBrowserTransport(httpx.AsyncBaseTransport):
+    """Browser TLS/HTTP2 fingerprint; httpx alone owns the account cookie jar."""
+
+    def __init__(self, session):
+        self.session = session
+
+    async def handle_async_request(self, request):
+        try:
+            response = await self.session.request(
+                request.method,
+                str(request.url),
+                headers=dict(request.headers),
+                data=(await request.aread()) or None,
+                allow_redirects=False,
+                stream=True,
+                timeout=10,
+            )
+        except RequestException as error:
+            raise httpx.ConnectError("Instagram connection failed", request=request) from error
+        return httpx.Response(
+            response.status_code,
+            # libcurl has already decoded Content-Encoding on the response stream.
+            headers=[
+                (key, value)
+                for key, value in response.headers.multi_items()
+                if key.lower() not in {"content-encoding", "content-length"}
+            ],
+            stream=InstagramResponseStream(response),
+        )
+
+
+@asynccontextmanager
+async def instagram_session():
+    # Never reuse this session for another provider or another Instagram account.
+    async with AsyncSession(impersonate="chrome", discard_cookies=True, trust_env=False) as browser:
+        async with httpx.AsyncClient(
+            transport=InstagramBrowserTransport(browser), timeout=15, trust_env=False
+        ) as http:
+            yield http
+
+
+def lsd_token(page: str) -> str:
+    match = re.search(r'\["LSD",\[\],\{"token":"([^"\r\n]+)"', page)
+    if match:
+        return match[1]
+    eqmc = re.search(r'<script[^>]*\bid="__eqmc"[^>]*>(.*?)</script>', page, re.S)
+    if eqmc:
+        try:
+            value = json.loads(eqmc[1]).get("l")
+            return value if isinstance(value, str) else ""
+        except (ValueError, AttributeError):
+            pass
+    return ""
 
 
 class InstagramClient:
@@ -40,6 +115,18 @@ class InstagramClient:
         self.shortcode_doc_id = shortcode_doc_id
         self._slots = asyncio.Semaphore(4)
         self._cooldown_until = 0.0
+        self._session_lock = asyncio.Lock()
+        self._session_token = ""
+        self._session_until = 0.0
+
+    async def _bootstrap(self) -> str:
+        async with self._session_lock:
+            if self._session_token and time.monotonic() < self._session_until:
+                return self._session_token
+            page = await self._optional_page("https://www.instagram.com/")
+            self._session_token = lsd_token(page)
+            self._session_until = time.monotonic() + 300
+            return self._session_token
 
     @staticmethod
     def source_headers(page_url: str) -> dict[str, str]:
@@ -53,6 +140,11 @@ class InstagramClient:
                 429, "اینستاگرام محدودیت موقت اعمال کرده؛ کمی بعد دوباره امتحان کن."
             )
         async with asyncio.timeout(60):
+            token = (
+                await self._bootstrap()
+                if isinstance(self.http._transport, InstagramBrowserTransport)
+                else ""
+            )
             if kind == "share":
                 _, final_url = await self._read(url, headers={"User-Agent": "curl/7.88.1"})
                 kind, code = content_path(final_url)
@@ -69,16 +161,9 @@ class InstagramClient:
                     return node, page_url, code
             page = await self._optional_page(page_url)
             if node := page_media(page, code):
+                log.info({"event": "instagram_extracted", "method": "page", "content_id": code})
                 return node, page_url, code
-            lsd = re.search(r'\["LSD",\[\],\{"token":"([^"\r\n]+)"', page)
-            token = lsd[1] if lsd else ""
-            if not token:
-                eqmc = re.search(r'<script[^>]*\bid="__eqmc"[^>]*>(.*?)</script>', page, re.S)
-                if eqmc:
-                    try:
-                        token = str(json.loads(eqmc[1]).get("l") or "")
-                    except (ValueError, AttributeError):
-                        pass
+            token = token or lsd_token(page)
             await self._optional_json(
                 "https://www.instagram.com/api/v1/web/get_ruling_for_content/",
                 params={"content_type": "MEDIA", "target_id": media_id(code)},
@@ -92,6 +177,7 @@ class InstagramClient:
                 token,
             )
             if node := find_media(response, code):
+                log.info({"event": "instagram_extracted", "method": "graphql", "content_id": code})
                 return node, page_url, code
             response = await self._graphql(
                 "https://www.instagram.com/graphql/query",
@@ -110,7 +196,8 @@ class InstagramClient:
             if node := page_media(embed, code):
                 return node, page_url, code
             raise DownloadError(
-                "اینستاگرام داده رسانه نداد؛ پست ممکن است خصوصی، محدود یا نیازمند نشست مجاز باشد."
+                "نتونستم فایل این پست رو از اینستاگرام بگیرم. لینک رو کمی بعد دوباره بفرست.",
+                code="instagram_empty_media",
             )
 
     async def _optional_page(self, url: str) -> str:
@@ -197,6 +284,15 @@ class InstagramClient:
             result = json.loads(data.decode("utf-8").removeprefix("for (;;);"))
             if not isinstance(result, dict):
                 return {}
+            if result.get("errors"):
+                log.warning(
+                    {"event": "instagram_query_failed", "error_code": "instagram_graphql_error"}
+                )
+            elif (
+                isinstance(result.get("data"), dict)
+                and result["data"].get("xig_polaris_media", True) is None
+            ):
+                log.info({"event": "instagram_query_empty", "error_code": "instagram_null_media"})
             message = str(result.get("message", "")).lower()
             if result.get("status") == "fail" and any(
                 word in message

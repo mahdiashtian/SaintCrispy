@@ -6,6 +6,7 @@ import queue
 import sys
 import threading
 import time
+from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -16,6 +17,51 @@ class RaisingFileHandler(RotatingFileHandler):
         raise
 
 
+class DailyFileHandler(RaisingFileHandler):
+    """Rotate on UTC day changes and on size; retain dated, unique archives."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.day = datetime.now(UTC).date()
+        if self.stream and self.stream.tell():
+            self.day = datetime.fromtimestamp(Path(self.baseFilename).stat().st_mtime, UTC).date()
+
+    def shouldRollover(self, record):
+        return self.day != datetime.now(UTC).date() or super().shouldRollover(record)
+
+    def doRollover(self):
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+        path = Path(self.baseFilename)
+        if path.exists() and path.stat().st_size:
+            stamp = datetime.now(UTC).strftime("%H%M%S%f")
+            path.replace(path.with_name(f"{path.name}.{self.day.isoformat()}.{stamp}"))
+        self.day = datetime.now(UTC).date()
+        archives = sorted(path.parent.glob(path.name + ".????-??-??.*"))
+        for archive in archives[: -self.backupCount]:
+            archive.unlink()
+        if not self.delay:
+            self.stream = self._open()
+
+
+def readable_record(record: dict) -> str:
+    source = str(record.get("logger", "system"))
+    for prefix in ("downloader_bot.", "bot.handlers.", "downloaders."):
+        source = source.removeprefix(prefix)
+    source = source if len(source) <= 18 else "…" + source[-17:]
+    stamp = str(record.get("timestamp", ""))[:23].replace("T", " ")
+    fields = " ".join(
+        f"{key}={json.dumps(value, ensure_ascii=False, separators=(',', ':'))}"
+        for key, value in record.items()
+        if key not in {"timestamp", "level", "logger", "event"}
+    )
+    return (
+        f"{stamp} | {record.get('level', 'INFO'):<7} | {source:<18} | "
+        f"{record.get('event', 'event')} {fields}"
+    ).rstrip()
+
+
 class JsonLogWriter:
     def __init__(
         self,
@@ -24,6 +70,9 @@ class JsonLogWriter:
         backups: int = 10,
         capacity: int = 10000,
         stdout: bool = True,
+        *,
+        readable: bool = False,
+        daily: bool = False,
     ):
         if max_bytes < 1 or backups < 1 or capacity < 1:
             raise ValueError("Log rotation and queue limits must be positive")
@@ -31,6 +80,8 @@ class JsonLogWriter:
         self.max_bytes = max_bytes
         self.backups = backups
         self.stdout = stdout
+        self.readable = readable
+        self.daily = daily
         self.queue = queue.Queue(maxsize=capacity)
         self.dropped = 0
         self.write_errors = 0
@@ -69,12 +120,19 @@ class JsonLogWriter:
                     continue
                 missing = False
                 try:
-                    line = json.dumps(record, ensure_ascii=True, separators=(",", ":"))
+                    line = (
+                        readable_record(record)
+                        if self.readable
+                        else json.dumps(record, ensure_ascii=True, separators=(",", ":"))
+                    )
                     if self.path is not None:
                         try:
                             if handler is None and time.monotonic() >= retry_at:
                                 self.path.parent.mkdir(parents=True, exist_ok=True)
-                                handler = RaisingFileHandler(
+                                handler_type = (
+                                    DailyFileHandler if self.daily else RaisingFileHandler
+                                )
+                                handler = handler_type(
                                     self.path,
                                     maxBytes=self.max_bytes,
                                     backupCount=self.backups,
@@ -85,7 +143,7 @@ class JsonLogWriter:
                                 handler.handle(logging.makeLogRecord({"msg": line}))
                             else:
                                 missing = True
-                        except OSError:
+                        except (OSError, UnicodeError):
                             self.write_errors += 1
                             missing = True
                             retry_at = time.monotonic() + 5
@@ -98,7 +156,7 @@ class JsonLogWriter:
                     if self.stdout:
                         try:
                             print(line, file=sys.stdout, flush=True)
-                        except OSError:
+                        except (OSError, UnicodeError):
                             self.write_errors += 1
                             missing = True
                 except (ValueError, TypeError):

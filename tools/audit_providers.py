@@ -23,7 +23,7 @@ from telethon.sessions import MemorySession
 from downloader_bot.bot.progress import TransferProgress
 from downloader_bot.bot.transfers.integrity import require_duration, validated_mp4
 from downloader_bot.bot.transfers.streaming import media_chunks, upload_stream
-from downloader_bot.downloaders.instagram.client import InstagramClient
+from downloader_bot.downloaders.instagram.client import InstagramClient, instagram_session
 from downloader_bot.downloaders.instagram.downloader import InstagramDownloader
 from downloader_bot.downloaders.pinterest.client import PinterestClient
 from downloader_bot.downloaders.pinterest.downloader import PinterestDownloader
@@ -252,7 +252,9 @@ async def audit(args):
     async with AsyncExitStack() as stack:
         sessions = {
             site: await stack.enter_async_context(
-                httpx.AsyncClient(
+                instagram_session()
+                if site == "instagram"
+                else httpx.AsyncClient(
                     timeout=20,
                     headers={"User-Agent": "Mozilla/5.0"},
                     limits=httpx.Limits(max_connections=8),

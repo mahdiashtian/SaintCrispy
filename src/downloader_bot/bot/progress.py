@@ -17,30 +17,30 @@ class TransferProgress(TransferState):
                     f"آپلود: 100٪ · {megabytes(self.uploaded)} MB"
                 )
             if self.method == "reused":
-                return "ارسال کامل شد ✅\nفایل ذخیره‌شدهٔ تلگرام ارسال شد."
+                return "ارسال کامل شد ✅\nفایل ذخیره‌شده رو از تلگرام دوباره فرستادم."
             if self.method == "external":
-                return "ارسال کامل شد ✅\nتلگرام فایل را مستقیماً از لینک دریافت کرد."
+                return "ارسال کامل شد ✅\nتلگرام فایل رو مستقیم از لینک گرفت."
             return "ارسال کامل شد ✅"
         if self.phase == "error":
-            return f"❌ دریافت فایل کامل نشد.\n{self.error}\n🔄 کمی بعد لینک را دوباره بفرست."
+            return f"❌ دریافت فایل کامل نشد.\n{self.error}"
         if self.phase == "cancelled":
-            return "درخواست لغو شد ⏹\nدریافت و آپلود محلی متوقف شدند."
+            return "درخواست لغو شد ⏹\nدانلود و آپلود ربات متوقف شدن."
         if self.phase in {"starting", "queued"}:
-            return "📥 در حال شروع دریافت و ارسال…"
+            return "📥 دارم دانلود رو شروع می‌کنم…"
         if self.phase == "resolving":
-            return "🔗 در حال دریافت لینک فایل…"
+            return "🔗 دارم لینک فایل رو می‌گیرم…"
         if self.phase == "waiting_process":
-            return "🎬 در حال آماده‌سازی رسانه…"
+            return "🎬 دارم فایل رو آماده می‌کنم…"
         if self.phase == "waiting_telegram":
-            return "📤 در حال آماده‌سازی ارسال به تلگرام…"
+            return "📤 دارم ارسال به تلگرام رو آماده می‌کنم…"
         if self.phase == "reused":
-            return "♻️ در حال ارسال فایل ذخیره‌شده از تلگرام…"
+            return "♻️ دارم فایل قبلی رو از تلگرام برات می‌فرستم…"
         if self.phase == "external":
             return "⚡ تلگرام در حال دریافت مستقیم فایل است…\nدرصد این روش در اختیار ربات نیست."
         if self.phase == "saving":
-            return "💾 ارسال انجام شد؛ در حال ثبت فایل برای دریافت‌های بعدی…"
+            return "💾 فایل رو فرستادم؛ دارم برای دفعهٔ بعد ذخیره‌اش می‌کنم…"
         if self.phase == "publishing":
-            return "📨 در حال ثبت نهایی پیام در تلگرام…\nاین مرحله قابل لغو نیست."
+            return "📨 تلگرام داره پیام فایل رو ثبت می‌کنه…\nاین مرحله قابل لغو نیست."
 
         if self.download_done:
             download = "100٪"

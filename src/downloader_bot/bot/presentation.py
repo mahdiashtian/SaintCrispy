@@ -22,11 +22,11 @@ def quality_buttons(
         enumerate(qualities, start_index), key=lambda item: item[1].mime_type.split("/", 1)[0]
     ):
         choices = list(group)
-        columns = 2 if any(len(quality.label) > 24 for _, quality in choices) else 3
+        is_video = choices[0][1].mime_type.startswith("video/")
         offset = 0
         while offset < len(choices):
-            # Four short choices fit better as two pairs than a row of three and a singleton.
-            count = 2 if columns == 3 and len(choices) - offset == 4 else columns
+            # Put the first two video qualities together, then pack lower choices in threes.
+            count = 2 if (is_video and offset == 0) or len(choices) - offset == 4 else 3
             rows.append(
                 [
                     Button.inline(quality.label, data=f"{prefix}:{token}:{index}")

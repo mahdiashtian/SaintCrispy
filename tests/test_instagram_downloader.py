@@ -11,7 +11,11 @@ from telethon import types
 
 from downloader_bot.bot.state.menus import MenuStore
 from downloader_bot.bot.transfers.streaming import media_chunks
-from downloader_bot.downloaders.instagram.client import InstagramClient
+from downloader_bot.downloaders.instagram.client import (
+    InstagramBrowserTransport,
+    InstagramClient,
+    instagram_session,
+)
 from downloader_bot.downloaders.instagram.downloader import InstagramDownloader
 from downloader_bot.downloaders.instagram.handler import handle_instagram_link
 from downloader_bot.downloaders.instagram.parser import (
@@ -131,6 +135,67 @@ def test_relay_and_encoded_embedded_data_are_read_without_executing_scripts():
     assert find_media({"gql_data": json.dumps(payload)}, "Chunk8-jurw")
     assert page_media('<script>alert("video_url")</script>', "Chunk8-jurw") is None
     assert find_media(payload, "AnotherCode") is None
+
+
+def test_named_embed_callback_reads_only_its_json_and_nested_dash_manifest():
+    node = find_media(fixture(), "Chunk8-jurw")
+    page = (
+        "<script>window.__additionalDataLoaded('/p/Chunk8-jurw/',"
+        + json.dumps(node)
+        + ");</script>"
+    )
+    assert page_media(page, "Chunk8-jurw") == node
+    assert page_media(page.replace(");</script>", ");evil()</script>"), "Chunk8-jurw") is None
+    nested = dict(node)
+    nested["dash_info"] = {"video_dash_manifest": nested.pop("video_dash_manifest")}
+    assert read_media(nested, PAGE, "Chunk8-jurw") == read_media(node, PAGE, "Chunk8-jurw")
+
+
+async def test_browser_transport_decodes_once_closes_samples_and_never_sends_account_cookies_to_cdn():
+    calls, closed = [], []
+
+    class Browser:
+        async def request(self, method, url, **options):
+            calls.append((url, options))
+            # curl-cffi streams decoded bytes but retains the original response headers.
+            headers = httpx.Headers({"content-encoding": "gzip", "content-length": "40"})
+            if url.endswith("instagram.com/"):
+                headers["set-cookie"] = "csrftoken=PRIVATE; Domain=.instagram.com; Path=/"
+            parts = (
+                [b'<script>["LSD",[],{"token":"bootstrap"}]</script>']
+                if url.endswith("instagram.com/")
+                else [MP4 + bytes(2000), b"unread tail"]
+            )
+
+            async def chunks():
+                for part in parts:
+                    yield part
+
+            async def close():
+                closed.append(url)
+
+            return SimpleNamespace(
+                status_code=200, headers=headers, aiter_content=chunks, aclose=close
+            )
+
+    async with httpx.AsyncClient(transport=InstagramBrowserTransport(Browser())) as http:
+        client = InstagramClient(http, "sessionid=PRIVATE")
+        assert await client._bootstrap() == "bootstrap"
+        assert await client._bootstrap() == "bootstrap"
+        assert len(await client.sample("https://scontent.cdninstagram.com/video.mp4", PAGE)) == 1024
+    assert len(calls) == 2 and len(closed) == 2
+    assert "cookie" not in calls[1][1]["headers"]
+    assert calls[0][1]["data"] is None and calls[0][1]["allow_redirects"] is False
+
+
+async def test_browser_sessions_are_independent_and_close_with_their_provider():
+    async with instagram_session() as first:
+        async with instagram_session() as second:
+            first.cookies.set("sessionid", "PRIVATE", domain=".instagram.com")
+            assert not second.cookies
+            assert first._transport.session is not second._transport.session
+        assert second.is_closed and not first.is_closed
+    assert first.is_closed
 
 
 @pytest.mark.parametrize("change", ["segments", "drm", "dynamic", "entities", "missing_audio"])

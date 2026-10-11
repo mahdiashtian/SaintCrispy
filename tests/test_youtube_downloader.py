@@ -567,3 +567,85 @@ def test_configured_token_helper_selects_compatible_clients_unless_overridden(
     client = YouTubeClient.from_environment()
     assert client.player_clients == (explicit or "mweb,web_safari")
     assert client.pot_base_url == "http://127.0.0.1:4416"
+
+
+async def test_guest_login_challenge_tries_one_alternate_player(monkeypatch):
+    attempts = []
+
+    async def extract(self, url, player_clients=None):
+        attempts.append(player_clients)
+        if player_clients is None:
+            raise DownloadError("challenge", code="youtube_login_required")
+        return info()
+
+    monkeypatch.setattr(YouTubeClient, "_extract", extract)
+    assert (await YouTubeClient().extract(PAGE))["id"] == IDENTITY
+    assert attempts == [None, "web_embedded"]
+
+
+@pytest.mark.parametrize(
+    "reason", ["youtube_private_video", "youtube_rate_limited", "youtube_js_challenge_failed"]
+)
+async def test_nonrecoverable_worker_errors_never_retry(monkeypatch, reason):
+    attempts = []
+
+    async def extract(self, url, player_clients=None):
+        attempts.append(player_clients)
+        raise DownloadError("failure", code=reason)
+
+    monkeypatch.setattr(YouTubeClient, "_extract", extract)
+    with pytest.raises(DownloadError) as failure:
+        await YouTubeClient().extract(PAGE)
+    assert failure.value.code == reason and attempts == [None]
+
+
+async def test_bad_account_fails_over_and_resolve_keeps_the_successful_account():
+    attempts = []
+
+    async def broken(url):
+        attempts.append("broken")
+        raise DownloadError("login", code="youtube_login_required")
+
+    async def healthy(url):
+        attempts.append("healthy")
+        return info()
+
+    client = SimpleNamespace(extract=healthy, available=all_available, proxy="")
+    downloader = YouTubeDownloader(
+        client,
+        {
+            "bad": SimpleNamespace(extract=broken, available=all_available, proxy=""),
+            "good": client,
+        },
+    )
+    media = await downloader.inspect(PAGE)
+    await downloader.resolve(media, media.qualities[0])
+    assert media.account_id == "good" and attempts == ["broken", "healthy", "healthy"]
+
+
+@pytest.mark.parametrize(
+    "reason, count", [("youtube_login_required", 2), ("youtube_rate_limited", 1)]
+)
+async def test_rejected_account_cools_down_without_starting_more_workers(
+    monkeypatch, reason, count
+):
+    from downloader_bot.downloaders.youtube import client as module
+
+    clock, attempts = [100.0], []
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+    async def extract(self, url, player_clients=None):
+        attempts.append(player_clients)
+        raise DownloadError("origin rejected", code=reason)
+
+    monkeypatch.setattr(YouTubeClient, "_extract", extract)
+    client = YouTubeClient()
+    for _ in range(2):
+        with pytest.raises(DownloadError) as failure:
+            await client.extract(PAGE)
+        assert failure.value.code == reason
+    assert len(attempts) == count
+    clock[0] += 61
+    with pytest.raises(DownloadError):
+        await client.extract(PAGE)
+    assert len(attempts) == 2 * count

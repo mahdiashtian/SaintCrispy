@@ -121,8 +121,12 @@ async def test_audit_checks_later_qualities_after_a_resolution_failure(monkeypat
         audit.httpx,
         "AsyncClient",
         lambda **kwargs: original(
-            transport=httpx.MockTransport(lambda _: httpx.Response(200, content=b"ID3" + b"a" * 9)),
-            **kwargs,
+            **{
+                **kwargs,
+                "transport": httpx.MockTransport(
+                    lambda _: httpx.Response(200, content=b"ID3" + b"a" * 9)
+                ),
+            },
         ),
     )
     report = await audit.audit(stream_args())
