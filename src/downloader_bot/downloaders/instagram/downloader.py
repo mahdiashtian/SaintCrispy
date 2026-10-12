@@ -156,7 +156,14 @@ class InstagramDownloader(Downloader):
                 audio = await client.sample(source.audio_url, media.page_url)
                 if len(audio) < 12 or audio[4:8] != b"ftyp":
                     return None
-            return Format(quality, replace(source, headers=client.source_headers(media.page_url)))
+            return Format(
+                quality,
+                replace(
+                    source,
+                    headers=client.source_headers(media.page_url),
+                    proxy=client.proxy or None,
+                ),
+            )
         except SiteHTTPError as error:
             if error.status not in (401, 403, 404, 410, 416):
                 raise

@@ -172,11 +172,13 @@ class Container:
             accounts["environment"] = SoundCloudClient(await create_provider_session(stack), token)
 
         async def instagram_client(cookie=None):
-            # Each account needs an isolated cookie jar; CDN delivery uses the shared client.
-            session = await stack.enter_async_context(instagram_session())
+            # Each account owns a cookie jar and keeps the same egress through delivery.
+            proxy = os.environ.get("INSTAGRAM_PROXY", "")
+            session = await stack.enter_async_context(instagram_session(proxy))
             return InstagramClient(
                 session,
                 cookie,
+                proxy=proxy,
                 root_doc_id=os.environ.get("INSTAGRAM_ROOT_DOC_ID", "27130156389949648"),
                 shortcode_doc_id=os.environ.get("INSTAGRAM_SHORTCODE_DOC_ID", "27128499623469141"),
             )

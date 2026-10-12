@@ -74,10 +74,24 @@ class InstagramBrowserTransport(httpx.AsyncBaseTransport):
         )
 
 
+def validate_proxy(proxy: str) -> None:
+    if proxy:
+        try:
+            parts = urlsplit(proxy)
+            valid = parts.scheme == "http" and bool(parts.hostname) and parts.port != 0
+        except ValueError:
+            valid = False
+        if not valid or "\r" in proxy or "\n" in proxy:
+            raise DownloadError("INSTAGRAM_PROXY باید نشانی یک پراکسی HTTP باشد.")
+
+
 @asynccontextmanager
-async def instagram_session():
+async def instagram_session(proxy: str = ""):
     # Never reuse this session for another provider or another Instagram account.
-    async with AsyncSession(impersonate="chrome", discard_cookies=True, trust_env=False) as browser:
+    validate_proxy(proxy)
+    async with AsyncSession(
+        impersonate="chrome", discard_cookies=True, trust_env=False, proxy=proxy or None
+    ) as browser:
         async with httpx.AsyncClient(
             transport=InstagramBrowserTransport(browser), timeout=15, trust_env=False
         ) as http:
@@ -104,11 +118,14 @@ class InstagramClient:
         http: httpx.AsyncClient,
         cookie: str | None = None,
         *,
+        proxy: str = "",
         root_doc_id: str = "27130156389949648",
         shortcode_doc_id: str = "27128499623469141",
     ):
         self.http = http
         self.cookie = cookie
+        validate_proxy(proxy)
+        self.proxy = proxy
         if cookie and ("\r" in cookie or "\n" in cookie):
             raise ValueError("INSTAGRAM_COOKIE must be one HTTP Cookie header line")
         self.root_doc_id = root_doc_id

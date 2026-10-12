@@ -250,9 +250,10 @@ async def register_quality(telegram, quality, source, args, row):
 
 async def audit(args):
     async with AsyncExitStack() as stack:
+        instagram_proxy = os.environ.get("INSTAGRAM_PROXY", "")
         sessions = {
             site: await stack.enter_async_context(
-                instagram_session()
+                instagram_session(instagram_proxy)
                 if site == "instagram"
                 else httpx.AsyncClient(
                     timeout=20,
@@ -269,7 +270,9 @@ async def audit(args):
             ),
             "youtube": YouTubeDownloader(youtube),
             "instagram": InstagramDownloader(
-                InstagramClient(sessions["instagram"], os.environ.get("INSTAGRAM_COOKIE"))
+                InstagramClient(
+                    sessions["instagram"], os.environ.get("INSTAGRAM_COOKIE"), proxy=instagram_proxy
+                )
             ),
             "pinterest": PinterestDownloader(PinterestClient(sessions["pinterest"])),
             "xvideos": XVideosDownloader(XVideosClient(sessions["xvideos"])),

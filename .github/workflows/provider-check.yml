@@ -12,6 +12,10 @@ on:
         description: Public HTTPS media page
         type: string
         required: true
+      all_qualities:
+        description: Verify every published quality instead of one per protocol
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,11 +44,15 @@ jobs:
           AUDIT_SITE: ${{ inputs.site }}
           AUDIT_URL: ${{ inputs.url }}
           AUDIT_REPORT: ${{ runner.temp }}/provider-check.json
-        run: >-
-          python tools/audit_providers.py --sites "$AUDIT_SITE"
-          --url "$AUDIT_SITE=$AUDIT_URL" --stream --strict
-          --max-stream-mib 256 --case-timeout 360 --transfer-timeout 180
-          --output "$AUDIT_REPORT"
+          AUDIT_ALL_QUALITIES: ${{ inputs.all_qualities }}
+        run: |
+          options=(--sites "$AUDIT_SITE" --url "$AUDIT_SITE=$AUDIT_URL")
+          if [ "$AUDIT_ALL_QUALITIES" = "true" ]; then
+            options+=(--all-qualities)
+          fi
+          python tools/audit_providers.py "${options[@]}" --stream --strict \
+            --max-stream-mib 256 --case-timeout 360 --transfer-timeout 180 \
+            --output "$AUDIT_REPORT"
       - name: Save sanitized verification report
         if: always()
         uses: actions/upload-artifact@v7

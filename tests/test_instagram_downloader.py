@@ -189,13 +189,57 @@ async def test_browser_transport_decodes_once_closes_samples_and_never_sends_acc
 
 
 async def test_browser_sessions_are_independent_and_close_with_their_provider():
-    async with instagram_session() as first:
+    proxy = "http://127.0.0.1:8088"
+    async with instagram_session(proxy) as first:
         async with instagram_session() as second:
             first.cookies.set("sessionid", "PRIVATE", domain=".instagram.com")
             assert not second.cookies
             assert first._transport.session is not second._transport.session
+            assert first._transport.session.proxies == {"all": proxy}
+            assert not second._transport.session.proxies
         assert second.is_closed and not first.is_closed
     assert first.is_closed
+
+
+@pytest.mark.parametrize(
+    "proxy",
+    ["socks5://localhost:8080", "https://localhost:8080", "http://", "http://a:0", "http://a:bad"],
+)
+async def test_invalid_instagram_proxy_is_rejected_without_network(proxy):
+    with pytest.raises(DownloadError, match="INSTAGRAM_PROXY"):
+        async with instagram_session(proxy):
+            pytest.fail("An invalid route must not open a provider session")
+
+
+async def test_account_failover_keeps_proxy_for_progressive_and_dash_resolution(monkeypatch):
+    proxy = "http://route-user:route-password@127.0.0.1:8088"
+
+    def respond(request):
+        if request.url.host.endswith("cdninstagram.com"):
+            assert "cookie" not in request.headers
+            return httpx.Response(206, content=sample_mp4(audio=True))
+        if request.url.path.startswith("/p/"):
+            return httpx.Response(200, text="")
+        return httpx.Response(200, json=fixture("audio_reel"))
+
+    async def guest_content(url):
+        raise DownloadError("No guest data", code="instagram_empty_media")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        guest = InstagramClient(http)
+        account = InstagramClient(http, "sessionid=PRIVATE", proxy=proxy)
+        monkeypatch.setattr(guest, "content", guest_content)
+        provider = InstagramDownloader(guest, {"working-route": account})
+        media = await provider.inspect("https://www.instagram.com/reel/DZwzHDsiVlk/")
+        assert media.account_id == "working-route"
+        assert {q.protocol for q in media.qualities} == {"progressive", "dash"}
+        for protocol in ("progressive", "dash"):
+            quality = next(q for q in media.qualities if q.protocol == protocol)
+            source = await provider.resolve(media, quality)
+            assert source.proxy == proxy
+            assert all(key.lower() != "cookie" for key in source.headers)
+            assert all(key.lower() != "cookie" for key in (source.audio_headers or {}))
+            assert "route-password" not in repr(source)
 
 
 @pytest.mark.parametrize("change", ["segments", "drm", "dynamic", "entities", "missing_audio"])

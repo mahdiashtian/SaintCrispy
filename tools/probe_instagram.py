@@ -33,8 +33,11 @@ async def main():
     parser.add_argument("--ffmpeg", default=os.environ.get("FFMPEG_PATH", "ffmpeg"))
     args = parser.parse_args()
     async with AsyncExitStack() as stack:
-        http = await stack.enter_async_context(instagram_session())
-        downloader = InstagramDownloader(InstagramClient(http, os.environ.get("INSTAGRAM_COOKIE")))
+        proxy = os.environ.get("INSTAGRAM_PROXY", "")
+        http = await stack.enter_async_context(instagram_session(proxy))
+        downloader = InstagramDownloader(
+            InstagramClient(http, os.environ.get("INSTAGRAM_COOKIE"), proxy=proxy)
+        )
         telegram = None
         if args.telegram or args.remux:
             telegram = TelegramClient(
