@@ -334,6 +334,8 @@ python -m pytest -q
 
 Use a dedicated test database; integration tests create and remove their own schemas. GitHub Actions runs lint, formatting, architecture/language checks and the complete suite with PostgreSQL/Redis services and FFmpeg, without real bot credentials.
 
+The **Check one public provider link** workflow accepts a provider and a public HTTPS URL. It runs the same extraction and full-stream verification from a GitHub runner to compare origin access across connections. It needs no bot credentials, sends no Telegram messages, stores no media, and saves a sanitized report for three days. This diagnostic does not route production downloads through GitHub.
+
 Optional diagnostics:
 
 ```bash

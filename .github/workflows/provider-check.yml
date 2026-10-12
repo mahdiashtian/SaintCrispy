@@ -1,0 +1,55 @@
+name: Check one public provider link
+
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: Provider to check
+        type: choice
+        required: true
+        options: [youtube, instagram, soundcloud, pinterest, xvideos, xnxx]
+      url:
+        description: Public HTTPS media page
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install provider dependencies
+        run: python -m pip install -e .
+      - name: Resolve media and consume streams to EOF
+        env:
+          AUDIT_SITE: ${{ inputs.site }}
+          AUDIT_URL: ${{ inputs.url }}
+          AUDIT_REPORT: ${{ runner.temp }}/provider-check.json
+        run: >-
+          python tools/audit_providers.py --sites "$AUDIT_SITE"
+          --url "$AUDIT_SITE=$AUDIT_URL" --stream --strict
+          --max-stream-mib 256 --case-timeout 360 --transfer-timeout 180
+          --output "$AUDIT_REPORT"
+      - name: Save sanitized verification report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: provider-check
+          path: '${{ runner.temp }}/provider-check.json'
+          if-no-files-found: warn
+          retention-days: 3
