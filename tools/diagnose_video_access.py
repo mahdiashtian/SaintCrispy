@@ -100,6 +100,8 @@ async def configuration():
         helper_status(os.environ.get("YOUTUBE_POT_BASE_URL")),
     )
     return {
+        "account_scope": "environment_defaults",
+        "database_accounts_checked": False,
         "python": ".".join(map(str, sys.version_info[:3])),
         "packages": {
             name: package_version(name)

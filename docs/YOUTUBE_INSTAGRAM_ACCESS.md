@@ -28,6 +28,7 @@ an empty response does not establish that a reel is private or deleted.
 
 - YouTube's default, `web_embedded`, `visionos`, `tv_downgraded` and `mweb`
   attempts returned `youtube_login_required` for the reported video here.
+  A separate pytubefix `ANDROID_VR` extraction returned `BotDetection`.
 - Instagram's root query returned null media; its current shortcode query,
   including Instaloader's minimal POST envelope, returned `execution error`.
   The older `8845758582119845` document did not provide a working alternative.
@@ -76,6 +77,10 @@ cookie-file access, proxies and the configured helper are present, without
 printing their values or paths. The second consumes real origin streams to EOF
 and writes `.runtime/video-access.json`. It exits nonzero when either input
 cannot be downloaded completely. Neither command sends Telegram messages.
+The diagnostic uses the environment's default accounts; it does not query
+`site_accounts` in the production database. To test a database account, provide
+that account's credentials locally through the corresponding default environment
+variable for the diagnostic process, without publishing their values.
 
 For YouTube, install the pinned project dependencies and Node >=22 (or a
 supported Deno runtime), then configure an authorized writable Netscape file
@@ -108,3 +113,19 @@ Validation: **756 tests passed, 5 database integration tests skipped** locally;
 lint and formatting passed. After the final CDN cooldown adjustment, the
 affected provider, diagnostics and architecture checks passed **161 tests**.
 The separate production host was not contacted or modified.
+
+Fresh independent checks at code commit `4786edb`:
+
+- [Linux code/database CI](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38449760618)
+  passed, including lint and formatting.
+- [Instagram full-stream check](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38449807417)
+  passed all **8 offered qualities** of `DeR9eU8idi0`, including 720×1280 and
+  1080×1920 with audio. Every stream reached EOF and passed completeness checks;
+  durations were 11.7–11.815 seconds and sizes 359,898–2,232,676 bytes.
+- [YouTube full-stream check](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38449820733)
+  failed with `youtube_login_required` for `l6zflbTGNFQ`, before any stream could
+  be consumed. The runner had no production account cookies. This is recorded
+  as a remaining failure.
+
+These checks sent no Telegram messages. The later diagnostic scope clarification
+does not change either provider's extraction or transfer behavior.
