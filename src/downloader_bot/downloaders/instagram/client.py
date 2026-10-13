@@ -4,6 +4,7 @@ import logging
 import re
 import time
 from contextlib import asynccontextmanager
+from http.cookies import SimpleCookie
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -24,7 +25,6 @@ HEADERS = {
     "X-IG-WWW-Claim": "0",
 }
 ROOT_QUERY = "PolarisLoggedOutDesktopWWWPostRootContentQuery"
-SHORTCODE_QUERY = "PolarisPostActionLoadPostQueryQuery"
 log = logging.getLogger(__name__)
 
 
@@ -128,6 +128,13 @@ class InstagramClient:
         self.proxy = proxy
         if cookie and ("\r" in cookie or "\n" in cookie):
             raise ValueError("INSTAGRAM_COOKIE must be one HTTP Cookie header line")
+        if cookie:
+            jar = SimpleCookie()
+            jar.load(cookie)
+            if not jar:
+                raise ValueError("INSTAGRAM_COOKIE must contain valid cookies")
+            for name, value in jar.items():
+                self.http.cookies.set(name, value.value, domain=".instagram.com", path="/")
         self.root_doc_id = root_doc_id
         self.shortcode_doc_id = shortcode_doc_id
         self._slots = asyncio.Semaphore(4)
@@ -136,11 +143,11 @@ class InstagramClient:
         self._session_token = ""
         self._session_until = 0.0
 
-    async def _bootstrap(self) -> str:
+    async def _bootstrap(self, failures=None) -> str:
         async with self._session_lock:
             if self._session_token and time.monotonic() < self._session_until:
                 return self._session_token
-            page = await self._optional_page("https://www.instagram.com/")
+            page = await self._optional_page("https://www.instagram.com/", failures=failures)
             self._session_token = lsd_token(page)
             self._session_until = time.monotonic() + 300
             return self._session_token
@@ -157,8 +164,10 @@ class InstagramClient:
                 429, "اینستاگرام محدودیت موقت اعمال کرده؛ کمی بعد دوباره امتحان کن."
             )
         async with asyncio.timeout(60):
+            # Per-inspection evidence; concurrent posts must not share diagnostics.
+            failures = []
             token = (
-                await self._bootstrap()
+                await self._bootstrap(failures)
                 if isinstance(self.http._transport, InstagramBrowserTransport)
                 else ""
             )
@@ -172,11 +181,12 @@ class InstagramClient:
             page_url = f"https://www.instagram.com/p/{code}/"
             if self.cookie:
                 response = await self._optional_json(
-                    f"https://www.instagram.com/api/v1/media/{media_id(code)}/info/"
+                    f"https://www.instagram.com/api/v1/media/{media_id(code)}/info/",
+                    failures=failures,
                 )
                 if node := find_media(response, code):
                     return node, page_url, code
-            page = await self._optional_page(page_url)
+            page = await self._optional_page(page_url, failures=failures)
             if node := page_media(page, code):
                 log.info({"event": "instagram_extracted", "method": "page", "content_id": code})
                 return node, page_url, code
@@ -184,6 +194,7 @@ class InstagramClient:
             await self._optional_json(
                 "https://www.instagram.com/api/v1/web/get_ruling_for_content/",
                 params={"content_type": "MEDIA", "target_id": media_id(code)},
+                failures=failures,
             )
             response = await self._graphql(
                 "https://www.instagram.com/api/graphql",
@@ -192,6 +203,7 @@ class InstagramClient:
                 {"media_id": media_id(code)},
                 page_url,
                 token,
+                failures,
             )
             if node := find_media(response, code):
                 log.info({"event": "instagram_extracted", "method": "graphql", "content_id": code})
@@ -199,30 +211,40 @@ class InstagramClient:
             response = await self._graphql(
                 "https://www.instagram.com/graphql/query",
                 self.shortcode_doc_id,
-                SHORTCODE_QUERY,
+                None,
                 {
                     "shortcode": code,
                     "__relay_internal__pv__PolarisAIGMMediaWebLabelEnabledrelayprovider": False,
                 },
                 page_url,
                 token,
+                failures,
             )
             if node := find_media(response, code):
                 return node, page_url, code
-            embed = await self._optional_page(page_url + "embed/captioned/")
+            embed = await self._optional_page(page_url + "embed/captioned/", failures=failures)
             if node := page_media(embed, code):
                 return node, page_url, code
+            if failures:
+                failure = next(
+                    (error for error in failures if error.code == "instagram_login_required"),
+                    failures[-1],
+                )
+                log.warning({"event": "instagram_extraction_failed", "error_code": failure.code})
+                raise failure
             raise DownloadError(
                 "نتونستم فایل این پست رو از اینستاگرام بگیرم. لینک رو کمی بعد دوباره بفرست.",
                 code="instagram_empty_media",
             )
 
-    async def _optional_page(self, url: str) -> str:
+    async def _optional_page(self, url: str, *, failures=None) -> str:
         # A missing/blocked web page does not prove the public media APIs are empty.
         try:
             data, _ = await self._read(url)
             return data.decode("utf-8", errors="replace")
         except SiteHTTPError as error:
+            if error.status == 401 and failures is not None:
+                failures.append(login_error())
             if error.status not in {401, 403, 404, 410, 500, 502, 503, 504}:
                 raise
         except DownloadError as error:
@@ -254,15 +276,9 @@ class InstagramClient:
                     )
         raise DownloadError("استوری منقضی شده یا برای نشست اینستاگرام قابل مشاهده نیست.")
 
-    async def _graphql(self, url, doc_id, name, variables, page_url, token) -> dict:
+    async def _graphql(self, url, doc_id, name, variables, page_url, token, failures=None) -> dict:
         csrf = next((c.value for c in self.http.cookies.jar if c.name == "csrftoken"), "")
-        if self.cookie:
-            match = re.search(r"(?:^|;\s*)csrftoken=([^;]+)", self.cookie)
-            if match:
-                csrf = match[1]
         headers = {
-            "X-FB-Friendly-Name": name,
-            "X-FB-LSD": token,
             "X-CSRFToken": csrf,
             "X-Requested-With": "XMLHttpRequest",
             "Referer": page_url,
@@ -272,24 +288,35 @@ class InstagramClient:
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Dest": "empty",
         }
+        data = {
+            "server_timestamps": "true",
+            "variables": json.dumps(variables, separators=(",", ":")),
+            "doc_id": doc_id,
+        }
+        if name:
+            headers.update({"X-FB-Friendly-Name": name, "X-FB-LSD": token})
+            data.update(
+                lsd=token,
+                fb_api_caller_class="RelayModern",
+                fb_api_req_friendly_name=name,
+            )
+        # The shortcode document uses Instaloader's POST envelope; the root
+        # document uses Relay/LSD. They are independent requests, not aliases.
         return await self._optional_json(
             url,
+            failures=failures,
             method="POST",
             headers=headers,
-            data={
-                "lsd": token,
-                "fb_api_caller_class": "RelayModern",
-                "fb_api_req_friendly_name": name,
-                "server_timestamps": "true",
-                "variables": json.dumps(variables, separators=(",", ":")),
-                "doc_id": doc_id,
-            },
+            data=data,
         )
 
-    async def _optional_json(self, url: str, **kwargs) -> dict:
+    async def _optional_json(self, url: str, *, failures=None, **kwargs) -> dict:
         try:
             data, _ = await self._read(url, **kwargs)
         except SiteHTTPError as error:
+            if error.status == 401 and failures is not None:
+                failures.append(login_error())
+                return {}
             if error.status not in {403, 404, 405, 410, 500, 502, 503, 504}:
                 raise
             return {}
@@ -302,6 +329,30 @@ class InstagramClient:
             if not isinstance(result, dict):
                 return {}
             if result.get("errors"):
+                errors = result["errors"]
+                if isinstance(errors, list) and any(
+                    isinstance(error, dict)
+                    and (
+                        str(error.get("code")) == "1675004"
+                        or any(
+                            marker in str(error.get("message", "")).lower()
+                            for marker in ("rate limit", "please wait", "too many requests")
+                        )
+                    )
+                    for error in errors
+                ):
+                    self._cooldown_until = time.monotonic() + 60
+                    raise SiteHTTPError(
+                        429, "اینستاگرام محدودیت موقت اعمال کرده؛ کمی بعد امتحان کن."
+                    )
+                if failures is not None:
+                    failures.append(
+                        DownloadError(
+                            "اینستاگرام درخواست اطلاعات این پست را روی اتصال ربات رد کرد. "
+                            "مدیر ربات باید نشست یا اتصال اینستاگرام را بررسی کند.",
+                            code="instagram_graphql_unavailable",
+                        )
+                    )
                 log.warning(
                     {"event": "instagram_query_failed", "error_code": "instagram_graphql_error"}
                 )
@@ -312,18 +363,22 @@ class InstagramClient:
                 log.info({"event": "instagram_query_empty", "error_code": "instagram_null_media"})
             message = str(result.get("message", "")).lower()
             if result.get("status") == "fail" and any(
+                word in message for word in ("please wait", "rate limit", "too many requests")
+            ):
+                self._cooldown_until = time.monotonic() + 60
+                raise SiteHTTPError(429, "اینستاگرام محدودیت موقت اعمال کرده؛ کمی بعد امتحان کن.")
+            if result.get("status") == "fail" and any(
                 word in message
                 for word in (
-                    "please wait",
                     "login_required",
                     "challenge_required",
                     "checkpoint_required",
                 )
             ):
-                self._cooldown_until = time.monotonic() + 60
-                raise SiteHTTPError(
-                    401, "اینستاگرام محدودیت موقت یا الزام ورود اعمال کرده؛ کمی بعد امتحان کن."
-                )
+                if failures is not None:
+                    failures.append(login_error())
+                    return {}
+                raise login_error()
             return result
         except (ValueError, RecursionError):
             return {}
@@ -356,8 +411,6 @@ class InstagramClient:
         sample_limit: int = 0,
     ) -> tuple[bytes, str]:
         request_headers = {**({} if cdn else HEADERS), **(headers or {})}
-        if self.cookie and not cdn:
-            request_headers["Cookie"] = self.cookie
         try:
             async with self._slots, asyncio.timeout(15):
                 for _ in range(6):
@@ -388,7 +441,8 @@ class InstagramClient:
                         if not response.is_success:
                             status = response.status_code
                             if status in (401, 429) and not cdn:
-                                self._cooldown_until = time.monotonic() + 60
+                                if status == 429:
+                                    self._cooldown_until = time.monotonic() + 60
                                 raise SiteHTTPError(
                                     status,
                                     "اینستاگرام محدودیت موقت یا الزام ورود اعمال کرده؛ کمی بعد امتحان کن.",
@@ -407,3 +461,11 @@ class InstagramClient:
         except (httpx.HTTPError, TimeoutError) as error:
             raise DownloadError("ارتباط با اینستاگرام قطع شد؛ دوباره امتحان کن.") from error
         raise DownloadError("تعداد تغییر مسیر لینک اینستاگرام بیش از حد است.")
+
+
+def login_error() -> DownloadError:
+    return DownloadError(
+        "اینستاگرام برای این اتصال ورود یا تأیید نشست می‌خواهد. "
+        "مدیر ربات باید نشست مجاز اینستاگرام را تنظیم یا تازه کند.",
+        code="instagram_login_required",
+    )

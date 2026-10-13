@@ -21,7 +21,7 @@ from downloader_bot.downloaders.youtube.parser import (
     source_headers,
     video_id,
 )
-from downloader_bot.schemas.media import DownloadError, Source
+from downloader_bot.schemas.media import DownloadError, SiteHTTPError, Source
 
 IDENTITY = "jNQXAC9IVRw"
 PAGE = f"https://www.youtube.com/watch?v={IDENTITY}"
@@ -649,3 +649,72 @@ async def test_rejected_account_cools_down_without_starting_more_workers(
     with pytest.raises(DownloadError):
         await client.extract(PAGE)
     assert len(attempts) == 2 * count
+
+
+async def test_cdn_rejection_retries_player_for_inspection_and_selected_quality(monkeypatch):
+    attempts = []
+
+    async def extract(self, url, player_clients=None):
+        attempts.append(player_clients)
+        data = info()
+        for item in data["formats"]:
+            if item.get("url"):
+                item["url"] += "&player=" + (player_clients or "default")
+        return data
+
+    async def available(self, items):
+        return {item["url"] for item in items if "player=web_embedded" in item["url"]}
+
+    monkeypatch.setattr(YouTubeClient, "_extract", extract)
+    monkeypatch.setattr(YouTubeClient, "available", available)
+    downloader = YouTubeDownloader(YouTubeClient())
+    media = await downloader.inspect(PAGE)
+    quality = next(q for q in media.qualities if q.key == "video_1080p30_h264_mp4")
+    source = await downloader.resolve(media, quality)
+    assert "player=web_embedded" in source.url
+    assert "player=web_embedded" in source.audio_url
+    assert attempts == [None, "web_embedded", None, "web_embedded"]
+
+
+@pytest.mark.parametrize("clients,cookies", [("mweb", None), (None, "private.cookies")])
+async def test_cdn_recovery_respects_explicit_player_and_authenticated_account(
+    monkeypatch, clients, cookies
+):
+    attempts = []
+
+    async def extract(self, url, player_clients=None):
+        attempts.append(player_clients)
+        return info()
+
+    async def unavailable(self, items):
+        return set()
+
+    monkeypatch.setattr(YouTubeClient, "_extract", extract)
+    monkeypatch.setattr(YouTubeClient, "available", unavailable)
+    with pytest.raises(DownloadError) as failure:
+        await YouTubeDownloader(
+            YouTubeClient(player_clients=clients, cookies_file=cookies)
+        ).inspect(PAGE)
+    assert failure.value.code == "youtube_cdn_unavailable"
+    assert attempts == [clients]
+
+
+async def test_cdn_rate_limit_stops_player_failover(monkeypatch):
+    attempts = []
+
+    async def extract(self, url, player_clients=None):
+        attempts.append(player_clients)
+        return info()
+
+    async def limited(self, items):
+        raise SiteHTTPError(429, "limited")
+
+    monkeypatch.setattr(YouTubeClient, "_extract", extract)
+    monkeypatch.setattr(YouTubeClient, "available", limited)
+    downloader = YouTubeDownloader(YouTubeClient())
+    with pytest.raises(SiteHTTPError):
+        await downloader.inspect(PAGE)
+    with pytest.raises(DownloadError) as failure:
+        await downloader.inspect(PAGE)
+    assert failure.value.code == "youtube_rate_limited"
+    assert attempts == [None]

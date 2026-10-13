@@ -18,6 +18,8 @@ RETRYABLE_EXTRACTION = {
     "youtube_login_required",
     "youtube_extraction_failed",
     "youtube_cdn_forbidden",
+    "youtube_cdn_unavailable",
+    "youtube_cdn_connection_failed",
 }
 
 
@@ -115,13 +117,20 @@ class YouTubeClient:
             return available
 
     async def extract(self, url: str) -> dict:
+        return await self._run_extraction(url)
+
+    async def extract_verified(self, url: str, verify):
+        """Try the alternate player when metadata exists but no complete source works."""
+        return await self._run_extraction(url, verify)
+
+    async def _run_extraction(self, url: str, verify=None):
         if self.cookies_file:
             # yt-dlp can update its cookie file on exit; serialize workers for this account.
             async with self._cookies_lock:
-                return await self._extract_strategies(url)
-        return await self._extract_strategies(url)
+                return await self._extract_strategies(url, verify)
+        return await self._extract_strategies(url, verify)
 
-    async def _extract_strategies(self, url: str) -> dict:
+    async def _extract_strategies(self, url: str, verify=None):
         for code, until in self._cooldowns.items():
             if time.monotonic() < until:
                 raise extraction_error(b"429" if code == "youtube_rate_limited" else b"not a bot")
@@ -135,10 +144,19 @@ class YouTubeClient:
                 for index, clients in enumerate(strategies):
                     try:
                         data = await self._extract(url, clients)
+                        choices = await verify(data) if verify else None
+                        if verify and not choices:
+                            raise DownloadError(
+                                "لینک کیفیت‌های یوتیوب روی اتصال سرور قابل دریافت نیست.",
+                                code="youtube_cdn_unavailable",
+                            )
                         self._cooldowns.clear()
                         log.info({"event": "youtube_extracted", "attempt": index + 1})
-                        return data
+                        return (data, choices) if verify else data
                     except DownloadError as error:
+                        if isinstance(error, SiteHTTPError) and error.status == 429:
+                            self._cooldowns["youtube_rate_limited"] = time.monotonic() + 60
+                            raise
                         log.warning(
                             {
                                 "event": "youtube_extraction_attempt_failed",

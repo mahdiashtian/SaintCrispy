@@ -54,9 +54,8 @@ class YouTubeDownloader(Downloader):
         failure = None
         for account_id, client in clients[:3]:
             try:
-                data = await client.extract(canonical_url(identity))
+                data, choices = await self._extract_available(client, identity)
                 media = read_media(data, identity)
-                choices = await self._available(client, data)
                 if not choices:
                     raise DownloadError(
                         "لینک کیفیت‌های یوتیوب روی اتصال سرور قابل دریافت نیست.",
@@ -70,6 +69,16 @@ class YouTubeDownloader(Downloader):
                     raise
                 failure = error
         raise failure
+
+    async def _extract_available(self, client, identity, selected=None):
+        async def verify(data):
+            read_media(data, identity)
+            return await self._available(client, data, selected)
+
+        if isinstance(client, YouTubeClient):
+            return await client.extract_verified(canonical_url(identity), verify)
+        data = await client.extract(canonical_url(identity))
+        return data, await verify(data)
 
     async def _available(self, client, data, selected=None):
         # Validate alternatives before ranking: an inaccessible preferred URL must
@@ -120,9 +129,8 @@ class YouTubeDownloader(Downloader):
             client = self.client if media.account_id == "guest" else self.accounts[media.account_id]
         except KeyError:
             raise DownloadError("حساب این درخواست دیگر فعال نیست؛ لینک را دوباره بفرست.") from None
-        data = await client.extract(canonical_url(identity))
-        read_media(data, identity)
-        for item in await self._available(client, data, quality.key):
+        data, choices = await self._extract_available(client, identity, quality.key)
+        for item in choices:
             if item.quality.key == quality.key:
                 if (item.quality.width, item.quality.height) != (quality.width, quality.height):
                     raise DownloadError("ابعاد کیفیت انتخاب‌شده تغییر کرده؛ لینک را دوباره بفرست.")

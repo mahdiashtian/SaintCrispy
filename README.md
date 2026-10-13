@@ -192,6 +192,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\keep-wsl-alive.ps1
 
 Cookie-file paths are host paths. The account running `python main.py` needs read/write access to a YouTube cookie file. Keep cookies outside source control. An optional independently managed PO-token helper can be configured with a host-reachable `YOUTUBE_POT_BASE_URL`, such as `http://127.0.0.1:4416`; it is not started by the database Compose file. Player-client overrides and Instagram GraphQL document IDs are documented in `.env.example`.
 
+For the reported YouTube/Instagram access failures, run `python tools/diagnose_video_access.py --live` on the bot host. It prints sanitized runtime/configuration health and verifies both complete origin streams without sending Telegram messages. The [access investigation and server setup](docs/YOUTUBE_INSTAGRAM_ACCESS.md) describe the compared upstream implementations and remaining network/session requirements. YouTube guest fallback also covers metadata that produces no accessible CDN choices, for inspection and resolution. Instagram accepts cookie/CSRF rotation, continues after optional login failures and reports JSON rate limits separately from GraphQL execution failures.
+
 ## Data and concurrency model
 
 A file's database key is `(site, content_id, quality, telegram_account_id)`. PostgreSQL upserts prevent duplicate rows. Content IDs are provider-owned: SoundCloud numeric track IDs, YouTube video IDs, Instagram media/story IDs, Pinterest pin/asset IDs, and XVideos/XNXX canonical video IDs. Album order and temporary CDN query strings do not determine asset identity.

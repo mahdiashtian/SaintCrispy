@@ -724,3 +724,110 @@ async def test_dash_remux_preserves_separate_video_and_audio(tmp_path):
     )
     _, diagnostic = await verify.communicate(data)
     assert verify.returncode == 0, diagnostic.decode(errors="replace")
+
+
+async def test_rotated_authorized_cookie_is_used_for_graphql_and_never_reaches_cdn():
+    visits = []
+
+    def respond(request):
+        visits.append(request.url.path)
+        if request.url.host.endswith("cdninstagram.com"):
+            assert "cookie" not in request.headers and "x-csrftoken" not in request.headers
+            return httpx.Response(206, content=sample_mp4(audio=False))
+        if request.url.path.endswith("/info/"):
+            return httpx.Response(404)
+        if request.url.path.startswith("/p/"):
+            return httpx.Response(
+                200,
+                text='<script>["LSD",[],{"token":"lsd"}]</script>',
+                headers={"set-cookie": "csrftoken=rotated; Domain=.instagram.com; Path=/"},
+            )
+        assert "csrftoken=rotated" in request.headers["cookie"]
+        assert "csrftoken=old" not in request.headers["cookie"]
+        if request.url.path == "/api/graphql":
+            assert request.headers["x-csrftoken"] == "rotated"
+            return httpx.Response(200, json=fixture())
+        return httpx.Response(200, json={"status": "ok"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        media = await InstagramDownloader(
+            InstagramClient(http, "sessionid=private; csrftoken=old")
+        ).inspect(PAGE)
+    assert media.qualities and "/api/graphql" in visits
+
+
+@pytest.mark.parametrize("failure", ["api_401", "login_json", "page_login"])
+async def test_optional_login_failure_does_not_prevent_shortcode_recovery(failure):
+    visits = []
+
+    def respond(request):
+        visits.append(request.url.path)
+        if request.url.path.endswith("/info/"):
+            if failure == "api_401":
+                return httpx.Response(401)
+            if failure == "login_json":
+                return httpx.Response(200, json={"status": "fail", "message": "login_required"})
+            return httpx.Response(404)
+        if request.url.path.startswith("/p/"):
+            if failure == "page_login":
+                return httpx.Response(302, headers={"location": "/accounts/login/"})
+            return httpx.Response(200, text="<html></html>")
+        if request.url.path == "/graphql/query":
+            form = parse_qs(request.content.decode())
+            assert set(form) == {"doc_id", "variables", "server_timestamps"}
+            assert "x-fb-friendly-name" not in request.headers
+            return httpx.Response(200, json=fixture())
+        return httpx.Response(200, json={"data": {"xig_polaris_media": None}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        client = InstagramClient(http, "sessionid=private")
+        node, _, code = await client.content(PAGE)
+        assert find_media(node, code)
+        assert client._cooldown_until == 0
+    assert "/graphql/query" in visits
+
+
+@pytest.mark.parametrize(
+    "payload,code",
+    [
+        ({"status": "fail", "message": "login_required SECRET"}, "instagram_login_required"),
+        ({"errors": [{"message": "execution error SECRET"}]}, "instagram_graphql_unavailable"),
+    ],
+)
+async def test_exhausted_alternatives_report_safe_specific_access_error(payload, code):
+    def respond(request):
+        if request.url.path.startswith("/p/"):
+            return httpx.Response(200, text="<html></html>")
+        return httpx.Response(200, json=payload)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        with pytest.raises(DownloadError) as failure:
+            await InstagramClient(http).content(PAGE)
+    assert failure.value.code == code
+    assert "SECRET" not in str(failure.value)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"errors": [{"message": "execution error", "code": 1675004}]},
+        {"errors": [{"message": "Rate limit exceeded"}]},
+        {"status": "fail", "message": "Please wait a few minutes"},
+    ],
+)
+async def test_json_rate_limits_stop_all_alternatives_and_enter_cooldown(payload):
+    visits = []
+
+    def respond(request):
+        visits.append(request.url.path)
+        if request.url.path.startswith("/p/"):
+            return httpx.Response(200, text="<html></html>")
+        return httpx.Response(200, json=payload)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        client = InstagramClient(http)
+        for _ in range(2):
+            with pytest.raises(SiteHTTPError) as failure:
+                await client.content(PAGE)
+            assert failure.value.status == 429
+    assert visits == ["/p/Chunk8-jurw/", "/api/v1/web/get_ruling_for_content/"]
