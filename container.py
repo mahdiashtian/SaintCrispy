@@ -266,7 +266,7 @@ class Container:
         self.jobs = jobs
         self.telemetry = telemetry
         presentation = BotPresentation()
-        await presentation.load(client, settings.custom_emoji_set)
+        await stack.enter_async_context(presentation.loading(client, settings.custom_emoji_set))
         register_handlers(
             client,
             service,

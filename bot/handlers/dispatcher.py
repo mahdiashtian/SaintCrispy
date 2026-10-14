@@ -98,6 +98,7 @@ def register_handlers(
             jobs=jobs,
             bot_username=bot_username,
             interval=getattr(limits, "interval", 60),
+            presentation=presentation,
         ),
         events.CallbackQuery(pattern=rb"^home:([0-9]+):(help|sites|active|main)$"),
     )

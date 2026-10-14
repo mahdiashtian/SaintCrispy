@@ -34,7 +34,13 @@ account-scoped session paths remain valid. Details are in
 
 Missed-update recovery is requested after handler registration. A transient database/network startup failure or loss of the coordinator's database connection triggers a fresh, fully cleaned-up runtime with async backoff from 2 to 30 seconds. Invalid settings, wrong credentials and competing coordinators remain explicit startup failures. Ctrl+C/SIGTERM cancels recovery and performs shutdown. An unavailable database/network still prevents serving requests while it is down.
 
-`SESSION_NAME` defaults to `.runtime/sessions/saintcrispy`. The bot appends its numeric account ID. `CUSTOM_EMOJI_SET=IconsEmoji` reads the requested pack. Empty disables custom emojis. Telegram may require Premium/Fragment privileges for custom entities; permission errors fall back to normal Unicode emojis automatically. The start text uses the actual username returned by Telegram, not a copied example handle.
+`SESSION_NAME` defaults to `.runtime/sessions/saintcrispy`. The bot appends its numeric
+account ID. `CUSTOM_EMOJI_SET=IconsEmoji` also loads the thirteen curated packs in
+the [premium emoji catalog](PREMIUM_EMOJI.md). Loading happens in the background
+with bounded requests; a missing pack does not block readiness. Comma-separated
+names/addemoji links can add operator preferences; empty disables custom emojis.
+Permission errors fall back to Unicode for replies and edits. The start text uses
+the actual username returned by Telegram, not a copied example handle.
 
 Stop only database containers when necessary:
 

@@ -8,10 +8,10 @@ from schemas.media import Quality
 def start_buttons(owner_id: int):
     return [
         [
-            Button.inline("راهنما", f"home:{owner_id}:help"),
-            Button.inline("سایت‌ها", f"home:{owner_id}:sites"),
+            Button.inline("📖 راهنما", f"home:{owner_id}:help"),
+            Button.inline("🌐 سایت‌ها", f"home:{owner_id}:sites"),
         ],
-        [Button.inline("درخواست‌های من", f"home:{owner_id}:active")],
+        [Button.inline("📥 درخواست‌های من", f"home:{owner_id}:active")],
     ]
 
 

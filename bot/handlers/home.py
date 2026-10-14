@@ -10,7 +10,7 @@ from core.request_context import user_request
 log = logging.getLogger("activity")
 
 
-async def handle_home(event, jobs=None, bot_username=None, interval=60):
+async def handle_home(event, jobs=None, bot_username=None, interval=60, presentation=None):
     owner_id = int(event.pattern_match[1])
     if owner_id != event.sender_id:
         await event.answer("این منو برای تو نیست. /start رو بزن تا منوی خودت باز بشه.", alert=True)
@@ -42,7 +42,10 @@ async def handle_home(event, jobs=None, bot_username=None, interval=60):
             text, buttons = start_text(bot_username, interval), start_buttons(owner_id)
         await event.answer()
         try:
-            await event.edit(text, buttons=buttons, parse_mode=None)
+            if presentation:
+                await presentation.edit(event, text, buttons=buttons)
+            else:
+                await event.edit(text, buttons=buttons, parse_mode=None)
         except errors.MessageNotModifiedError:
             pass
         except errors.RPCError as error:

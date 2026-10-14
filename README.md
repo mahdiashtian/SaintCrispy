@@ -328,6 +328,13 @@ To add a provider, create the same six files, subclass `Downloader`, implement `
 
 ## Development and tests
 
+The [premium emoji catalog](docs/PREMIUM_EMOJI.md) contains thirteen operator-supplied
+packs plus the existing IconsEmoji fallback. Matching symbols are chosen for media,
+status and help messages from actual Telegram metadata. Catalog loading runs in
+the background; replies and progress edits fall back to Unicode on permission or
+pack failures. `CUSTOM_EMOJI_SET` supports a primary name or comma-separated
+names/addemoji URLs; empty disables custom emojis.
+
 ```bash
 python -m pip install -e '.[dev]'
 python -m ruff check main.py container.py core db schemas repositories services bot src scripts tests tools

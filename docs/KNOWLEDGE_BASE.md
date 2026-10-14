@@ -369,3 +369,32 @@ PostgreSQL/Redis, zero skips, lint/formatting, root/provider architecture and En
 comments. The 0.2.0 wheel builds and its root/provider imports load in isolation.
 The native migration entry applied all six revisions to the disposable test
 database. No real Telegram session was authenticated and no messages were sent.
+
+## October 14 premium emoji catalog
+
+Validation: 111 affected presentation, handler, progress, workflow and architecture
+tests passed. Ruff lint and formatting checks passed across the application and
+tests. Live Telegram artwork rendering was not part of this validation.
+
+All thirteen supplied short names are registered in `bot/button_icons.py`, alongside
+the existing IconsEmoji fallback. Selection uses actual custom-emoji metadata and
+semantic priorities, with explicit operator packs taking precedence. Missing packs
+are isolated, background metadata work is bounded and cancelled/awaited during
+shutdown, and FloodWait pauses catalog requests without blocking user handling.
+No IDs are guessed from addemoji previews and no unrelated seasonal/finance symbols
+are inserted into download-status text merely to use every pack.
+
+Telegram entities must wrap the document's actual Unicode alt. Normalize only
+presentation-selector variants, recalculate UTF-16 offsets afterwards, and avoid
+partial matches inside joined/skin-tone emoji sequences. Keep explicit caller
+entities unchanged. Start/provider replies, home edits and progress message edits
+must all use the same adapter; adding packs to initial replies alone left status
+edits plain. On permission/custom-entity rejection retry the reply/edit once in
+Unicode, then suppress custom sends for that runtime. Never hide normal FloodWait
+from progress rate handling.
+
+Public preview pages were readable for some packs but unavailable for others;
+they do not establish live metadata/rendering success. Tests use simulated Telegram
+documents and RPCs. No real account was authenticated or messaged during this
+update. Read [the catalog guide](PREMIUM_EMOJI.md) for registration, selection,
+configuration and retry conditions.
