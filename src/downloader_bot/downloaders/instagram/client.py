@@ -184,11 +184,6 @@ class InstagramClient:
         async with asyncio.timeout(60):
             # Per-inspection evidence; concurrent posts must not share diagnostics.
             failures = []
-            token = (
-                await self._bootstrap(failures)
-                if isinstance(self.http._transport, InstagramBrowserTransport)
-                else ""
-            )
             if kind == "share":
                 _, final_url = await self._read(url, headers={"User-Agent": "curl/7.88.1"})
                 kind, code = content_path(final_url)
@@ -204,6 +199,13 @@ class InstagramClient:
                 )
                 if node := find_media(response, code):
                     return node, page_url, code
+            # Authorized REST access does not need a homepage LSD bootstrap.
+            # A rejected homepage must not consume that account's request budget.
+            token = (
+                await self._bootstrap(failures)
+                if isinstance(self.http._transport, InstagramBrowserTransport)
+                else ""
+            )
             page = await self._optional_page(page_url, failures=failures)
             if node := page_media(page, code):
                 log.info({"event": "instagram_extracted", "method": "page", "content_id": code})

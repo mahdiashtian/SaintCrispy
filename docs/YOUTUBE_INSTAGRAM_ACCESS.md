@@ -173,7 +173,26 @@ The supplied production `metrics_interval` samples show two failed inspections;
 their network counters cover the host, including unrelated processes/containers,
 and do not identify an extractor's underlying error or measure bot media downloads.
 
-Local validation: **764 tests passed, 5 database integration tests skipped**;
-lint passed. The [knowledge base](KNOWLEDGE_BASE.md) preserves all methods, failures,
-verified findings and retry conditions across all six providers. Independent
-verification is recorded separately after publication.
+An authorized Instagram REST media-info call now precedes homepage bootstrap:
+a blocked page cannot exhaust the account's budget before a working authorized
+API is contacted. Bounded account selections rotate fairly and retain the default
+YouTube fallback with larger account pools.
+
+At code commit `9a8cd23`, [Linux CI](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38603497634)
+passed **769 tests** with PostgreSQL/Redis, lint and formatting. The fresh
+[Instagram full-stream check](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38603495934)
+passed all **eight qualities** of the exact reported URL, including tracking
+parameters, video and audio, and complete 11.7–11.815 second durations. The fresh
+[YouTube full-stream check](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38603501343)
+still failed with `youtube_login_required` for the exact reported URL before any
+download. These checks used the new pinned extractor; the YouTube upgrade alone
+did not resolve the origin's access challenge. No chat messages were sent.
+
+The [knowledge base](KNOWLEDGE_BASE.md) preserves methods, failures, verified findings
+and retry conditions across all six providers. The remaining production-access
+requirement is not hidden by a passing code suite or the Instagram runner result.
+
+Final local validation after the authorized-API ordering and account-pool corrections:
+**767 tests passed, 5 database integration tests skipped**; lint, formatting and
+provider architecture checks passed. Missing test database configuration explains
+the local skips; Linux CI supplies dedicated PostgreSQL/Redis services.

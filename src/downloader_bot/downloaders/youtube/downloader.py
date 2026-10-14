@@ -51,11 +51,17 @@ class YouTubeDownloader(Downloader):
             offset = self._next_account % len(rows)
             self._next_account += 1
             clients.extend(rows[offset:] + rows[:offset])
+        clients = clients[:3]
         if not any(client is self.client for _, client in clients):
-            clients.append(("guest", self.client))
+            # Keep a default fallback even when the database has many accounts.
+            default = next(
+                ((name, client) for name, client in self.accounts.items() if client is self.client),
+                ("guest", self.client),
+            )
+            clients = clients[:2]
+            clients.append(default)
         # Bound account failover; a bad first cookie must not hide a healthy account.
         failure = None
-        clients = clients[:3]
         for account_id, client in clients:
             try:
                 # Reserve time for another account when the first worker stalls.

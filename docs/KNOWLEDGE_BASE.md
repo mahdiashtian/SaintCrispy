@@ -56,7 +56,7 @@ or youtube-dl is not evidence of a working alternative for a modern challenge.
 | PO-token plugin installed without its helper | No running token service is created by installing the Python plugin | A configured healthy helper and a successful full-stream check |
 | October 14 pytubefix `11.2.0`, `WEB` automatic-token and `ANDROID_VR` paths | Both stopped with `URLError` on this workstation; no extraction/download success | A working connection; adding this library alone is not an established fix |
 | October 14 yt-dlp with Chrome impersonation and IPv4 | Timed out here; no complete stream | Changed transport evidence; do not force this as a default without proof |
-| Official nightly `2026.10.10.233141.dev0` | Contains the new default `tv_samsung` client absent from the August stable pin; selected as an exact dependency pin | Verify the reported video to EOF after upgrading, not merely package installation |
+| Official nightly `2026.10.10.233141.dev0` | Contains new `tv_samsung`; October 14 independent check still returned `youtube_login_required` for this exact video, with zero full streams | Authorized accepted session/egress or a new evidenced origin fix; the upgrade alone did not resolve this input |
 
 Upstream [PR 17805](https://github.com/yt-dlp/yt-dlp/pull/17805) changed default
 clients on October 10. The [official nightly release](https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/tag/2026.10.10.233141)
@@ -73,6 +73,9 @@ One stalled account must not consume the entire request deadline. Account failov
 is bounded to three attempts, 25 seconds per attempt when alternatives exist. Do
 not try the identical authenticated default client again under the name `guest`.
 HTTP 429 stops player/account failover and enters cooldown.
+Rotate bounded account selections fairly and keep the default fallback reachable
+even when many database accounts exist; otherwise a healthy later account can be
+permanently hidden behind the attempt cap.
 
 ## Instagram
 
@@ -85,6 +88,7 @@ source. Different POST envelopes and document IDs are distinct methods, not alia
 | Instaloader shortcode document `27128499623469141` | October 13 workstation returned `execution error`; older `8845758582119845` did not recover it | A documented query change, rather than repeatedly guessing IDs |
 | Current Instagrapi document `27830990013244856` | Added October 14 with `PolarisPostRootQuery`, its current variables and available session LSD/DTSG | Verify from the actual connection; retain legacy fallback for different deployments |
 | October 10 and 13 independent runner tests of the reported reel | All eight qualities reached EOF with audio; 11.7–11.815 seconds against rounded 12 seconds | Historical evidence only; run fresh checks for a new deployment |
+| October 14 independent check at `9a8cd23` | All eight qualities again reached EOF and passed completeness checks; sizes 359,898–2,232,676 bytes | This verifies that connection, not the failing workstation or production host |
 | Later carousel/reel requests in a multi-link audit | HTTP 429; more immediate API attempts would create a retry storm | Cooldown expiry, refreshed authorized access or origin recovery |
 | October 14 direct workstation tests | Transport/extraction timeouts, including after the new query; no local full download | A working connection or authorized session; do not call this a successful fix |
 
@@ -104,6 +108,10 @@ Failed bootstraps are coalesced for ten seconds rather than repeated by every
 concurrent request. Missing LSD is cached briefly, not forever. A timed-out guest
 must yield to a configured authorized account; raw `TimeoutError` must not bypass
 account failover. Rate-limit errors stop all alternatives.
+
+Try an authorized media-info API before a homepage bootstrap. REST access does not
+need the page's LSD token; a blocked homepage must not consume the authorized
+account's budget before its working API is contacted.
 
 ## SoundCloud
 
@@ -174,10 +182,47 @@ Carry origin duration into progressive/HLS verification.
 | Repeating work for concurrent identical requests | One producer per durable content/quality/account key; followers publish concurrently after persistence |
 | Interpreting host network totals as bot download traffic | Host metrics include other processes and Docker interfaces; use transfer payload counters and stage timings for bot-specific traffic |
 
+Selecting all host interfaces can count bridge/veth traffic more than once. Set
+`METRICS_NETWORK_INTERFACE` to the primary interface, such as `eth0`, when measuring
+host uplink traffic. This still does not measure Telegram-to-origin external fetches.
+
 The 1,000-distinct-input local benchmark completed all simulated Telegram transfers
 in 12.066 seconds with 1,000 HTTP connections and 64 upload parts, without dropped
 logs. This is synthetic pipeline evidence, not production Telegram throughput or
 a guarantee that every origin will accept 1,000 requests.
+
+## Deployment, state and logging lessons
+
+- Python runs on the host through `python main.py`; PostgreSQL and Redis run in
+  Docker. Node is a host YouTube challenge runtime. Do not put the whole bot or
+  Node into Docker unless the operator changes that deployment requirement.
+- Inside Docker, `postgres:5432` refers to the Compose service. A native host
+  process must use the published `127.0.0.1` address and configured host port.
+  The earlier startup `gaierror` occurred before Telegram handlers could run;
+  repeatedly sending `/start` cannot repair database DNS/configuration.
+- Ports/passwords in `.env` construct the native database/Redis URLs when explicit
+  URLs are blank. Docker reads the same password settings. Do not paste secrets
+  into source or publish `.env` while investigating a connection mismatch.
+- Preserve database volumes and additive migrations. Earlier migrations adopt old
+  state, full-file verification, video preview and classic-faststart statuses;
+  deleting data to repair cached playback loses user history unnecessarily.
+- Only one coordinator for a Telegram account should run at once. Stop the old
+  process before restarting; do not start another real bot as a diagnostic test.
+- `/start` is optional for link handling. User creation/history and durable owned
+  menus belong to the normal link workflow. Telegram callbacks validate owner,
+  chat, bot and quality identity before transfer; restarted menus refresh missing
+  sources rather than persisting signed URLs.
+- SQL is authoritative for history, unique files, state and one-link-per-minute
+  admission. Redis is an accelerator, not the only durable source of truth. A
+  shared producer lock plus a unique database key prevents duplicate media rows.
+- Reused files have no new origin download payload. External URL downloads occur
+  on Telegram's network; local counters cannot measure their origin traffic.
+- Inspect `logs/activity.log`, `logs/system.log`, `logs/telegram.log` and
+  `logs/performance.jsonl` together. Interval metrics alone cannot reveal whether
+  failure happened at extraction, CDN verification, remuxing, registration or send.
+  Preserve safe error codes and phase timings; suppress raw library exception text
+  because it may contain signed URLs/credentials. Track dropped log records and
+  writer errors rather than assuming every event reached disk.
 
 ## Verification and upgrade checklist
 
@@ -194,6 +239,8 @@ a guarantee that every origin will accept 1,000 requests.
 7. Update this record and dated evidence with actual counts/results, then commit
    and push code and documentation together. Preserve failed observations.
 
-On October 14 the changed code passed 764 local tests, with five database integration
-tests skipped because dedicated PostgreSQL/Redis test settings were absent. Fresh
-independent and final publication results belong in the dated access report.
+At `9a8cd23`, October 14 Linux CI passed 769 tests with PostgreSQL/Redis. The
+[Instagram check](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38603495934)
+passed; the [YouTube check](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38603501343)
+failed before any download. Neither check published Telegram messages. Later local
+and final publication results are recorded in the dated access report.

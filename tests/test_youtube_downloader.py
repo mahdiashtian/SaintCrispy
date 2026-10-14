@@ -770,3 +770,19 @@ async def test_default_authenticated_client_is_not_retried_as_a_guest():
     with pytest.raises(DownloadError):
         await YouTubeDownloader(account, {"environment": account}).inspect(PAGE)
     assert len(calls) == 1
+
+
+async def test_default_access_is_not_hidden_by_a_large_rejected_account_pool():
+    async def rejected(url):
+        raise DownloadError("login", code="youtube_login_required")
+
+    async def healthy(url):
+        return info()
+
+    working = SimpleNamespace(extract=healthy, available=all_available, proxy="")
+    provider = YouTubeDownloader(
+        working,
+        {**{f"bad{n}": SimpleNamespace(extract=rejected) for n in range(3)}, "default": working},
+    )
+    media = await provider.inspect(PAGE)
+    assert media.account_id == "default"

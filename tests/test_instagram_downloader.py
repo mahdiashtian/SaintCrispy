@@ -944,3 +944,53 @@ async def test_stalled_guest_is_cancelled_and_authorized_account_still_gets_a_tu
     monkeypatch.setattr(provider, "_available", available)
     media = await asyncio.wait_for(provider.inspect(PAGE), 1)
     assert cancelled.is_set() and media.account_id == "authorized" and media.qualities
+
+
+async def test_authorized_browser_api_does_not_wait_for_a_blocked_homepage():
+    visits = []
+
+    class Browser:
+        async def request(self, method, url, **options):
+            visits.append(url)
+            assert url.endswith(f"/api/v1/media/{media_id('Chunk8-jurw')}/info/")
+            assert "sessionid=PRIVATE" in options["headers"]["cookie"]
+
+            async def chunks():
+                yield json.dumps(fixture()).encode()
+
+            async def close():
+                pass
+
+            return SimpleNamespace(
+                status_code=200, headers=httpx.Headers(), aiter_content=chunks, aclose=close
+            )
+
+    async with httpx.AsyncClient(transport=InstagramBrowserTransport(Browser())) as http:
+        node, _, code = await InstagramClient(http, "sessionid=PRIVATE").content(PAGE)
+    assert find_media(node, code) and len(visits) == 1
+
+
+async def test_bounded_account_attempts_rotate_so_later_healthy_accounts_are_not_starved(
+    monkeypatch,
+):
+    async def rejected(url):
+        raise DownloadError("login", code="instagram_login_required")
+
+    async def healthy(url):
+        return find_media(fixture(), "Chunk8-jurw"), PAGE, "Chunk8-jurw"
+
+    async def available(client, media, formats):
+        return formats
+
+    provider = InstagramDownloader(
+        SimpleNamespace(cookie=None, content=rejected),
+        {
+            "bad1": SimpleNamespace(content=rejected),
+            "bad2": SimpleNamespace(content=rejected),
+            "healthy": SimpleNamespace(content=healthy),
+        },
+    )
+    monkeypatch.setattr(provider, "_available", available)
+    with pytest.raises(DownloadError):
+        await provider.inspect(PAGE)
+    assert (await provider.inspect(PAGE)).account_id == "healthy"

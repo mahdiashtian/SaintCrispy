@@ -16,6 +16,7 @@ class InstagramDownloader(Downloader):
     def __init__(self, client: InstagramClient, accounts: dict[str, InstagramClient] | None = None):
         self.client = client
         self.accounts = accounts or {}
+        self._next_account = 0
         self._resolution_cache = OrderedDict()
         self._refresh_lock = asyncio.Lock()
 
@@ -40,6 +41,10 @@ class InstagramDownloader(Downloader):
     async def _inspect(self, url: str) -> Media:
         kind, _ = content_path(url)
         clients = list(self.accounts.items())
+        if clients:
+            offset = self._next_account % len(clients)
+            self._next_account += 1
+            clients = clients[offset:] + clients[:offset]
         if kind != "story" or self.client.cookie:
             clients.insert(0, ("guest", self.client))
         error = DownloadError("دریافت استوری به نشست مجاز اینستاگرام در تنظیمات ربات نیاز دارد.")
