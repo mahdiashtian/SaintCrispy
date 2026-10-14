@@ -251,3 +251,121 @@ with five dedicated-database tests skipped. At `d042689`, the final
 passed **772 tests** with PostgreSQL/Redis, lint and formatting. These successful
 code checks do not change the recorded local connection failures or YouTube's
 remaining independent-runner login challenge.
+
+## October 14 request-rate follow-up
+
+At this stage the operator's publication condition required successful reported
+YouTube/Instagram downloads together with the 1,000-links/second requirement.
+Publication was held. A subsequent explicit reference-layout request separately
+authorizes committing/pushing the structural work and the preserved improvements.
+Neither publication nor passing simulations establishes successful origin access
+or the still-failed distinct-cold throughput target.
+
+New WSL HTTP probes of the exact YouTube/Instagram identities both failed with
+`URLError` wrapping `OSError`, errno 101 (`ENETUNREACH`), without an HTTP response
+or certificate error. This differs from the previous independent YouTube
+`youtube_login_required` response and Windows extraction timeouts. A fresh
+authorized route/session is the retry condition; larger concurrency, another
+unchanged guest retry or Node installation does not repair these failures. No
+remote production access was configured or used in this follow-up.
+
+The incoming request investigation found eight SQL calls per cached link, seven
+usable connections in the old eight-connection pool, an O(n) menu-cache rebuild,
+capacity counting duplicate inspection followers and queue waits outside the
+metadata deadline. The optimized cached path uses three atomic statements;
+catalog/alias writes add one statement for cold inputs. Ownership guards retain
+newer requests, rollback retains quota, history is durable before origin work,
+and a menu commits with completed history. In-process quota leases can only deny,
+never grant without SQL. Snapshot serialization projects explicit immutable
+fields; credentials and signed sources remain excluded.
+
+New handler admission reserves a bounded slot before SQL/pool waits. Excess
+requests do not consume quota. Rejection messages have a 32-RPC cap, five-second
+timeout and bounded five-second user/chat/code suppression. Failed rejection RPCs
+are contained. This suppression does not apply to accepted menus. Distinct
+metadata keys share work with duplicate followers; the 90-second deadline includes
+both keyed-lock and worker waits. The SQL pool defaults to 32, configurable 2-64.
+
+Actual PostgreSQL 17 tests on workstation Linux (eight qualities, simulated
+origins/Telegram) injected 15,000 arrivals at 1,000/s. The committed cached
+baseline took 49.960 seconds, p95 42.096 seconds. Optimized cached processing
+completed in 15.029 seconds, p95 0.146 seconds, with no exception/log loss. An
+initially cold 100-link shared workload completed all 15,000 menus in 15.036
+seconds, p95 0.048 seconds, with exactly 100 source inspections. A same-user
+5,000-arrival test performed one SQL admission check, created one history/menu
+and issued one rate warning; the remaining 4,999 attempts were rejected locally.
+
+Preserve these **failed** approaches as well:
+
+- Raising the old SQL pool alone reduced the initial Windows five-second burst
+  from 22.452 to 13.120 seconds, still failing response latency. Cache changes
+  alone remained 13.076 seconds. Compound SQL steps reduced this to 8.204 then
+  5.849 seconds. A longer Windows run still failed (18.668 seconds, p95 5.607).
+- With distinct cold links, a simulated 50 ms origin and eight workers,
+  1,776 of 5,000 inputs produced menus; 3,224 hit controlled overload. Peak
+  active handlers was exactly 1,000. Zero escaped exceptions does not make this
+  an all-download success.
+- Increasing workers to 64 at pool size 32 produced 12,575 of 15,000 menus;
+  2,425 were rejected. A CPU profile identified two recursive dataclass snapshots
+  per inspection. Explicit projections improved this to 13,645 menus, still
+  rejecting 1,355. Increasing the pool to 64 reached 14,673 menus but rejected
+  327, p95 1.434 seconds: the all-menu/response target still failed.
+
+Do not repeat these configurations expecting every cold request to pass without
+new storage/extraction capacity or an evidenced bottleneck change. Increasing
+queue capacity alone hides overload as latency. The real origin and Telegram
+quotas remain outside the simulated benchmark; the cold target has not been
+established universally. Request-rate is separate from the previous 1,000-task
+file-transfer test. Full methodology, commands and results are in
+[the request throughput report](REQUEST_THROUGHPUT.md).
+
+Final current-tree validation passed **790 tests** with dedicated real
+PostgreSQL/Redis services, zero skips, and two expected Windows curl-cffi event-loop
+warnings. Lint, formatting, provider boundaries and English-comment checks passed.
+These code checks do not turn the failed cold-load or live-access probes into
+successful downloads.
+
+The final cached-path rerun used the application's default 10,000-record log
+queues per stream, retained all file logs and disabled stdout. All 15,000 menus
+and histories completed in 15.029 seconds at 1,000 incoming links/s, p95 0.055
+seconds, peak 125 handlers and maximum loop delay 7.8 ms. No requests were rejected,
+and no log records were dropped or failed to write. Sources/Telegram remained
+simulated; the distinct-cold and real-access publication conditions remain open.
+
+## October 14 Couplyo reference-layout update
+
+The supplied `PROJECT_REFERENCE_FA.md` was read as architectural source material,
+including its remaining-risk sections. Its embedded example agent prompt is not
+an additional operator instruction. The latest explicit request authorizes this
+structure update and commit/push separately from the earlier unresolved access
+investigation.
+
+Application layers now live at the root, beside `main.py` and `container.py`.
+Native SQL model definitions, the six-revision registry, a fresh-connection Unit
+of Work, a central dispatcher, a conversation service/storage boundary, UI text,
+keyboards, emoji presentation and previews have separate owners. Provider folders
+retain their required original paths and six independently owned files. Existing
+data, source IDs, callback prefixes and session paths are retained.
+
+New lessons: unknown/malformed state should return safe MAIN without erasing the
+original evidence; state patches must merge atomically rather than get/set; a UoW
+must rollback and release on cancellation; an external Redis pool needs explicit
+client ownership (`Redis.from_pool`) to close it; file cache envelopes must verify
+key identity and every field/type, including new defaulted fields. Session opening
+must wait for the worker on cancellation and close its result. Archive/packaging
+checks must include the new root packages, and async/language architecture checks
+must scan root code as well as `src`.
+
+The post-refactor Linux cached test completed all 15,000 inputs at 1,000/s in
+15.031 seconds, p95 75.4 ms, maximum loop delay 6.3 ms and peak 130 handlers.
+It used real SQL, the dispatcher, eight qualities and 10,000-record log queues,
+with no capacity rejections, lost logs or escaped exceptions. Sources and Telegram
+were simulated. The earlier failed cold runs and live-access restrictions remain
+valid evidence. See [the mapping](REFERENCE_MAPPING.md) for exact boundaries and
+backend choices; no production host was accessed or updated.
+
+Final validation of the reference update passed **814 tests** with real dedicated
+PostgreSQL/Redis, zero skips, lint/formatting, root/provider architecture and English
+comments. The 0.2.0 wheel builds and its root/provider imports load in isolation.
+The native migration entry applied all six revisions to the disposable test
+database. No real Telegram session was authenticated and no messages were sent.

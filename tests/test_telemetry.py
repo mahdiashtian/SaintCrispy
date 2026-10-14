@@ -13,15 +13,15 @@ from telegram_fixture import HeaderClient
 from telethon import errors, functions, types
 from video_fixture import box, mp4_header
 
-from downloader_bot.bot.delivery import TelegramDelivery
-from downloader_bot.bot.jobs.transfers import TransferJobs
-from downloader_bot.bot.progress import TransferProgress
-from downloader_bot.bot.transfers.streaming import PART_SIZE
-from downloader_bot.core.log_writer import JsonLogWriter
-from downloader_bot.schemas.media import DownloadError, Media, Quality, Source, TelegramFile
-from downloader_bot.services.download import DownloadService
-from downloader_bot.services.limits import RequestLimiter
-from downloader_bot.services.observability import (
+from bot.delivery import TelegramDelivery
+from bot.jobs import TransferJobs
+from bot.progress import TransferProgress
+from bot.transfers.streaming import PART_SIZE
+from core.log_writer import JsonLogWriter
+from schemas.media import DownloadError, Media, Quality, Source, TelegramFile
+from services.download import DownloadService
+from services.limits import RequestLimiter
+from services.observability import (
     SystemSampler,
     Telemetry,
     current_transfer,
@@ -38,7 +38,7 @@ FILE = TelegramFile(1, 2, b"private-reference", bytes(PEER), 3, 123, True, True,
 def mock_structural_fixture_thumbnail(monkeypatch):
     # These tests measure transport counters using structural (non-decodable) MP4s.
     monkeypatch.setattr(
-        "downloader_bot.bot.delivery.video_thumbnail",
+        "bot.delivery.video_thumbnail",
         AsyncMock(return_value=b"\xff\xd8test\xff\xd9"),
     )
 
@@ -294,7 +294,7 @@ async def test_total_timeout_is_logged_as_failure_not_user_cancellation():
 def test_overlapping_download_and_upload_are_wall_spans_not_added_durations(monkeypatch):
     clock = [0.0]
     telemetry = Telemetry(MemoryWriter())
-    monkeypatch.setattr("downloader_bot.services.observability.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("services.observability.time.monotonic", lambda: clock[0])
     with telemetry.transfer(MEDIA, QUALITY) as trace:
         trace.start_phase("download")
         clock[0] = 2
@@ -391,9 +391,7 @@ def test_network_sampler_selects_interface_excludes_loopback_and_handles_reset(m
             {"eth0": counters(5, 7)},
         ]
     )
-    monkeypatch.setattr(
-        "downloader_bot.services.observability.psutil.net_io_counters", lambda **_: next(samples)
-    )
+    monkeypatch.setattr("services.observability.psutil.net_io_counters", lambda **_: next(samples))
     sampler = SystemSampler("eth0")
     assert sampler.sample()["network_received_bytes"] == 0
     sample = sampler.sample()

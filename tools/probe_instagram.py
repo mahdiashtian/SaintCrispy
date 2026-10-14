@@ -15,10 +15,10 @@ from urllib.parse import urlsplit
 from telethon import TelegramClient, functions, types
 from telethon.sessions import MemorySession
 
-from downloader_bot.bot.transfers.streaming import media_chunks, upload_stream
+from bot.transfers.streaming import media_chunks, upload_stream
 from downloader_bot.downloaders.instagram.client import InstagramClient, instagram_session
 from downloader_bot.downloaders.instagram.downloader import InstagramDownloader
-from downloader_bot.schemas.media import DownloadError
+from schemas.media import DownloadError
 
 
 async def main():

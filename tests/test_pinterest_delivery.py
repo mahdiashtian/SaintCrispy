@@ -5,8 +5,8 @@ import pytest
 from telegram_fixture import HeaderClient
 from telethon import errors, functions, types
 
-from downloader_bot.bot.delivery import TelegramDelivery
-from downloader_bot.schemas.media import Media, Quality, Source
+from bot.delivery import TelegramDelivery
+from schemas.media import Media, Quality, Source
 
 
 @pytest.mark.parametrize(

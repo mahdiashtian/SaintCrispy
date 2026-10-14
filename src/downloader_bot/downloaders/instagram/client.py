@@ -11,7 +11,7 @@ import httpx
 from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import RequestException
 
-from downloader_bot.schemas.media import DownloadError, SiteHTTPError
+from schemas.media import DownloadError, SiteHTTPError
 
 from .parser import cdn_url, content_path, find_media, media_id, page_media, validate_page_url
 

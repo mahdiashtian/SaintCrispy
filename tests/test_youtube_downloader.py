@@ -7,10 +7,10 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from downloader_bot.bot.handlers import register_handlers
-from downloader_bot.bot.progress import TransferProgress
-from downloader_bot.bot.state.menus import MenuStore
-from downloader_bot.bot.transfers.streaming import media_chunks, remux_arguments
+from bot.handlers import register_handlers
+from bot.progress import TransferProgress
+from bot.state.menus import MenuStore
+from bot.transfers.streaming import media_chunks, remux_arguments
 from downloader_bot.downloaders.router import DownloaderRouter, extract_youtube_url
 from downloader_bot.downloaders.youtube.client import YouTubeClient, extraction_error
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
@@ -21,7 +21,7 @@ from downloader_bot.downloaders.youtube.parser import (
     source_headers,
     video_id,
 )
-from downloader_bot.schemas.media import DownloadError, SiteHTTPError, Source
+from schemas.media import DownloadError, SiteHTTPError, Source
 
 IDENTITY = "jNQXAC9IVRw"
 PAGE = f"https://www.youtube.com/watch?v={IDENTITY}"

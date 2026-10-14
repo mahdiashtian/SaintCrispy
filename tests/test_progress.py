@@ -5,9 +5,9 @@ import httpx
 import pytest
 from telethon import errors
 
-from downloader_bot.bot.progress import ProgressReporter, TransferProgress
-from downloader_bot.bot.transfers.streaming import PART_SIZE, media_chunks, upload_stream
-from downloader_bot.schemas.media import DownloadError, Quality, Source
+from bot.progress import ProgressReporter, TransferProgress
+from bot.transfers.streaming import PART_SIZE, media_chunks, upload_stream
+from schemas.media import DownloadError, Quality, Source
 
 QUALITY = Quality("original", "Original", "mp3", None, "mp3", "audio/mpeg", "progressive", "url")
 

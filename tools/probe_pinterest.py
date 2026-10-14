@@ -15,7 +15,7 @@ import httpx
 from telethon import TelegramClient, functions, types
 from telethon.sessions import MemorySession
 
-from downloader_bot.bot.transfers.streaming import media_chunks, upload_stream
+from bot.transfers.streaming import media_chunks, upload_stream
 from downloader_bot.downloaders.pinterest.client import PinterestClient
 from downloader_bot.downloaders.pinterest.downloader import PinterestDownloader
 

@@ -16,7 +16,7 @@ from downloader_bot.downloaders.pinterest.parser import (
     read_pin,
 )
 from downloader_bot.downloaders.router import extract_pinterest_url
-from downloader_bot.schemas.media import DownloadError
+from schemas.media import DownloadError
 
 PIN = "123456789"
 PAGE = f"https://www.pinterest.com/pin/{PIN}/"
@@ -91,7 +91,7 @@ async def test_progressive_preview_is_not_offered_as_the_complete_pin_video():
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
-    from downloader_bot.schemas.media import Quality
+    from schemas.media import Quality
 
     quality = Quality(
         "v_asset_mp4_720x1280",

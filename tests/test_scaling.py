@@ -5,12 +5,12 @@ import pytest
 from telethon import errors
 from video_fixture import box, mp4_header
 
-from downloader_bot.bot.delivery import TelegramDelivery
-from downloader_bot.bot.handlers.quality import handle_quality
-from downloader_bot.bot.jobs.transfers import TransferJobs
-from downloader_bot.bot.state.menus import MenuStore
-from downloader_bot.core.config import Settings
-from downloader_bot.schemas.media import Media, Quality, Source
+from bot.delivery import TelegramDelivery
+from bot.handlers.quality import handle_quality
+from bot.jobs import TransferJobs
+from bot.state.menus import MenuStore
+from core.config import Settings
+from schemas.media import Media, Quality, Source
 
 QUALITY = Quality("original", "Original", "mp4", None, "mp4", "video/mp4", "progressive", "url")
 MEDIA = Media("sample", "id", "Title", "", 1, "url", None, (QUALITY,))
@@ -147,10 +147,8 @@ async def test_explicit_flood_wait_is_shared_and_retried_without_blocking(monkey
         clock[0] += seconds
         await original_sleep(0)
 
-    monkeypatch.setattr(
-        "downloader_bot.bot.delivery.time", SimpleNamespace(monotonic=lambda: clock[0])
-    )
-    monkeypatch.setattr("downloader_bot.bot.delivery.asyncio.sleep", sleep)
+    monkeypatch.setattr("bot.delivery.time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr("bot.delivery.asyncio.sleep", sleep)
     delivery = TelegramDelivery(None, None, "")
 
     async def first():
@@ -200,8 +198,8 @@ async def test_only_two_remux_streams_can_run_and_waiters_are_cancellable(monkey
             id=3,
         )
 
-    monkeypatch.setattr("downloader_bot.bot.delivery.media_chunks", chunks)
-    monkeypatch.setattr("downloader_bot.bot.delivery.upload_stream", upload)
+    monkeypatch.setattr("bot.delivery.media_chunks", chunks)
+    monkeypatch.setattr("bot.delivery.upload_stream", upload)
     from telethon import types
 
     delivery = TelegramDelivery(SimpleNamespace(send_file=send_file), None, "ffmpeg")
@@ -227,7 +225,7 @@ async def test_only_two_remux_streams_can_run_and_waiters_are_cancellable(monkey
 
 
 async def test_stop_during_telegram_cooldown_does_not_publish_a_message(monkeypatch):
-    from downloader_bot.bot.progress import TransferProgress
+    from bot.progress import TransferProgress
 
     waiting = asyncio.Event()
 
@@ -238,7 +236,7 @@ async def test_stop_during_telegram_cooldown_does_not_publish_a_message(monkeypa
     async def send_file(*args, **kwargs):
         pytest.fail("Cancelled pacing wait must not publish")
 
-    monkeypatch.setattr("downloader_bot.bot.delivery.asyncio.sleep", sleep)
+    monkeypatch.setattr("bot.delivery.asyncio.sleep", sleep)
     delivery = TelegramDelivery(SimpleNamespace(send_file=send_file), None, "")
     delivery._retry_at = 10**20
     progress = TransferProgress()

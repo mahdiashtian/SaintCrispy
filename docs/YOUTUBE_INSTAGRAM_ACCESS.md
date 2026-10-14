@@ -201,3 +201,16 @@ Final [Linux verification at `d042689`](https://github.com/mahdiashtian/SaintCri
 passed **772 tests** with real PostgreSQL/Redis, lint and formatting. This closes
 code verification for the additional ordering/rotation fixes; it is not a claim of
 production access or a successful local download of either reported video.
+
+The later request-rate investigation did not establish new origin access.
+Workstation Ubuntu WSL probes of both exact identities failed before an HTTP
+response with `URLError` / underlying `OSError` errno 101 (`ENETUNREACH`), with no
+certificate verification error. This must not be mislabeled as proof that the
+production host has the same route failure or that YouTube accepted a session.
+Local authorized cookie/proxy/helper settings remained absent. The operator's
+publication condition initially held the request-rate changes. The later explicit
+reference-layout request separately authorizes their publication with the
+structural update; the failed-access and cold-throughput findings remain open. See
+[the request throughput report](REQUEST_THROUGHPUT.md) for separate successful
+cached-path measurements and failed distinct-cold runs. No remote server was
+accessed or updated during those local tests.

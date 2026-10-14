@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from telethon import errors
 
-from downloader_bot.bot.session import catch_up_bot, connect_bot, sign_in_bot
+from bot.session import catch_up_bot, connect_bot, sign_in_bot
 
 
 async def test_login_retries_only_after_the_server_requested_wait(monkeypatch):
@@ -107,7 +107,7 @@ async def test_unavailable_catch_up_is_logged_without_preventing_readiness():
 
 
 async def test_native_recovery_closes_previous_runtime_before_reconnecting(monkeypatch, capsys):
-    from downloader_bot.bot.runtime import run_with_recovery
+    from bot.runtime import run_with_recovery
 
     order, waits = [], []
 
@@ -138,7 +138,7 @@ async def test_native_recovery_closes_previous_runtime_before_reconnecting(monke
 
 
 async def test_native_recovery_does_not_retry_fatal_configuration_errors():
-    from downloader_bot.bot.runtime import run_with_recovery
+    from bot.runtime import run_with_recovery
 
     def invalid():
         raise RuntimeError("Invalid configuration")

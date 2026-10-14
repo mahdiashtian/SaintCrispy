@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from downloader_bot.bot.transfers.streaming import media_chunks
+from bot.transfers.streaming import media_chunks
 from downloader_bot.downloaders.xvideos.client import XVideosClient
 from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.xvideos.parser import (
@@ -17,7 +17,7 @@ from downloader_bot.downloaders.xvideos.parser import (
     read_video,
 )
 from downloader_bot.downloaders.xvideos.urls import extract_url
-from downloader_bot.schemas.media import DownloadError, SiteHTTPError
+from schemas.media import DownloadError, SiteHTTPError
 
 PAGE_URL = "https://www.xvideos.com/video.demo/example"
 MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isommp42"

@@ -11,11 +11,11 @@ from telethon import errors, functions, types
 from video_fixture import box
 from video_fixture import mp4_header as header_fixture
 
-from downloader_bot.bot.delivery import TelegramDelivery
-from downloader_bot.bot.progress import TransferProgress
-from downloader_bot.bot.transfers.video import MAX_HEADER_BYTES, boxes, inspect_mp4, mp4_header
-from downloader_bot.schemas.media import Media, Quality, Source, TelegramFile
-from downloader_bot.services.download import DownloadService
+from bot.delivery import TelegramDelivery
+from bot.progress import TransferProgress
+from bot.transfers.video import MAX_HEADER_BYTES, boxes, inspect_mp4, mp4_header
+from schemas.media import Media, Quality, Source, TelegramFile
+from services.download import DownloadService
 
 QUALITY = Quality("original", "Original", "video", None, "mp4", "video/mp4", "progressive", "")
 MEDIA = Media("sample", "id", "Public color test", "", 4, "page", None, (QUALITY,))
@@ -388,7 +388,7 @@ async def test_legacy_verified_cache_checks_telegram_preview_once(video_origin, 
 
 @pytest.mark.parametrize("missing", ["video", "preview", "mime"])
 async def test_rejected_server_video_registration_never_publishes(video_origin, missing):
-    from downloader_bot.schemas.media import DownloadError
+    from schemas.media import DownloadError
 
     origin = video_origin
 
@@ -524,7 +524,7 @@ async def test_thousand_requests_share_one_legacy_video_repair_and_publish_concu
 
 
 async def test_failed_legacy_repair_keeps_the_previous_file_and_quality():
-    from downloader_bot.schemas.media import DownloadError
+    from schemas.media import DownloadError
 
     old = TelegramFile(1, 2, b"old", bytes(PEER), 3, 1024, False)
     repository = SimpleNamespace(

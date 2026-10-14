@@ -1,11 +1,11 @@
 import re
 from types import SimpleNamespace
 
-from downloader_bot.bot.handlers.home import handle_home
-from downloader_bot.bot.jobs.transfers import TransferJobs
-from downloader_bot.bot.presentation import quality_buttons
-from downloader_bot.bot.progress import TransferProgress
-from downloader_bot.schemas.media import Quality
+from bot.handlers.home import handle_home
+from bot.jobs import TransferJobs
+from bot.keyboards.inline import quality_buttons
+from bot.progress import TransferProgress
+from schemas.media import Quality
 
 
 def test_video_choices_pack_top_two_then_three_without_changing_callback_indexes():

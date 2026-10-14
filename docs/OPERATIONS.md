@@ -17,10 +17,20 @@ node --version
 ffmpeg -version
 python tools/setup_services.py
 docker compose -p saintcrispy ps
+python scripts/migrate.py
 python main.py
 ```
 
 Startup applies additive migrations, authenticates or reuses the account-scoped session, recovers abandoned conversation states, builds independent provider sessions and registers handlers. Wait for `bot_ready` before testing a link. A link can be the user's first message; `/start` is optional.
+
+The reference-layout upgrade moves application imports to root packages. Reinstall
+the editable project after pulling so `core`, `db`, `schemas`, `repositories`,
+`services`, `bot` and `container` are registered together with the provider package.
+`scripts/migrate.py` uses the same idempotent six-revision ledger as startup and
+needs only database configuration. It does not reset volumes or require Telegram
+credentials. Existing ports, passwords, file references, menus, histories and
+account-scoped session paths remain valid. Details are in
+[the reference mapping](REFERENCE_MAPPING.md).
 
 Missed-update recovery is requested after handler registration. A transient database/network startup failure or loss of the coordinator's database connection triggers a fresh, fully cleaned-up runtime with async backoff from 2 to 30 seconds. Invalid settings, wrong credentials and competing coordinators remain explicit startup failures. Ctrl+C/SIGTERM cancels recovery and performs shutdown. An unavailable database/network still prevents serving requests while it is down.
 
@@ -187,6 +197,26 @@ python tools/summarize_logs.py 'logs/performance.jsonl*'
 `metrics_interval` and `runtime_stopped` report queue drops/write failures; `application_log_streams` reports the same counters separately for the other three streams. Host network counters include traffic from other host processes. Payload download/upload counters belong to the bot. Telegram's direct URL fetch occurs on Telegram's network, so its download duration/bytes cannot be measured as local payload traffic. A forced kill can lose queued logs; graceful SIGTERM/Ctrl+C drains them.
 
 ## Origin checks on the deployment server
+
+Incoming link handlers are capped before database admission. Configure
+`MAX_CONCURRENT_REQUESTS=1000` for 1,000 active link handlers and the separate
+existing transfer-task cap. `POSTGRES_POOL_SIZE` defaults to 32 (range 2-64,
+including one coordinator connection); keep total connections from all processes
+within the database server's configured limit. `METADATA_CONCURRENCY=8` limits
+origin extraction separately. Increasing it without origin/network/resource
+evidence does not guarantee 1,000 cold inspections per second.
+
+Performance intervals now include `admission_database_checks`,
+`admission_local_rejections`, `link_handler_capacity_rejections`,
+`link_error_replies_suppressed` and `link_error_reply_failures`. Controlled overload
+does not consume user admission. Repeated warning suppression affects rejected
+requests only. Watch these counters together with p95 response latency and
+history/menu counts, rather than reporting a rejection as a completed download.
+
+For safe local arrival tests using a dedicated test database, see
+[the throughput investigation](REQUEST_THROUGHPUT.md). Its real SQL tests simulate
+origins and Telegram; the cold 1,000/s all-menu target and live origin acceptance
+must be measured independently on the actual deployment resources.
 
 Run these from the same host/egress as the bot. Origin/CDN access can differ between a workstation, GitHub runner and production server.
 

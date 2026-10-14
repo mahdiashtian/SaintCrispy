@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "downloader-bot"
-version = "0.1.0"
+version = "0.2.0"
 description = "Asynchronous Telegram media downloader with independent site providers"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -24,8 +24,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=9,<10", "pytest-asyncio>=1.4,<2", "ruff>=0.16,<1", "imageio-ffmpeg>=0.6,<1"]
 
+[tool.setuptools]
+py-modules = ["container"]
+package-dir = {"downloader_bot" = "src/downloader_bot"}
+
 [tool.setuptools.packages.find]
-where = ["src"]
+where = [".", "src"]
+include = ["core*", "db*", "schemas*", "repositories*", "services*", "bot*", "downloader_bot*"]
+namespaces = false
 
 [project.urls]
 Repository = "https://github.com/mahdiashtian/SaintCrispy"
@@ -33,7 +39,7 @@ Issues = "https://github.com/mahdiashtian/SaintCrispy/issues"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-pythonpath = ["src"]
+pythonpath = [".", "src"]
 testpaths = ["tests"]
 
 [tool.ruff]

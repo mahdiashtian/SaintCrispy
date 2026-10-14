@@ -12,6 +12,7 @@ def main() -> None:
     root = Path(__file__).resolve().parent
     load_dotenv(root / ".env", override=True, interpolate=False, encoding="utf-8-sig")
     os.chdir(root)
+    sys.path.insert(0, str(root))
     sys.path.insert(0, str(root / "src"))
     runpy.run_module("downloader_bot", run_name="__main__")
 

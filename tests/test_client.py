@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from downloader_bot.downloaders.soundcloud.client import SoundCloudClient
-from downloader_bot.schemas.media import DownloadError, SiteHTTPError
+from schemas.media import DownloadError, SiteHTTPError
 
 
 async def test_redirect_is_checked_before_fetching_another_host():

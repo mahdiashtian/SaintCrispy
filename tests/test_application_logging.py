@@ -4,9 +4,9 @@ import json
 import logging
 from types import SimpleNamespace
 
-from downloader_bot.core.log_writer import DailyFileHandler, JsonLogWriter
-from downloader_bot.core.logging_config import SafeQueueHandler
-from downloader_bot.core.request_context import user_request
+from core.log_writer import DailyFileHandler, JsonLogWriter
+from core.logging_config import SafeQueueHandler
+from core.request_context import user_request
 
 
 def test_logging_routes_activity_and_telegram_without_raw_library_secrets():

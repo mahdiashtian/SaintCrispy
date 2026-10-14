@@ -16,7 +16,7 @@ from downloader_bot.downloaders.xnxx.parser import (
     player_string,
     read_video,
 )
-from downloader_bot.schemas.media import DownloadError, SiteHTTPError
+from schemas.media import DownloadError, SiteHTTPError
 
 PAGE_URL = "https://www.xnxx.com/video-demo/example"
 MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isommp42"

@@ -8,7 +8,7 @@ from downloader_bot.downloaders.router import DownloaderRouter, extract_xvideos_
 from downloader_bot.downloaders.xvideos.client import XVideosClient
 from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.xvideos.parser import extract_links, read_video
-from downloader_bot.schemas.media import DownloadError, SiteHTTPError
+from schemas.media import DownloadError, SiteHTTPError
 
 PAGE_URL = "https://www.xvideos.com/video.demo/example"
 MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isommp42"

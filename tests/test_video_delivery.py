@@ -8,10 +8,10 @@ import pytest
 from telethon import errors, functions, types
 from video_fixture import box, mp4_header
 
-from downloader_bot.bot.delivery import TelegramDelivery
-from downloader_bot.bot.progress import TransferProgress
-from downloader_bot.bot.transfers.streaming import media_chunks
-from downloader_bot.schemas.media import DownloadError, Media, Quality, Source
+from bot.delivery import TelegramDelivery
+from bot.progress import TransferProgress
+from bot.transfers.streaming import media_chunks
+from schemas.media import DownloadError, Media, Quality, Source
 
 QUALITY = Quality("hls", "HLS", "video", None, "mp4", "video/mp4", "hls", "endpoint")
 
@@ -34,9 +34,7 @@ async def test_short_hls_truncation_is_rejected_without_rejecting_rounded_durati
     async def start(*args, **kwargs):
         return SimpleNamespace(stdout=output, stderr=diagnostic, wait=wait, returncode=0)
 
-    monkeypatch.setattr(
-        "downloader_bot.bot.transfers.streaming.asyncio.create_subprocess_exec", start
-    )
+    monkeypatch.setattr("bot.transfers.streaming.asyncio.create_subprocess_exec", start)
     progress = TransferProgress()
     async with httpx.AsyncClient() as http:
 
@@ -458,7 +456,7 @@ async def test_missing_middle_hls_segment_never_completes_the_upload(tmp_path):
     async with httpx.AsyncClient() as http:
         delivery = TelegramDelivery(None, http, ffmpeg)
         media = Media("xnxx", "demo", "Demo", "", 3, "page", None, (QUALITY,))
-        from downloader_bot.schemas.media import DownloadError
+        from schemas.media import DownloadError
 
         with pytest.raises(DownloadError, match="کامل نشد"):
             # The source fails before any completed file can be sent to Telegram.
@@ -473,7 +471,7 @@ async def test_external_fallback_streams_with_headers_and_uses_correct_media_att
     from unittest.mock import AsyncMock
 
     monkeypatch.setattr(
-        "downloader_bot.bot.delivery.video_thumbnail",
+        "bot.delivery.video_thumbnail",
         AsyncMock(return_value=b"\xff\xd8test\xff\xd9"),
     )
     uploaded = []

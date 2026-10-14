@@ -13,8 +13,19 @@ def contains_persian(text: str) -> bool:
 
 
 def test_python_comments_and_docstrings_are_english():
-    paths = [ROOT / "main.py"]
-    for folder in ("src", "tests", "tools"):
+    paths = [ROOT / "main.py", ROOT / "container.py"]
+    for folder in (
+        "core",
+        "db",
+        "schemas",
+        "repositories",
+        "services",
+        "bot",
+        "src",
+        "tests",
+        "tools",
+        "scripts",
+    ):
         paths.extend((ROOT / folder).rglob("*.py"))
     for path in paths:
         source = path.read_text(encoding="utf-8")

@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from downloader_bot.schemas.media import DownloadError, Media, Quality, Source, TelegramFile
-from downloader_bot.services.download import DownloadService
+from schemas.media import DownloadError, Media, Quality, Source, TelegramFile
+from services.download import DownloadService
 
 QUALITY = Quality("aac_160", "AAC 160", "aac", 160, "m4a", "audio/mp4", "hls", "endpoint")
 MEDIA = Media("soundcloud", "track", "Title", "Artist", 30, "url", None, (QUALITY,))
@@ -84,12 +84,54 @@ async def test_metadata_capacity_and_cancellation_release_waiters():
     await started.wait()
     second = asyncio.create_task(service.inspect("same"))
     await asyncio.sleep(0)
+    third = asyncio.create_task(service.inspect("different"))
+    await asyncio.sleep(0)
+    assert service._metadata_count == 2
     with pytest.raises(DownloadError, match="سقف"):
-        await service.inspect("different")
-    for task in (first, second):
+        await service.inspect("overflow")
+    for task in (first, second, third):
         task.cancel()
-    await asyncio.gather(first, second, return_exceptions=True)
+    await asyncio.gather(first, second, third, return_exceptions=True)
     assert service._metadata_count == 0 and not service._metadata_locks._entries
+
+
+async def test_duplicate_burst_does_not_consume_distinct_inspection_capacity():
+    ready, release, calls = asyncio.Event(), asyncio.Event(), []
+
+    async def inspect(url):
+        calls.append(url)
+        ready.set()
+        await release.wait()
+        return MEDIA
+
+    service = DownloadService(SimpleNamespace(inspect=inspect), None, None, metadata_capacity=1)
+    producer = asyncio.create_task(service.inspect("same"))
+    await ready.wait()
+    followers = [asyncio.create_task(service.inspect("same")) for _ in range(5000)]
+    await asyncio.sleep(0)
+    assert service._metadata_count == 1
+    release.set()
+    assert await asyncio.gather(producer, *followers) == [MEDIA] * 5001
+    assert calls == ["same"] and service._metadata_count == 0
+
+
+async def test_metadata_deadline_includes_waiting_for_a_worker(monkeypatch):
+    from services import download as module
+
+    original_timeout = asyncio.timeout
+    monkeypatch.setattr(module.asyncio, "timeout", lambda seconds: original_timeout(0.02))
+
+    async def inspect(url):
+        await asyncio.Future()
+
+    service = DownloadService(
+        SimpleNamespace(inspect=inspect), None, None, metadata_concurrency=1, metadata_capacity=2
+    )
+    results = await asyncio.gather(
+        service.inspect("one"), service.inspect("two"), return_exceptions=True
+    )
+    assert all(isinstance(result, DownloadError) for result in results)
+    assert service._metadata_count == 0
 
 
 async def test_cached_delivery_does_not_wait_for_a_download_slot():

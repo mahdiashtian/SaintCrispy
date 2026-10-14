@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from downloader_bot.schemas.media import DownloadError, SiteHTTPError
+from schemas.media import DownloadError, SiteHTTPError
 
 from .parser import codec, source_headers, usable
 

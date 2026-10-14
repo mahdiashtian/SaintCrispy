@@ -7,13 +7,13 @@ from telegram_fixture import HeaderClient
 from telethon import errors, functions, types
 from video_fixture import box, mp4_header
 
-from downloader_bot.bot.delivery import TelegramDelivery
-from downloader_bot.bot.handlers import register_handlers
-from downloader_bot.bot.state.menus import MenuStore
+from bot.delivery import TelegramDelivery
+from bot.handlers import register_handlers
+from bot.state.menus import MenuStore
 from downloader_bot.downloaders.router import DownloaderRouter
 from downloader_bot.downloaders.xnxx.client import XNXXClient
 from downloader_bot.downloaders.xnxx.downloader import XNXXDownloader
-from downloader_bot.services.download import DownloadService
+from services.download import DownloadService
 
 PAGE_URL = "https://www.xnxx.com/video-demo/test"
 PAGE = "<title>Demo</title>setVideoUrlHigh('https://cdn.example/video.mp4')"
@@ -25,7 +25,7 @@ async def test_registered_xnxx_handler_downloads_selected_quality_and_reuses_onl
     method, monkeypatch
 ):
     monkeypatch.setattr(
-        "downloader_bot.bot.delivery.video_thumbnail",
+        "bot.delivery.video_thumbnail",
         AsyncMock(return_value=b"\xff\xd8test\xff\xd9"),
     )
     registrations, replies, edits, visits, uploads, sends = [], [], [], [], [], []

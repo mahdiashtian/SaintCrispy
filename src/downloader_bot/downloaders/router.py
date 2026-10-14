@@ -14,7 +14,7 @@ from downloader_bot.downloaders.xvideos.urls import LINK_PATTERN as XVIDEOS_LINK
 from downloader_bot.downloaders.xvideos.urls import extract_url as extract_xvideos_url
 from downloader_bot.downloaders.youtube.urls import LINK_PATTERN as YOUTUBE_LINK
 from downloader_bot.downloaders.youtube.urls import extract_url as extract_youtube_url
-from downloader_bot.schemas.media import DownloadError, Media, Quality, Source
+from schemas.media import DownloadError, Media, Quality, Source
 
 from .base import Downloader
 

@@ -25,15 +25,19 @@ def test_runtime_does_not_call_blocking_disk_network_or_subprocess_apis():
             return name(node.value) + "." + node.attr
         return ""
 
-    for path in (Path(__file__).parents[1] / "src").rglob("*.py"):
+    root = Path(__file__).parents[1]
+    paths = [root / "container.py"]
+    for folder in ("src", "core", "db", "schemas", "repositories", "services", "bot"):
+        paths.extend((root / folder).rglob("*.py"))
+    for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 if name(node.func) == "asyncio.to_thread":
-                    if (
-                        path.relative_to(Path(__file__).parents[1] / "src").as_posix()
-                        == "downloader_bot/bot/transfers/faststart.py"
-                    ):
+                    if path.relative_to(root).as_posix() == "bot/session.py":
+                        assert name(node.args[0]) in {"_create_session", "session.close"}
+                        continue
+                    if path.relative_to(root).as_posix() == "bot/transfers/faststart.py":
                         # Video staging uses isolated disk workers; FFmpeg stays an
                         # async subprocess. No filesystem operation runs on the loop.
                         assert name(node.args[0]) in {"function", "tempfile.mkdtemp"}
@@ -45,9 +49,9 @@ def test_runtime_does_not_call_blocking_disk_network_or_subprocess_apis():
                         )
                         continue
                     # Only system sampling and log-thread shutdown may use an I/O worker.
-                    assert path.relative_to(Path(__file__).parents[1] / "src").as_posix() in {
-                        "downloader_bot/services/observability.py",
-                        "downloader_bot/core/logging_config.py",
+                    assert path.relative_to(root).as_posix() in {
+                        "services/observability.py",
+                        "core/logging_config.py",
                     }
                     assert len(node.args) == 1 and not node.keywords
                     assert name(node.args[0]) in {
@@ -60,7 +64,7 @@ def test_runtime_does_not_call_blocking_disk_network_or_subprocess_apis():
 
 
 def test_video_staging_disk_helpers_are_only_dispatched_to_io_workers():
-    path = Path(__file__).parents[1] / "src/downloader_bot/bot/transfers/faststart.py"
+    path = Path(__file__).parents[1] / "bot/transfers/faststart.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     helpers = {"append", "read_at"}
     for node in ast.walk(tree):

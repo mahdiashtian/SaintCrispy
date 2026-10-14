@@ -5,10 +5,10 @@ import httpx
 import pytest
 from telethon import errors, functions, types
 
-from downloader_bot.bot.delivery import TelegramDelivery
-from downloader_bot.bot.jobs.transfers import TransferJobs
-from downloader_bot.bot.progress import TransferProgress
-from downloader_bot.schemas.media import Media, Quality, Source
+from bot.delivery import TelegramDelivery
+from bot.jobs import TransferJobs
+from bot.progress import TransferProgress
+from schemas.media import Media, Quality, Source
 
 QUALITY = Quality(
     "transport",

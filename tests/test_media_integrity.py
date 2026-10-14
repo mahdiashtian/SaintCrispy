@@ -9,10 +9,10 @@ from telethon import types
 from test_video_streaming import PEER, TelegramMock
 from video_fixture import box, mp4_header
 
-from downloader_bot.bot.delivery import TelegramDelivery
-from downloader_bot.bot.progress import TransferProgress
-from downloader_bot.bot.transfers.integrity import MP4Integrity
-from downloader_bot.schemas.media import DownloadError, Media, Quality, Source
+from bot.delivery import TelegramDelivery
+from bot.progress import TransferProgress
+from bot.transfers.integrity import MP4Integrity
+from schemas.media import DownloadError, Media, Quality, Source
 
 QUALITY = Quality("full", "Full", "h264", None, "mp4", "video/mp4", "progressive", "")
 
@@ -274,7 +274,7 @@ async def test_progressive_audio_validation_preserves_required_small_http_ranges
 async def test_fragmented_vp9_includes_samples_in_the_initial_moov(tmp_path):
     import imageio_ffmpeg
 
-    from downloader_bot.bot.transfers.streaming import media_chunks
+    from bot.transfers.streaming import media_chunks
 
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
     video = tmp_path / "vp9.mp4"
@@ -323,7 +323,7 @@ async def test_fragmented_vp9_includes_samples_in_the_initial_moov(tmp_path):
 
 
 async def test_cancelling_ranged_audio_closes_http_feeder_and_ffmpeg(integrity_origin, monkeypatch):
-    from downloader_bot.bot.transfers.streaming import media_chunks
+    from bot.transfers.streaming import media_chunks
 
     ready, closed = asyncio.Event(), asyncio.Event()
     process = None
@@ -334,9 +334,7 @@ async def test_cancelling_ranged_audio_closes_http_feeder_and_ffmpeg(integrity_o
         process = await original_start(*args, **kwargs)
         return process
 
-    monkeypatch.setattr(
-        "downloader_bot.bot.transfers.streaming.asyncio.create_subprocess_exec", start
-    )
+    monkeypatch.setattr("bot.transfers.streaming.asyncio.create_subprocess_exec", start)
 
     class WaitingBody(httpx.AsyncByteStream):
         async def __aiter__(self):

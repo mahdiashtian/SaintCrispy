@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 from telethon import errors, types
 
-from downloader_bot.bot.delivery import TelegramDelivery
-from downloader_bot.schemas.media import TelegramFile
+from bot.delivery import TelegramDelivery
+from schemas.media import TelegramFile
 
 
 async def test_expired_reference_is_refreshed_from_telegram_without_downloading():

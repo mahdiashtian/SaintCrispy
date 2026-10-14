@@ -167,13 +167,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\keep-wsl-alive.ps1
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `MAX_CONCURRENT_REQUESTS` | `1000` | Maximum reserved/running transfer tasks; excess requests are rejected. |
+| `MAX_CONCURRENT_REQUESTS` | `1000` | Separate caps for active link handlers and reserved/running transfer tasks; excess requests are rejected before consuming admission. |
+| `POSTGRES_POOL_SIZE` | `32` | Total database connections per process, range 2-64; one is held by the coordinator. |
 | `TRANSFER_CONCURRENCY` | `1000` | Maximum producers transferring new files. |
 | `CACHED_TRANSFER_CONCURRENCY` | `1000` | Maximum concurrent sends of saved references. |
 | `USER_REQUEST_INTERVAL_SECONDS` | `60` | One accepted link per user per interval across all sites/chats. Quality selection has a separate stage limit. |
 | `MAX_FILE_SIZE_MB` | `1024` | Per-file cap; one MB here is 1024 x 1024 bytes. Valid range: 1-1999. |
 | `TRANSFER_TIMEOUT_SECONDS` | `3600` | Total transfer deadline, including waits for resources. |
-| `METADATA_CONCURRENCY` | `8` | Concurrent inspections/source resolutions. |
+| `METADATA_CONCURRENCY` | `8` | Concurrent inspections/source resolutions, range 1-64. Identical links share an inspection; metadata queue waits count toward the 90-second deadline. |
 | `REMUX_CONCURRENCY` | `2` | Concurrent FFmpeg processes; can be raised up to request capacity if resources permit. |
 | `UPLOAD_PARALLELISM` | `4` | Maximum in-flight upload parts per file, range 1-8. |
 | `UPLOAD_INFLIGHT_PARTS` | `64` | Shared window for parts being filled or uploaded, range 1-1024. |
@@ -274,45 +275,54 @@ This benchmark downloads real localhost HTTP bodies while simulating Telegram. I
 ## Project structure and provider boundaries
 
 ```text
-main.py                    # Host entry point and automatic .env loading
-compose.yaml               # PostgreSQL and Redis only
+main.py                    # Host .env bootstrap and asyncio entry
+container.py               # Dependency injection and resource lifecycle
+core/                      # Settings, enums, diagnostics, logging and request context
+db/postgres/
+  base.py                  # Immutable PostgreSQL model descriptors
+  models/                  # Domain table definitions and constraints
+  engine.py                # Async connection pool and Database lifecycle
+  migrations.py            # Existing six additive revisions
+db/redis/pool.py            # Bounded asynchronous cache pool
+schemas/                   # Immutable media, quality and transfer DTOs
+repositories/
+  interfaces/              # Media, workflow and Unit of Work contracts
+  postgres/                # Queries and per-operation Unit of Work
+  redis/                   # Keys, strict cache validation and SQL-first writes
+services/                  # Domain orchestration, users, conversation and limits
+bot/
+  handlers/dispatcher.py   # Event routing, identity checks and error isolation
+  checks/                  # Pure Telegram context checks
+  state/                   # FSM facade, SQL/memory storage and owned menus
+  texts/messages.py       # UI copy
+  keyboards/inline.py     # Start and quality keyboards
+  cards/preview.py        # Bounded video thumbnail rendering
+  jobs.py                 # Transfer tasks, cancellation and shutdown
+  premium_emoji.py        # Custom entities and Unicode fallback
+  deeplinks.py            # Bot username normalization
+  telegram_errors.py     # Safe Telegram error classification
+  transfers/              # HTTP/FFmpeg/Telegram streaming
 src/downloader_bot/
-  __main__.py              # Small application entry and signal handling
-  container.py             # Composition root and resource lifecycle
-  core/                    # Settings, diagnostics, request context, logging, locks
-  schemas/                 # Framework-independent media and transfer DTOs
-  db/postgres/             # Connection pool, schema and tracked additive migrations
-  db/redis/                # Bounded cache connection pool
-  repositories/interfaces/ # Storage and delivery contracts
-  repositories/postgres/   # SQL media, history, user, menu and conversation persistence
-  repositories/redis/      # Write-through media cache and rate rejection accelerator
-  services/                # Download orchestration, users, limits and observability
-  bot/handlers/            # Telegram start, quality, stop and admission handlers
-  bot/state/               # Conversation manager and durable owned menus
-  bot/jobs/                # Bounded transfer task registry and cancellation
-  bot/transfers/           # HTTP/FFmpeg streaming and Telegram part uploads
-  bot/delivery.py          # Telegram URL fetching, publication and file reuse
-  bot/presentation.py      # Custom emoji entities and Unicode fallback
-  bot/texts.py             # User-facing copy
-  bot/session.py           # Connection/login recovery
+  __main__.py             # Small signal-aware application entry
   downloaders/
-    base.py                # inspect/resolve contract
-    router.py              # Provider dispatch
-    <site>/
+    base.py               # inspect/resolve contract
+    router.py             # Provider routing
+    <site>/               # Six independently owned provider files
       __init__.py
-      client.py            # Provider HTTP/session/authentication
-      parser.py            # Provider extraction and format/HLS discovery
-      downloader.py        # Direct inspect/resolve implementation
-      handler.py           # Provider link/menu handler
-      urls.py              # Provider URL rules
-scripts/                   # Windows development setup
-tests/                     # Unit, architecture, real DB and FFmpeg tests
-tools/                     # Database setup, diagnostics and local load tests
+      client.py
+      parser.py
+      downloader.py
+      handler.py
+      urls.py
+scripts/                  # Native migration CLI and Windows setup
+tests/                    # Behavior, architecture, async I/O and real database tests
+tools/                    # Service setup, diagnostics and load tests
+compose.yaml              # PostgreSQL and Redis only
 ```
 
 Each provider owns those six files. Providers do not import another provider, a shared concrete extractor or the generic transfer implementation. Shared models and the abstract contract are deliberately small. Similar extraction/HLS code is kept inside its owning provider because site behavior can diverge. DRY applies within each provider and to generic infrastructure; it does not override this isolation rule. Storage and delivery are injected through structural interfaces so the service can be tested independently.
 
-The application follows Couplyo's `handlers → services → repositories` layout. Business services do not import Telethon; only Telegram adapters build RPCs. See [architecture decisions](docs/ARCHITECTURE.md), [deployment and recovery](docs/OPERATIONS.md), and [live provider verification](docs/PROVIDER_VERIFICATION.md).
+The application follows Couplyo's `handlers → services → repositories` layout. Business services do not import Telethon; only Telegram adapters build RPCs. See the [reference mapping](docs/REFERENCE_MAPPING.md), [architecture decisions](docs/ARCHITECTURE.md), [deployment and recovery](docs/OPERATIONS.md), and [live provider verification](docs/PROVIDER_VERIFICATION.md).
 
 To add a provider, create the same six files, subclass `Downloader`, implement `inspect` and `resolve`, and register its URL extractor, downloader and handler in the existing composition modules. Do not add a common concrete video extractor. Extend the architecture tests for the new site, add parser/downloader cases, and test its session isolation.
 
@@ -320,8 +330,8 @@ To add a provider, create the same six files, subclass `Downloader`, implement `
 
 ```bash
 python -m pip install -e '.[dev]'
-python -m ruff check main.py src tests tools
-python -m ruff format --check main.py src tests tools
+python -m ruff check main.py container.py core db schemas repositories services bot src scripts tests tools
+python -m ruff format --check main.py container.py core db schemas repositories services bot src scripts tests tools
 python -m pytest -q
 ```
 
@@ -360,6 +370,23 @@ Live provider probes use the current network and optional account settings. `--t
 Audit cases for one site run sequentially so the diagnostic does not create its own metadata burst; different sites remain concurrent. Instagram refreshes metadata on the first quality resolution, then reuses that session's snapshot for up to 15 seconds (at most 128 snapshots). It checks the selected CDN source every time and refreshes rejected cached URLs before failing. Cookies and snapshots remain isolated by client session.
 
 ## Troubleshooting
+
+For an open-loop request-arrival test, use a **dedicated** `TEST_DATABASE_URL`:
+
+```bash
+python tools/load_test_requests.py --rate 1000 --seconds 15 --strict-rate
+python tools/load_test_requests.py --rate 1000 --seconds 15 --mode coalesced --strict-rate
+python tools/load_test_requests.py --rate 1000 --seconds 5 --same-user --strict-rate
+```
+
+This test creates and drops only its own random SQL schema. PostgreSQL, menus,
+history, admission and logging are real; origins and Telegram are simulated.
+`--strict-rate` also requires a p95 response below `--response-sla` (one second
+by default), timely arrivals and no lost logs. It makes no production origin or
+Telegram throughput claim. Use `--mode cold` to measure distinct uncached inputs;
+overload rejections cause failure, even when handlers remain healthy. See the
+[request throughput investigation](docs/REQUEST_THROUGHPUT.md) for measurements,
+failed runs and the remaining source-access requirements.
 
 - **Provider extraction failures:** `inspection_finished` records include a safe `error_code` when a provider can identify the cause, such as `soundcloud_protected_stream`, `youtube_login_required`, `youtube_js_challenge_failed` or `youtube_cdn_unavailable`. A single unavailable format does not hide verified alternatives; HTTP 429 remains visible. SoundCloud refreshes unusable HTML transcodings from its own API and supports standard AES-128 `encrypted-hls`; CTR/CBC DRM formats remain unavailable. Only full, accessible streams are offered.
 - **Reproduce reported links:** run `python tools/audit_providers.py --url soundcloud=https://soundcloud.com/quavoofficial/away --url soundcloud=https://soundcloud.com/octobersveryown/quebec`. The audit reads the local `.env`, checks all six providers and reports each supplied link separately. Add `--sites soundcloud youtube` to narrow the check or `--output logs/provider-audit.json` to save the sanitized report. `--all-qualities --stream` resolves every published quality and consumes it to EOF through the actual transfer pipeline, including FFmpeg for HLS/DASH, without storing full files on disk. Each quality has a separate result, byte count, elapsed time and completion flag. The default full-stream cap is 64 MiB per quality (`--max-stream-mib`), with a 180-second quality deadline and a 600-second case deadline. A capped, timed-out, empty or incomplete transfer fails verification. `--strict` exits with status 1 if any case or quality fails. Origin restrictions therefore cannot be counted as successful tests. It prints no signed CDN URLs or credentials and sends no Telegram chat messages. For SoundCloud format protocols and origin response statuses, use `python tools/probe_soundcloud.py --legacy https://soundcloud.com/quavoofficial/away`. The Tests workflow has an optional `audit_providers` input for full public-stream checks on a GitHub runner; its separate audit step records failures and saves the sanitized JSON as an artifact even when some origins reject access.

@@ -7,13 +7,13 @@ import uuid
 import asyncpg
 import pytest
 
-from downloader_bot.bot.state.manager import ConversationManager
-from downloader_bot.bot.state.menus import PersistentMenuStore
-from downloader_bot.bot.state.states import ConversationState
-from downloader_bot.db.postgres.engine import WORKFLOW_SCHEMA, migrate
-from downloader_bot.repositories.postgres.workflow import WorkflowRepository
-from downloader_bot.repositories.redis.media import FileRepository
-from downloader_bot.schemas.media import Media, Quality, TelegramFile
+from bot.state.manager import ConversationManager
+from bot.state.menus import PersistentMenuStore
+from bot.state.states import ConversationState
+from db.postgres.engine import WORKFLOW_SCHEMA, migrate
+from repositories.postgres.workflow import WorkflowRepository
+from repositories.redis.media import FileRepository
+from schemas.media import Media, Quality, TelegramFile
 
 
 @pytest.mark.parametrize("already_migrated", [False, True])
@@ -29,7 +29,7 @@ async def test_additive_upgrade_preserves_files_and_recovers_conversations(alrea
     )
     try:
         # A legacy database has no migration table; existing documents must survive adoption.
-        from downloader_bot.db.postgres.schema import SCHEMA
+        from db.postgres.schema import SCHEMA
 
         await pool.execute(SCHEMA)
         if already_migrated:

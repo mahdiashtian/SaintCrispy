@@ -10,12 +10,12 @@ import httpx
 import pytest
 from test_video_streaming import MEDIA, PEER, QUALITY, TelegramMock
 
-from downloader_bot.bot.delivery import TelegramDelivery
-from downloader_bot.bot.progress import TransferProgress
-from downloader_bot.bot.transfers.faststart import prepared_video
-from downloader_bot.bot.transfers.video import mp4_header
-from downloader_bot.schemas.media import DownloadError, Source, TelegramFile
-from downloader_bot.services.download import DownloadService
+from bot.delivery import TelegramDelivery
+from bot.progress import TransferProgress
+from bot.transfers.faststart import prepared_video
+from bot.transfers.video import mp4_header
+from schemas.media import DownloadError, Source, TelegramFile
+from services.download import DownloadService
 
 
 @pytest.fixture
@@ -299,9 +299,7 @@ async def test_old_fragmented_cache_is_rebuilt_once_even_with_preview_and_stream
 async def test_temporary_download_is_removed_on_cancel(tmp_path, monkeypatch):
     directory = tmp_path / "work"
     directory.mkdir()
-    monkeypatch.setattr(
-        "downloader_bot.bot.transfers.faststart.tempfile.mkdtemp", lambda **kw: str(directory)
-    )
+    monkeypatch.setattr("bot.transfers.faststart.tempfile.mkdtemp", lambda **kw: str(directory))
     writing, closed = asyncio.Event(), asyncio.Event()
 
     async def chunks():
@@ -327,9 +325,7 @@ async def test_temporary_download_is_removed_on_cancel(tmp_path, monkeypatch):
 async def test_temporary_download_is_removed_when_size_limit_rejects_it(tmp_path, monkeypatch):
     directory = tmp_path / "work"
     directory.mkdir()
-    monkeypatch.setattr(
-        "downloader_bot.bot.transfers.faststart.tempfile.mkdtemp", lambda **kw: str(directory)
-    )
+    monkeypatch.setattr("bot.transfers.faststart.tempfile.mkdtemp", lambda **kw: str(directory))
 
     async def chunks():
         yield b"x" * 1025
@@ -343,7 +339,7 @@ async def test_temporary_download_is_removed_when_size_limit_rejects_it(tmp_path
 async def test_slow_disk_write_does_not_block_loop_and_cancel_waits_before_cleanup(
     tmp_path, monkeypatch
 ):
-    from downloader_bot.bot.transfers import faststart
+    from bot.transfers import faststart
 
     directory = tmp_path / "work"
     directory.mkdir()

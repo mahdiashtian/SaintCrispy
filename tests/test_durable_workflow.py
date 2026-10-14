@@ -7,20 +7,20 @@ from types import SimpleNamespace
 import pytest
 from telethon import errors, types
 
-from downloader_bot.bot.delivery import TelegramDelivery
-from downloader_bot.bot.handlers import register_handlers
-from downloader_bot.bot.handlers.start import handle_start
-from downloader_bot.bot.jobs.transfers import TransferJobs
-from downloader_bot.bot.presentation import BotPresentation
-from downloader_bot.bot.state.manager import ConversationManager
-from downloader_bot.bot.state.menus import PersistentMenuStore
-from downloader_bot.bot.state.states import ConversationState
-from downloader_bot.core.request_context import user_request
-from downloader_bot.repositories.postgres.workflow import public_media
-from downloader_bot.schemas.media import DownloadError, Media, Quality, Source, TelegramFile
-from downloader_bot.services.download import DownloadService
-from downloader_bot.services.limits import RequestLimiter
-from downloader_bot.services.user import UserService
+from bot.delivery import TelegramDelivery
+from bot.handlers import register_handlers
+from bot.handlers.start import handle_start
+from bot.jobs import TransferJobs
+from bot.premium_emoji import BotPresentation
+from bot.state.manager import ConversationManager
+from bot.state.menus import PersistentMenuStore
+from bot.state.states import ConversationState
+from core.request_context import user_request
+from repositories.postgres.workflow import public_media
+from schemas.media import DownloadError, Media, Quality, Source, TelegramFile
+from services.download import DownloadService
+from services.limits import RequestLimiter
+from services.user import UserService
 
 QUALITY = Quality(
     "high",
@@ -113,12 +113,12 @@ async def test_stale_transfer_completion_cannot_replace_new_conversation():
     assert await manager.get(1, 2) == (ConversationState.CANCELLED, {})
 
 
-async def test_invalid_persisted_state_recovers_to_main():
+async def test_invalid_persisted_state_returns_safe_main_without_erasing_evidence():
     repo = WorkflowMemory()
     repo.states[1, 2] = {"state": "OLD_STATE", "data": {}}
     manager = ConversationManager(repo)
     assert await manager.get(1, 2) == (ConversationState.MAIN, {})
-    assert repo.states[1, 2]["state"] == "MAIN"
+    assert repo.states[1, 2]["state"] == "OLD_STATE"
 
 
 @pytest.mark.parametrize(

@@ -54,9 +54,9 @@ jobs:
       - name: Install project and test dependencies
         run: python -m pip install -e '.[dev]'
       - name: Lint
-        run: python -m ruff check main.py src tests tools
+        run: python -m ruff check main.py container.py core db schemas repositories services bot src scripts tests tools
       - name: Check formatting
-        run: python -m ruff format --check main.py src tests tools
+        run: python -m ruff format --check main.py container.py core db schemas repositories services bot src scripts tests tools
       - name: Run tests
         run: python -m pytest -q
       - name: Install Node for optional live provider checks

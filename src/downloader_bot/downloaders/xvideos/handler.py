@@ -4,10 +4,10 @@ from functools import partial
 import httpx
 from telethon import events, types
 
-from downloader_bot.bot.delivery import EXTERNAL_FAILURES
-from downloader_bot.bot.presentation import quality_buttons
-from downloader_bot.core.diagnostics import error_fields
-from downloader_bot.schemas.media import DownloadError
+from bot.delivery import EXTERNAL_FAILURES
+from bot.keyboards.inline import quality_buttons
+from core.diagnostics import error_fields
+from schemas.media import DownloadError
 
 from .urls import LINK_PATTERN, extract_url
 

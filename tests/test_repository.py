@@ -1,10 +1,11 @@
+import json
 from dataclasses import asdict
 
 import pytest
 from redis.exceptions import ConnectionError
 
-from downloader_bot.repositories.redis.media import FileRepository, encode_file
-from downloader_bot.schemas.media import TelegramFile
+from repositories.redis.media import FileRepository, encode_file
+from schemas.media import TelegramFile
 
 FILE = TelegramFile(1, 2, b"ref", b"peer", 3)
 
@@ -52,7 +53,7 @@ async def test_cached_reads_do_not_reconnect_to_sql_and_quality_keys_are_distinc
 
 async def test_failed_cache_update_never_returns_old_cached_data(monkeypatch):
     clock = [100.0]
-    monkeypatch.setattr("downloader_bot.repositories.redis.media.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("repositories.redis.media.time.monotonic", lambda: clock[0])
     pool, cache = FakePool(), FakeRedis()
     repo = FileRepository(pool, cache, 123)
     key = repo.key("soundcloud", "track", "aac_160")
@@ -72,7 +73,7 @@ async def test_failed_cache_update_never_returns_old_cached_data(monkeypatch):
 
 
 async def test_redis_outage_is_not_retried_for_every_new_key(monkeypatch):
-    monkeypatch.setattr("downloader_bot.repositories.redis.media.time.monotonic", lambda: 100.0)
+    monkeypatch.setattr("repositories.redis.media.time.monotonic", lambda: 100.0)
     pool, cache = FakePool(), FakeRedis()
     calls = 0
 
@@ -104,3 +105,29 @@ async def test_restart_cannot_read_the_previous_process_stale_cache():
     assert before.key("soundcloud", "track", "aac_160") != after.key(
         "soundcloud", "track", "aac_160"
     )
+
+
+@pytest.mark.parametrize(
+    "defect", ["wrong_key", "missing_flag", "integer_flag", "negative_size", "string_id"]
+)
+async def test_corrupt_or_mismatched_cache_is_rebuilt_from_sql(defect):
+    pool, cache = FakePool(), FakeRedis()
+    repo = FileRepository(pool, cache, 123)
+    await repo.save("youtube", "video", "full", FILE)
+    key = repo.key("youtube", "video", "full")
+    payload = json.loads(cache.values[key])
+    if defect == "wrong_key":
+        payload["key"] = repo.key("youtube", "other", "full")
+    elif defect == "missing_flag":
+        del payload["file"]["verified_complete"]
+    elif defect == "integer_flag":
+        payload["file"]["verified_complete"] = 1
+    elif defect == "negative_size":
+        payload["file"]["size_bytes"] = -1
+    else:
+        payload["file"]["document_id"] = "1"
+    cache.values[key] = json.dumps(payload)
+    assert await repo.get("youtube", "video", "full") == FILE
+    assert pool.reads == 1
+    assert await repo.get("youtube", "video", "full") == FILE
+    assert pool.reads == 1
