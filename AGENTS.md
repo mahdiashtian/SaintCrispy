@@ -12,7 +12,8 @@ The user requires independent provider implementations with the same folder stru
 
 # Git workflow
 
-- After completed changes and successful relevant checks, commit and push to the configured remote and current branch, as required by the user.
+- After each completed change or coherent batch of changes and successful relevant checks, commit once and push to the configured remote and current branch. This is a standing user instruction; do not wait for another request to commit or push.
+- Before finishing a task, verify the working tree and upstream synchronization. If completed work remains uncommitted or unpushed, commit and push it. If there are no new changes, verify the existing push without creating an empty commit.
 - Before editing, fetch upstream and integrate the work with its latest changes. Preserve the upstream application architecture, providers, and existing history. Never force-push.
 - Exclude secrets, local `.env`, virtual environments, sessions, runtime logs, and research caches. Report commit and push results separately.
 
