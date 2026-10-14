@@ -271,7 +271,13 @@ async def audit(args):
             "youtube": YouTubeDownloader(youtube),
             "instagram": InstagramDownloader(
                 InstagramClient(
-                    sessions["instagram"], os.environ.get("INSTAGRAM_COOKIE"), proxy=instagram_proxy
+                    sessions["instagram"],
+                    os.environ.get("INSTAGRAM_COOKIE"),
+                    proxy=instagram_proxy,
+                    root_doc_id=os.environ.get("INSTAGRAM_ROOT_DOC_ID") or "27130156389949648",
+                    shortcode_doc_id=os.environ.get("INSTAGRAM_SHORTCODE_DOC_ID")
+                    or "27128499623469141",
+                    web_doc_id=os.environ.get("INSTAGRAM_WEB_DOC_ID") or "27830990013244856",
                 )
             ),
             "pinterest": PinterestDownloader(PinterestClient(sessions["pinterest"])),

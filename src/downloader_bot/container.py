@@ -181,6 +181,7 @@ class Container:
                 proxy=proxy,
                 root_doc_id=os.environ.get("INSTAGRAM_ROOT_DOC_ID", "27130156389949648"),
                 shortcode_doc_id=os.environ.get("INSTAGRAM_SHORTCODE_DOC_ID", "27128499623469141"),
+                web_doc_id=os.environ.get("INSTAGRAM_WEB_DOC_ID") or "27830990013244856",
             )
 
         instagram_accounts = {}

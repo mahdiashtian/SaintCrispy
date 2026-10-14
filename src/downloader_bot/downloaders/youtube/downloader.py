@@ -15,7 +15,9 @@ RECOVERABLE = {
     "youtube_extraction_failed",
     "youtube_age_restricted",
     "youtube_private_video",
+    "youtube_extraction_timeout",
 }
+ACCOUNT_ATTEMPT_SECONDS = 25
 
 
 class YouTubeDownloader(Downloader):
@@ -49,12 +51,17 @@ class YouTubeDownloader(Downloader):
             offset = self._next_account % len(rows)
             self._next_account += 1
             clients.extend(rows[offset:] + rows[:offset])
-        clients.append(("guest", self.client))
+        if not any(client is self.client for _, client in clients):
+            clients.append(("guest", self.client))
         # Bound account failover; a bad first cookie must not hide a healthy account.
         failure = None
-        for account_id, client in clients[:3]:
+        clients = clients[:3]
+        for account_id, client in clients:
             try:
-                data, choices = await self._extract_available(client, identity)
+                # Reserve time for another account when the first worker stalls.
+                budget = ACCOUNT_ATTEMPT_SECONDS if len(clients) > 1 else 80
+                async with asyncio.timeout(budget):
+                    data, choices = await self._extract_available(client, identity)
                 media = read_media(data, identity)
                 if not choices:
                     raise DownloadError(
@@ -68,6 +75,11 @@ class YouTubeDownloader(Downloader):
                 if error.code not in RECOVERABLE:
                     raise
                 failure = error
+            except TimeoutError:
+                failure = DownloadError(
+                    "دریافت اطلاعات یوتیوب طولانی شد. کمی بعد دوباره امتحان کن.",
+                    code="youtube_extraction_timeout",
+                )
         raise failure
 
     async def _extract_available(self, client, identity, selected=None):

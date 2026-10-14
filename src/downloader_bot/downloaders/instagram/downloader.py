@@ -9,6 +9,8 @@ from downloader_bot.schemas.media import DownloadError, Media, Quality, SiteHTTP
 from .client import InstagramClient
 from .parser import Format, content_path, media_id, mp4_info, read_media
 
+ACCOUNT_ATTEMPT_SECONDS = 25
+
 
 class InstagramDownloader(Downloader):
     def __init__(self, client: InstagramClient, accounts: dict[str, InstagramClient] | None = None):
@@ -26,15 +28,28 @@ class InstagramDownloader(Downloader):
         return "share:" + code
 
     async def inspect(self, url: str) -> Media:
+        try:
+            async with asyncio.timeout(85):
+                return await self._inspect(url)
+        except TimeoutError as error:
+            raise DownloadError(
+                "دریافت اطلاعات اینستاگرام طولانی شد؛ کمی بعد امتحان کن.",
+                code="instagram_extraction_timeout",
+            ) from error
+
+    async def _inspect(self, url: str) -> Media:
         kind, _ = content_path(url)
         clients = list(self.accounts.items())
         if kind != "story" or self.client.cookie:
             clients.insert(0, ("guest", self.client))
         error = DownloadError("دریافت استوری به نشست مجاز اینستاگرام در تنظیمات ربات نیاز دارد.")
+        clients = clients[:3]
         for account_id, client in clients:
             try:
-                media, formats = await self._media(client, url)
-                available = await self._available(client, media, formats)
+                budget = ACCOUNT_ATTEMPT_SECONDS if len(clients) > 1 else 80
+                async with asyncio.timeout(budget):
+                    media, formats = await self._media(client, url)
+                    available = await self._available(client, media, formats)
                 if not available:
                     raise DownloadError(
                         "رسانه کامل و قابل دریافت برای این پست پیدا نشد.",
@@ -47,6 +62,11 @@ class InstagramDownloader(Downloader):
                 if isinstance(failure, SiteHTTPError) and failure.status == 429:
                     raise
                 error = failure
+            except TimeoutError:
+                error = DownloadError(
+                    "دریافت اطلاعات اینستاگرام طولانی شد؛ کمی بعد امتحان کن.",
+                    code="instagram_extraction_timeout",
+                )
         raise error
 
     async def _media(self, client, url):

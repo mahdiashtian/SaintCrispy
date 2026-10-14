@@ -129,3 +129,51 @@ Fresh independent checks at code commit `4786edb`:
 
 These checks sent no Telegram messages. The later diagnostic scope clarification
 does not change either provider's extraction or transfer behavior.
+
+## October 14 follow-up
+
+The same two reported URLs were tested again on the workstation. After installing
+the newly required `curl-cffi` dependency, the strict full-download attempt still
+failed: YouTube exceeded its extraction deadline and Instagram timed out. No
+complete file was received. Chrome impersonation plus IPv4 also timed out for
+YouTube. Pytubefix `11.2.0` with `WEB` automatic-token and `ANDROID_VR` paths both
+stopped with `URLError`. The available local HTTP route did not recover either
+input and was not saved as a production setting.
+
+Current upstream research identified two concrete changes beyond the earlier
+investigation:
+
+- The [October 10 official yt-dlp nightly](https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/tag/2026.10.10.233141)
+  includes the new default `tv_samsung` client from [PR 17805](https://github.com/yt-dlp/yt-dlp/pull/17805).
+  The project now pins `2026.10.10.233141.dev0`, keeping EJS `0.8.0`. It is an exact
+  reviewed upstream release, not a floating nightly update. Explicit player/token
+  settings remain authoritative; blank overrides use the new default client set.
+- [Current Instagrapi media extraction](https://github.com/subzeroid/instagrapi/blob/master/instagrapi/mixins/media.py)
+  uses document `27830990013244856`, `PolarisPostRootQuery`, current relay variables
+  and available LSD/DTSG state. The independent Instagram client now tries this
+  after the root query and before its legacy shortcode/embed paths. The optional
+  `INSTAGRAM_WEB_DOC_ID` overrides this document. Secrets stay in the owning
+  provider session and never reach CDN requests. Fixture tests reproduce recovery
+  of the reported shortcode when the root is null and the media-info API rejects
+  guest access; they are not live-origin proof.
+
+Both providers now reserve time for account alternatives: at most three account
+attempts, 25 seconds per attempt when alternatives exist, inside the existing
+85-second inspection bound. A stalled guest/account is cancelled before the next
+account starts. Identical authenticated default YouTube clients are not retried
+under the `guest` label. Instagram deadline failures become safe provider errors
+instead of raw timeouts bypassing account recovery. Failed/empty session bootstraps
+are coalesced for ten seconds, then retried after possible recovery.
+
+The updated exact-link workstation check still failed visibly with
+`youtube_extraction_timeout` and `instagram_extraction_timeout`. No cookies,
+provider proxy or token helper were configured locally. This investigation has
+not established successful downloads on this workstation or the separate bot host.
+The supplied production `metrics_interval` samples show two failed inspections;
+their network counters cover the host, including unrelated processes/containers,
+and do not identify an extractor's underlying error or measure bot media downloads.
+
+Local validation: **764 tests passed, 5 database integration tests skipped**;
+lint passed. The [knowledge base](KNOWLEDGE_BASE.md) preserves all methods, failures,
+verified findings and retry conditions across all six providers. Independent
+verification is recorded separately after publication.

@@ -15,3 +15,9 @@ The user requires independent provider implementations with the same folder stru
 - After completed changes and successful relevant checks, commit and push to the configured remote and current branch, as required by the user.
 - Before editing, fetch upstream and integrate the work with its latest changes. Preserve the upstream application architecture, providers, and existing history. Never force-push.
 - Exclude secrets, local `.env`, virtual environments, sessions, runtime logs, and research caches. Report commit and push results separately.
+
+# Investigation memory
+
+- Before investigating or changing a provider, read `docs/KNOWLEDGE_BASE.md` and its linked dated evidence.
+- Record newly tested methods, failures, verified findings and retry conditions there. Distinguish workstation, CI and production results; never store credentials or signed URLs.
+- Do not repeat a failed method under unchanged conditions in a retry loop. Revisit it when new code, authorized access, cooldown expiry or connection evidence justifies another attempt.

@@ -342,6 +342,11 @@ If Instagram returns empty media on one connection while the same post succeeds 
 
 Optional diagnostics:
 
+Read the [provider knowledge base](docs/KNOWLEDGE_BASE.md) before investigating a
+failure. It records methods already tested for all six providers, failed approaches,
+verified findings and the conditions for trying again. New investigations update
+this record together with code changes.
+
 ```bash
 python tools/audit_providers.py
 python tools/audit_providers.py --all-qualities --stream --strict --output logs/provider-audit.json

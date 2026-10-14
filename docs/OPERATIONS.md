@@ -201,4 +201,12 @@ Add `--telegram --stream-mismatches` to verify Telegram file registration. This 
 
 For `youtube_login_required`, use an authorized Netscape cookie file and/or a working HTTP proxy in the owning YouTube settings. JavaScript challenge solving through Node and a PO token are separate mechanisms. If `YOUTUBE_POT_BASE_URL` is configured and `YOUTUBE_PLAYER_CLIENTS` is blank, the provider now selects `mweb,web_safari` so the helper is used by suitable clients. An explicit client choice remains authoritative. A PO helper or cookie does not guarantee that a datacenter IP can access every video/CDN.
 
+The October 14 dependency pin is yt-dlp `2026.10.10.233141.dev0`, the official
+nightly with the new default `tv_samsung` client. Run `python -m pip install -e .`
+after pulling; pulling alone leaves the older extractor installed. A stale explicit
+`YOUTUBE_PLAYER_CLIENTS` setting prevents the default set from taking effect. The
+independent Instagram client also supports the current Instagrapi web document;
+`INSTAGRAM_WEB_DOC_ID` is optional and defaults to `27830990013244856`. Read
+[the knowledge base](KNOWLEDGE_BASE.md) before repeating previously failed methods.
+
 For SoundCloud restricted tracks, the provider tries complete supported streams and the creator's original download when available. An authorized `SOUNDCLOUD_OAUTH_TOKEN` may expose additional formats according to the account's access. Preview snippets are not advertised as full tracks. DRM-only full streams and blocked original downloads remain explicit failures; supplying a different song from a search result would violate the requested content identity.

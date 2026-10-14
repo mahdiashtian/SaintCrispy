@@ -718,3 +718,55 @@ async def test_cdn_rate_limit_stops_player_failover(monkeypatch):
         await downloader.inspect(PAGE)
     assert failure.value.code == "youtube_rate_limited"
     assert attempts == [None]
+
+
+async def test_stalled_youtube_account_is_cancelled_before_healthy_account(monkeypatch):
+    from downloader_bot.downloaders.youtube import downloader as module
+
+    monkeypatch.setattr(module, "ACCOUNT_ATTEMPT_SECONDS", 0.02)
+    cancelled = asyncio.Event()
+
+    async def stalled(url):
+        try:
+            await asyncio.Future()
+        finally:
+            cancelled.set()
+
+    async def healthy(url):
+        return info()
+
+    working = SimpleNamespace(extract=healthy, available=all_available, proxy="")
+    provider = YouTubeDownloader(
+        working,
+        {"stalled": SimpleNamespace(extract=stalled), "healthy": working},
+    )
+    media = await asyncio.wait_for(provider.inspect(PAGE), 1)
+    source = await provider.resolve(media, media.qualities[0])
+    assert cancelled.is_set() and media.account_id == "healthy" and source.url
+
+
+async def test_account_timeout_error_allows_another_account_to_recover():
+    async def expired(url):
+        raise DownloadError("expired", code="youtube_extraction_timeout")
+
+    async def healthy(url):
+        return info()
+
+    working = SimpleNamespace(extract=healthy, available=all_available, proxy="")
+    media = await YouTubeDownloader(
+        working, {"expired": SimpleNamespace(extract=expired), "healthy": working}
+    ).inspect(PAGE)
+    assert media.account_id == "healthy"
+
+
+async def test_default_authenticated_client_is_not_retried_as_a_guest():
+    calls = []
+
+    async def rejected(url):
+        calls.append(url)
+        raise DownloadError("expired", code="youtube_login_required")
+
+    account = SimpleNamespace(extract=rejected)
+    with pytest.raises(DownloadError):
+        await YouTubeDownloader(account, {"environment": account}).inspect(PAGE)
+    assert len(calls) == 1

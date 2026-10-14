@@ -831,3 +831,116 @@ async def test_json_rate_limits_stop_all_alternatives_and_enter_cooldown(payload
                 await client.content(PAGE)
             assert failure.value.status == 429
     assert visits == ["/p/Chunk8-jurw/", "/api/v1/web/get_ruling_for_content/"]
+
+
+async def test_current_web_document_recovers_reported_reel_and_keeps_tokens_scoped():
+    code = "DeR9eU8idi0"
+    node = {**find_media(fixture(), "Chunk8-jurw"), "code": code, "pk": media_id(code)}
+    documents = []
+
+    def respond(request):
+        if request.url.host.endswith("cdninstagram.com"):
+            assert "cookie" not in request.headers and "x-fb-lsd" not in request.headers
+            return httpx.Response(206, content=sample_mp4(audio=False))
+        if request.url.path.endswith("/info/"):
+            return httpx.Response(401)
+        if request.url.path.startswith("/p/"):
+            return httpx.Response(
+                200,
+                text='<script>["LSD",[],{"token":"lsd-secret"}]</script>'
+                '<script>["DTSGInitData",[],{"token":"dtsg-secret"}]</script>',
+            )
+        if request.url.path.endswith("get_ruling_for_content/"):
+            return httpx.Response(200, json={"status": "ok"})
+        form = parse_qs(request.content.decode())
+        documents.append(form["doc_id"][0])
+        if documents[-1] == "27130156389949648":
+            return httpx.Response(200, json={"data": {"xig_polaris_media": None}})
+        assert documents[-1] == "27830990013244856"
+        assert request.url.path == "/api/graphql"
+        assert request.headers["x-fb-friendly-name"] == "PolarisPostRootQuery"
+        assert request.headers["x-fb-lsd"] == "lsd-secret"
+        assert form["fb_dtsg"] == ["dtsg-secret"]
+        assert json.loads(form["variables"][0]) == {
+            "shortcode": code,
+            "__relay_internal__pv__PolarisShortDramaEnabledrelayprovider": False,
+            "__relay_internal__pv__PolarisMultiCaptionCarouselEnabledrelayprovider": True,
+        }
+        return httpx.Response(200, json={"data": {"xdt_shortcode_media": node}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        provider = InstagramDownloader(InstagramClient(http, "sessionid=secret"))
+        media = await provider.inspect(f"https://www.instagram.com/reel/{code}/?dlrf=tracking")
+        assert media.content_id == code and media.qualities
+        source = await provider.resolve(media, media.qualities[0])
+        assert not any("secret" in value for value in source.headers.values())
+    assert documents == ["27130156389949648", "27830990013244856"] * 2
+
+
+async def test_failed_bootstrap_is_coalesced_briefly_then_retries_after_recovery(monkeypatch):
+    from downloader_bot.downloaders.instagram import client as module
+
+    clock, calls = [100.0], []
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+    def respond(request):
+        calls.append(request)
+        if clock[0] < 110:
+            raise httpx.ConnectTimeout("SECRET")
+        return httpx.Response(200, text='<script>["LSD",[],{"token":"recovered"}]</script>')
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        client = InstagramClient(http)
+        assert await asyncio.gather(*(client._bootstrap() for _ in range(50))) == [""] * 50
+        assert len(calls) == 1
+        clock[0] += 11
+        assert await client._bootstrap() == "recovered"
+        assert len(calls) == 2
+
+
+async def test_all_connection_failures_report_network_error_without_raw_details():
+    def respond(request):
+        raise httpx.ConnectError("https://SECRET.invalid/cookie")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        with pytest.raises(DownloadError) as failure:
+            await InstagramClient(http).content(PAGE)
+    assert failure.value.code == "instagram_connection_failed"
+    assert "SECRET" not in str(failure.value)
+
+
+async def test_content_deadline_is_a_recoverable_provider_error(monkeypatch):
+    async def expired(self, url):
+        raise TimeoutError
+
+    monkeypatch.setattr(InstagramClient, "_content", expired)
+    with pytest.raises(DownloadError) as failure:
+        await InstagramClient(None).content(PAGE)
+    assert failure.value.code == "instagram_extraction_timeout"
+
+
+async def test_stalled_guest_is_cancelled_and_authorized_account_still_gets_a_turn(monkeypatch):
+    from downloader_bot.downloaders.instagram import downloader as module
+
+    monkeypatch.setattr(module, "ACCOUNT_ATTEMPT_SECONDS", 0.02)
+    cancelled = asyncio.Event()
+
+    async def stalled(url):
+        try:
+            await asyncio.Future()
+        finally:
+            cancelled.set()
+
+    async def healthy(url):
+        return find_media(fixture(), "Chunk8-jurw"), PAGE, "Chunk8-jurw"
+
+    async def available(client, media, formats):
+        return formats
+
+    provider = InstagramDownloader(
+        SimpleNamespace(cookie=None, content=stalled),
+        {"authorized": SimpleNamespace(content=healthy)},
+    )
+    monkeypatch.setattr(provider, "_available", available)
+    media = await asyncio.wait_for(provider.inspect(PAGE), 1)
+    assert cancelled.is_set() and media.account_id == "authorized" and media.qualities

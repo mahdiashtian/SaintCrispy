@@ -14,7 +14,7 @@ dependencies = [
     "asyncpg==0.32.0",
     "redis==8.1.0",
     "cryptg>=0.5,<1",
-    "yt-dlp[default,curl-cffi]==2026.8.19",
+    "yt-dlp[default,curl-cffi]==2026.10.10.233141.dev0",
     "curl-cffi==0.16.3",
     "bgutil-ytdlp-pot-provider==2.0.2",
     "psutil>=7,<9",
