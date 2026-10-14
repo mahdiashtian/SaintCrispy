@@ -196,3 +196,8 @@ Final local validation after the authorized-API ordering and account-pool correc
 **767 tests passed, 5 database integration tests skipped**; lint, formatting and
 provider architecture checks passed. Missing test database configuration explains
 the local skips; Linux CI supplies dedicated PostgreSQL/Redis services.
+
+Final [Linux verification at `d042689`](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38605040464)
+passed **772 tests** with real PostgreSQL/Redis, lint and formatting. This closes
+code verification for the additional ordering/rotation fixes; it is not a claim of
+production access or a successful local download of either reported video.

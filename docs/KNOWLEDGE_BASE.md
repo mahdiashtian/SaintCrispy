@@ -244,3 +244,10 @@ At `9a8cd23`, October 14 Linux CI passed 769 tests with PostgreSQL/Redis. The
 passed; the [YouTube check](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38603501343)
 failed before any download. Neither check published Telegram messages. Later local
 and final publication results are recorded in the dated access report.
+
+After the final account ordering/rotation fixes, local validation passed 767 tests
+with five dedicated-database tests skipped. At `d042689`, the final
+[Linux code/database run](https://github.com/mahdiashtian/SaintCrispy/actions/runs/38605040464)
+passed **772 tests** with PostgreSQL/Redis, lint and formatting. These successful
+code checks do not change the recorded local connection failures or YouTube's
+remaining independent-runner login challenge.
