@@ -1022,3 +1022,96 @@ selected refresh, partial/zero TTL, cooldowns and invalidation. A narrowed callb
 snapshot cannot seed or replace the full quality catalog, even when its source
 cache is newer. Ruff lint/format passed for 236 Python files. No runtime dependency,
 database migration, authentication or concurrency increase was introduced.
+
+## October 15 cross-checked catalog and selected-file probes
+
+The remaining full-menu critical path opened four CDN streams before the user
+chose any quality. One instrumented fresh-conversion run took 4.7408 seconds:
+request key 0.7727 s, conversions 0.3955-0.6777 s, individual file probes
+1.0048-2.9522 s. The earlier early-acknowledgment change did not remove that cost.
+
+The exact recorded playable watch response for `-YVIEsTEZCw` includes full-length
+H264 profile dimensions and AAC/Opus audio metadata, although SABR does not expose
+downloadable URLs. Independent converter responses include the actual rendition
+in their filename. For the already fully checked short video `jNQXAC9IVRw`, all
+three requested video qualities (360/720/1080) reported **240p**, not the requested
+resolution. MP3 reported an MP3 filename. These are useful catalog facts, not proof
+that a signed URL will remain accessible.
+
+The optimized provider cross-checks the converter's reported actual height against
+one unambiguous H264 origin size, with complete clear audio and matching duration.
+Only exact playable metadata qualifies. Missing format metadata, DRM, login/live
+responses, partial durations, unknown filename syntax and disagreements retain
+byte-based discovery. The destination still requires the permitted HTTPS host and
+exact video identity. No quality is inferred merely from the requested height.
+
+Catalog-backed candidates retain their short source lifetime and stay private to
+the provider cache. `resolve` must check the selected file's actual bytes, H264,
+dimensions and audio before returning it. A still-fresh candidate avoids another
+conversion; an expired one refreshes only the selection. A selection failure clears
+both snapshots and requires byte-based discovery for that identity for 60 seconds,
+with a 128-entry bound. Full EOF, duration and preparation checks remain in place.
+`size_probed=False` marks internal candidates; successful resolution returns only
+verified sources with `size_probed=True`. Malformed/oversized expiry values cause
+refresh without unsafe integer conversion. Provider/session boundaries and the
+two-conversion limit remain unchanged.
+
+Workstation reversed-order comparison, four identical choices in every completed
+run (360p/720p/1080p H264 and MP3 128):
+
+| Order | Discovery policy | Complete menu seconds |
+| --- | --- | ---: |
+| 1 | Cross-checked catalog, selected-file probe deferred | 1.329349 |
+| 2 | Previous behavior, probe all four files | 2.493634 |
+| 3 | Previous behavior, probe all four files | 4.000386 |
+| 4 | Cross-checked catalog, selected-file probe deferred | 1.364519 |
+
+The two means give **2.41x** faster menu discovery. All runs used new clients and
+fresh conversions, without a warm provider catalog. Converter/CDN traffic was
+real; exact origin metadata was preloaded from the previously recorded watch page.
+No fresh watch-page or real Telegram latency is included. Selected 720p header
+verification took 3.450066/1.631546 seconds after the two optimized menus. This
+deliberately moves the one necessary file probe to selection; it does not establish
+an improvement in complete-file bandwidth or upload time.
+
+A full dispatcher/admission/history/menu run with isolated real PostgreSQL measured
+1.402028 seconds for the new four-choice menu (acknowledgment 0.161059 s). After
+simulating quota/source/application-cache expiry, the complete catalog took
+0.009982 seconds. Both durable menus retained four qualities. Telegram was mocked
+and origin metadata preloaded in this run too.
+
+Fresh complete delivery checks on `-YVIEsTEZCw` used real converter/CDN reads and
+the production preparation/upload path with mocked Telegram RPCs:
+
+| Selected quality | Header seconds | Transfer/preparation seconds | Prepared/acknowledged bytes | Actual duration |
+| --- | ---: | ---: | ---: | ---: |
+| 360p H264 MP4 | 2.147955 | 48.642846 | 76,705,138 | 2236.4 s |
+| MP3 128 | 1.927761 | 32.419179 | 35,783,165 | 2236.44 s |
+
+Both completed integrity checks and acknowledged all bytes through simulated
+Telegram parts. Video also passed faststart and preview generation. These are
+complete-file correctness checks, not real Telegram uploads or a bandwidth
+comparison. The menu preceding these transfers took 1.168408 seconds.
+
+Failed attempts are retained as evidence: direct anonymous HTTP/3 plus Google DoH
+watch reads timed out at seven seconds for both tested IDs. An initial menu
+comparison and a later single-conversion-slot variant received HTTP 400 and cannot
+count as speed results. A subsequent separate single-conversion diagnostic returned
+HTTP 200; this recovery evidence justified the successful reversed-order comparison.
+The cause of those transient HTTP 400 responses is unproven. No retry loop or extra
+production concurrency was added. Revisit the failed transport only after changed
+connection evidence, and a failing service after recovery/protocol evidence.
+
+Validation includes a 1,000-follower complete fast-menu discovery sharing one watch
+request and four conversions, and 1,000 simultaneous selections sharing one actual
+file probe. These use mocked origin/service HTTP and test coalescing, not 1,000
+different public-service downloads per second. Cases also cover candidate expiry,
+MP3 validation, malformed expiry, origin/filename disagreement, truncation/DRM,
+429 cooldown, cancellation, failed-selection rediscovery and bounded fallback state.
+
+Final validation: **1,033 tests passed, zero skips**, using isolated real PostgreSQL
+17 and Redis 7.4. Ten existing Windows curl selector warnings remained. Ruff lint
+and format checks passed for 236 Python files; provider architecture tests passed.
+No runtime dependency, database migration or increased concurrency was introduced.
+Ignored research response bodies, cookies, signed links and runtime logs are not
+part of the commit.

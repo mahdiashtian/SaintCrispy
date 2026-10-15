@@ -68,12 +68,25 @@ Metadata comes first from the requested YouTube watch page, whose embedded playe
 must match the exact ID and provide a valid title, author and duration. Missing
 origin metadata permits a bounded exact-ID search fallback; a search miss alone
 does not prove that the video is unavailable. Download destinations are
-restricted to the verified HTTPS service domain and exact video ID. Only sampled
-MP4 renditions with actual dimensions and audio, or a verified MP3 header, enter
-the menu. Converted MP3 is labeled separately from native original audio.
+restricted to the verified HTTPS service domain and exact video ID. Clear complete
+H264/audio profiles from that exact playable page can certify a converter-reported
+actual rendition for the menu. The converter's filename alone is insufficient:
+its height must match one unambiguous origin size and not exceed the request.
+Private/login/live responses, DRM, missing or truncated format durations and
+inconsistent metadata cannot use this optimization. Those cases retain bounded
+file sampling. Converted MP3 is labeled separately from native original audio.
+
+Catalog-backed source candidates remain internal and unverified. Selection must
+sample the chosen MP4/MP3 before returning any source to transfer infrastructure;
+dimensions, H264 and audio must match. It reuses a still-fresh candidate to avoid
+another conversion, or converts only the selected rendition after expiry. Full
+transfer integrity/preparation remains mandatory. A failed selection clears both
+snapshots and requires byte-based discovery for that identity for 60 seconds;
+this bounded fallback record holds at most 128 identities. Other renditions and
+providers retain their discovery paths, admission limits and session boundaries.
 
 The service's signed links last approximately one minute. The provider retains a
-validated source snapshot for at most 15 seconds and regenerates expired selections
+source snapshot for at most 15 seconds and regenerates expired selections
 before transfer. Concurrent inspection/refresh for the same identity coalesces
 under bounded locks; conversion concurrency is two. Native HTTP 429 stops public
 fallback, and public 429 starts a 60-second cooldown. No retry loop attempts to
@@ -127,6 +140,13 @@ across identities or persisted. Conversion calls remain capped at two, while CDN
 header probes run independently and stop when the complete required header is
 available. Safe `youtube_public_response` and `youtube_public_probe` events record
 operation/quality, status/sample bytes and elapsed time, without URLs or keys.
+`youtube_public_extracted.deferred_probes` counts catalog-backed candidates whose
+file samples will run on selection. A value of zero means ordinary byte-based
+discovery was needed; do not expect the catalog-backed speedup in that case.
+`youtube_public_quality_unavailable.http_status` distinguishes converter/CDN HTTP
+errors without disclosing a signed URL or error response body. Discovery skips
+unused file streams; it does not raise the two-conversion limit or guarantee a
+public-service quota or CDN throughput.
 
 An existing verified header sample now carries its size-probe result into delivery.
 A known size is enforced; an unknown size uses the byte-capped local stream,

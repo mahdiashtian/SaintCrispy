@@ -92,6 +92,45 @@ PostgreSQL/Redis; lint/format and architecture checks passed for 235 Python file
 
 ## YouTube
 
+October 15 cold-menu follow-up: the critical path included four independent CDN
+stream openings before any quality choice. Exact playable watch responses already
+contain complete clear H264/audio profiles even when SABR exposes no direct URLs.
+The converter's actual filename was checked separately: requesting 360/720/1080
+for `jNQXAC9IVRw` reported 240p every time, matching prior file validation. The
+provider now cross-checks that reported height with one exact origin size and
+complete duration/audio metadata. Only a match defers the file sample to selection;
+unknown/inconsistent metadata retains ordinary probing. A candidate never exits
+`resolve` until its bytes pass the existing dimension/codec/audio checks. Expired
+candidates refresh only the selected conversion. Failed selection invalidates
+snapshots and forces byte discovery for 60 seconds (128-entry bound).
+
+In a reversed-order four-menu workstation comparison, ordinary discovery took
+2.493634/4.000386 seconds and the optimized catalog path 1.329349/1.364519 seconds:
+2.41x by the means, with identical four choices and unchanged concurrency. Real
+conversion/CDN traffic was used, but origin metadata was recorded/preloaded and
+Telegram was not contacted. Real PostgreSQL admission/history/menu measured
+1.402028 seconds, then 0.009982 seconds after source/application-cache expiry;
+both durable menus retained four choices. These are menu results, not a fresh
+origin/production guarantee or proof of improved bandwidth. The selected 720p
+header still took 3.450066/1.631546 seconds; some work has deliberately moved to
+selection. See [the dated catalog evidence](YOUTUBE_INSTAGRAM_ACCESS.md#october-15-cross-checked-catalog-and-selected-file-probes).
+
+New transport evidence was negative: anonymous HTTP/3 plus Google DoH watch reads
+timed out at seven seconds for both tested IDs. Do not repeat that profile without
+changed connection evidence. The first menu comparison and a later single-slot
+conversion attempt returned HTTP 400 and were discarded as speed measurements.
+A subsequent single conversion returned HTTP 200, justifying the successful
+comparison after recovery; no login bypass, unlimited-service or automatic-retry
+claim follows. More concurrency did not cause the measured improvement.
+
+The new selected-file path also passed complete production delivery preparation
+with mocked Telegram: 360p video 76,705,138 bytes/2236.4 seconds, with faststart and
+preview, and MP3 35,783,165 bytes/2236.44 seconds. All bytes were acknowledged by
+the test uploader. The final full suite passed **1,033 tests, zero skips** with
+isolated real PostgreSQL 17 and Redis 7.4; lint/format and provider architecture
+checks passed. This is local correctness/concurrency evidence, not a production
+throughput claim. Runtime/research bodies and signed URLs remain ignored.
+
 October 15 initial-response follow-up: PyTubeFix 11.2.0 `AsyncYouTube` did not
 return formats within a separate 12-second subprocess deadline. Its async facade
 also calls synchronous Innertube methods. It was not added as a dependency.
@@ -184,7 +223,10 @@ clients on October 10. The [official nightly release](https://github.com/yt-dlp/
 records that change and the updated embedded Safari user agent. This is a specific
 upstream fix, not a floating automatic upgrade.
 
-Retain CDN verification before quality ranking. An inaccessible preferred rendition
+For native discovery, retain CDN verification before quality ranking. The public
+catalog optimization above may defer byte verification only with the two matching
+metadata sources, and must verify the selected file before returning it.
+An inaccessible preferred rendition
 must not conceal an accessible alternative. Video and its separate audio must both
 work. Preserve the provider's small HTTP ranges during audio validation. Explicit
 `YOUTUBE_PLAYER_CLIENTS` and configured token-helper clients remain authoritative;

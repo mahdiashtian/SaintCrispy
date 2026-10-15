@@ -220,8 +220,12 @@ Explicit player-client/PO-token settings and account pools retain native-first
 inspection. The resolver follows the public protocol
 reviewed in [ytube-api](https://github.com/Simatwa/ytube-api), implemented asynchronously
 inside YouTube's own provider. No account cookie or API credential is sent. Metadata
-and download responses must identify the exact video ID. A bounded file sample
-verifies actual MP4 dimensions/audio before listing a quality. MP3 is a converted
+and download responses must identify the exact video ID. When the exact playable
+watch page supplies complete clear H264/audio profiles and the converter reports
+a matching actual rendition, the menu uses that catalog without opening four media
+streams. Selection verifies the chosen file's MP4 dimensions/audio or MP3 header
+before returning a source. Incomplete or inconsistent metadata retains discovery
+with bounded file samples. MP3 is a converted
 128 kbps option, not original AAC. Short-lived links refresh when selected, and
 duplicate concurrent requests share the same verified snapshot. Metadata comes
 from the requested watch page first, with exact-ID search as a bounded fallback;
@@ -254,6 +258,14 @@ Set the value to `0` to retain only that short snapshot (accepted range 0-900).
 This speeds repeat links after the application's metadata cache expires; a first
 uncached full menu still depends on origin/converter latency. See the
 [response and catalog measurements](docs/YOUTUBE_INSTAGRAM_ACCESS.md#october-15-initial-response-and-complete-catalog-reuse).
+
+The subsequent uncached-conversion comparison reduced the complete four-choice
+menu from 2.494-4.000 seconds to 1.329-1.365 seconds (2.41x by the two means),
+without raising concurrency. This workstation comparison used real converter/CDN
+traffic and previously recorded origin metadata; it excludes a fresh watch-page
+request and real Telegram latency. With real PostgreSQL, the new path took 1.402
+seconds. This improves menu discovery, not measured CDN bandwidth or Telegram
+upload speed. See the [deferred-probe evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md#october-15-cross-checked-catalog-and-selected-file-probes).
 
 ## Group downloads
 

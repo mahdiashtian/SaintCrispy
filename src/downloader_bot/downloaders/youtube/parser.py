@@ -51,6 +51,45 @@ class WatchMetadata:
     author: str
     duration: int
     playable: bool
+    video_sizes: tuple[tuple[int, int], ...] = ()
+    has_audio: bool = False
+
+
+def watch_formats(player, seconds):
+    """Keep only complete, clear H264/audio profiles, without retaining stream URLs."""
+    streaming = player.get("streamingData")
+    if not isinstance(streaming, dict) or streaming.get("licenseInfos"):
+        return (), False
+    sizes, audio = set(), False
+    for name in ("formats", "adaptiveFormats"):
+        formats = streaming.get(name, [])
+        if not isinstance(formats, list):
+            continue
+        for item in formats[:300]:
+            if not isinstance(item, dict) or item.get("drmFamilies") or item.get("drmTrackType"):
+                continue
+            duration = str(item.get("approxDurationMs", ""))
+            mime = item.get("mimeType", "")
+            if (
+                not isinstance(mime, str)
+                or not re.fullmatch(r"[0-9]{1,13}", duration)
+                or abs(int(duration) / 1000 - seconds) > max(2, seconds * 0.02)
+            ):
+                continue
+            if mime.startswith("audio/") and ("mp4a." in mime or "opus" in mime):
+                audio = True
+            width, height = item.get("width"), item.get("height")
+            if (
+                mime.startswith("video/mp4;")
+                and "avc1." in mime
+                and type(width) is int
+                and type(height) is int
+                and 0 < width <= 16384
+                and 0 < height <= 16384
+            ):
+                sizes.add((width, height))
+                audio = audio or bool(item.get("audioQuality"))
+    return tuple(sorted(sizes)), audio
 
 
 def watch_metadata(text, identity):
@@ -86,7 +125,9 @@ def watch_metadata(text, identity):
         status = player.get("playabilityStatus")
         if not isinstance(status, dict):
             continue
-        return WatchMetadata(title[:500], author[:100], int(length), status.get("status") == "OK")
+        playable = status.get("status") == "OK"
+        sizes, audio = watch_formats(player, int(length)) if playable else ((), False)
+        return WatchMetadata(title[:500], author[:100], int(length), playable, sizes, audio)
     return None
 
 
@@ -111,6 +152,57 @@ def public_metadata(payload, identity):
     raise DownloadError(
         "اطلاعات کامل همین ویدیو در مسیر عمومی پیدا نشد.",
         code="youtube_public_metadata_unavailable",
+    )
+
+
+def public_catalog_quality(result, metadata, kind, value):
+    """Cross-check the converter's actual rendition against the exact origin catalog."""
+    if not metadata or not metadata.playable or not metadata.has_audio:
+        return None
+    filename = result.get("filename")
+    if (
+        not isinstance(filename, str)
+        or len(filename) > 2048
+        or any(ord(char) < 32 for char in filename)
+    ):
+        return None
+    if kind == "mp3" and filename.endswith(".mp3"):
+        return public_quality(kind, value, metadata.duration)
+    match = re.search(r" \(([0-9]{2,4})p, h264\)\.mp4\Z", filename)
+    if kind != "mp4" or not match:
+        return None
+    height = int(match[1])
+    sizes = [(w, h) for w, h in metadata.video_sizes if h == height]
+    if len(sizes) != 1 or height > int(value):
+        return None
+    return public_quality(kind, value, metadata.duration, width=sizes[0][0], height=height)
+
+
+def public_quality(kind, value, seconds, *, width=None, height=None):
+    if kind == "mp3":
+        return Quality(
+            f"public_audio_mp3_{value}",
+            f"MP3 · {value}kbps",
+            "mp3",
+            int(value),
+            "mp3",
+            "audio/mpeg",
+            "progressive",
+            f"public:mp3:{value}",
+            duration=seconds,
+        )
+    return Quality(
+        f"public_video_{height}p_h264_mp4",
+        f"{height}p · H264 · MP4",
+        "h264",
+        None,
+        "mp4",
+        "video/mp4",
+        "progressive",
+        f"public:mp4:{value}",
+        width=width,
+        height=height,
+        duration=seconds,
     )
 
 

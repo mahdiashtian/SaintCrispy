@@ -14,13 +14,15 @@ import httpx
 
 from core.bounded_curl import BoundedSession
 from core.source_http import CurlTransport
-from schemas.media import DownloadError, Media, Quality, SiteHTTPError, Source
+from schemas.media import DownloadError, Media, SiteHTTPError, Source
 
 from .parser import (
     canonical_url,
     codec,
+    public_catalog_quality,
     public_download_url,
     public_metadata,
+    public_quality,
     public_video_info,
     source_headers,
     usable,
@@ -69,6 +71,9 @@ class YouTubeClient:
         default_factory=OrderedDict, init=False, repr=False, compare=False
     )
     _public_cooldown: dict = field(default_factory=dict, init=False, repr=False, compare=False)
+    _public_probe_required: OrderedDict = field(
+        default_factory=OrderedDict, init=False, repr=False, compare=False
+    )
     _origin_cache: OrderedDict = field(
         default_factory=OrderedDict, init=False, repr=False, compare=False
     )
@@ -299,7 +304,9 @@ class YouTubeClient:
             raise ValueError("Missing public request key")
         return key
 
-    async def _public_convert(self, api, identity, kind, value, seconds, *, request_key=None):
+    async def _public_convert(
+        self, api, identity, kind, value, seconds, *, request_key=None, catalog=None
+    ):
         async with self._public_slots:
             link = canonical_url(identity)
             key = request_key or await self._public_key(api, identity)
@@ -316,6 +323,22 @@ class YouTubeClient:
                     "filenameStyle": "pretty",
                 },
                 headers={"key": key},
+            )
+        if (
+            isinstance(result, dict)
+            and result.get("status") in {"tunnel", "redirect"}
+            and (target := public_download_url(result.get("url"), identity))
+            and (quality := public_catalog_quality(result, catalog, kind, value))
+        ):
+            # This candidate stays internal until resolve verifies its actual bytes.
+            # A converter filename alone never establishes a quality's existence.
+            return quality, Source(
+                target,
+                "progressive",
+                headers={"Referer": PUBLIC_ORIGIN + "/"},
+                proxy=self.resolver_proxy,
+                duration=seconds,
+                require_audio=kind == "mp4",
             )
         return await self._public_source(result, identity, kind, value, seconds)
 
@@ -378,19 +401,7 @@ class YouTubeClient:
             width, height, audio, family = public_video_info(sample)
             if not width or not height or not audio or family != "h264":
                 raise ValueError("Missing playable public MP4 header")
-            quality = Quality(
-                f"public_video_{height}p_h264_mp4",
-                f"{height}p · H264 · MP4",
-                "h264",
-                None,
-                "mp4",
-                "video/mp4",
-                "progressive",
-                f"public:mp4:{value}",
-                width=width,
-                height=height,
-                duration=seconds,
-            )
+            quality = public_quality(kind, value, seconds, width=width, height=height)
         else:
             if not (
                 sample.startswith(b"ID3")
@@ -400,17 +411,7 @@ class YouTubeClient:
                 )
             ):
                 raise ValueError("Missing public MP3 header")
-            quality = Quality(
-                f"public_audio_mp3_{value}",
-                f"MP3 · {value}kbps",
-                "mp3",
-                int(value),
-                "mp3",
-                "audio/mpeg",
-                "progressive",
-                f"public:mp3:{value}",
-                duration=seconds,
-            )
+            quality = public_quality(kind, value, seconds)
         log.info(
             {
                 "event": "youtube_public_probe",
@@ -460,10 +461,24 @@ class YouTubeClient:
                                 task.cancel()
                         await asyncio.gather(*pending, return_exceptions=True)
                     title, author, seconds = metadata
+                    origin = self._origin_cache.get(identity)
+                    catalog = (
+                        origin[1]
+                        if origin
+                        and origin[0] > time.monotonic()
+                        and self._public_probe_required.get(identity, 0) <= time.monotonic()
+                        else None
+                    )
                     results = await asyncio.gather(
                         *(
                             self._public_convert(
-                                api, identity, kind, value, seconds, request_key=key
+                                api,
+                                identity,
+                                kind,
+                                value,
+                                seconds,
+                                request_key=key,
+                                catalog=catalog,
                             )
                             for kind, value in (
                                 ("mp4", "360"),
@@ -483,6 +498,9 @@ class YouTubeClient:
                             {
                                 "event": "youtube_public_quality_unavailable",
                                 "error_type": type(result).__name__,
+                                "http_status": getattr(
+                                    getattr(result, "response", None), "status_code", None
+                                ),
                             }
                         )
                         continue
@@ -515,7 +533,15 @@ class YouTubeClient:
                 self._public_catalog.move_to_end(identity)
                 while len(self._public_catalog) > 128:
                     self._public_catalog.popitem(last=False)
-                log.info({"event": "youtube_public_extracted", "qualities": len(rows)})
+                log.info(
+                    {
+                        "event": "youtube_public_extracted",
+                        "qualities": len(rows),
+                        "deferred_probes": sum(
+                            not source.size_probed for _, source in rows.values()
+                        ),
+                    }
+                )
                 return media
         except SiteHTTPError:
             raise
@@ -536,25 +562,39 @@ class YouTubeClient:
                 async with self._public_locks[hash(media.content_id) % len(self._public_locks)]:
                     return await self._public_resolve(media, quality)
         except TimeoutError as error:
-            self._public_catalog.pop(media.content_id, None)
-            self._public_cache.pop(media.content_id, None)
+            self._invalidate_public(media.content_id)
             raise DownloadError(
                 "دریافت لینک تازه یوتیوب طولانی شد؛ کمی بعد امتحان کن.",
                 code="youtube_public_unavailable",
             ) from error
         except DownloadError:
-            self._public_catalog.pop(media.content_id, None)
-            self._public_cache.pop(media.content_id, None)
+            self._invalidate_public(media.content_id)
             raise
+
+    def _invalidate_public(self, identity):
+        self._public_catalog.pop(identity, None)
+        self._public_cache.pop(identity, None)
+        self._public_probe_required[identity] = time.monotonic() + 60
+        self._public_probe_required.move_to_end(identity)
+        while len(self._public_probe_required) > 128:
+            self._public_probe_required.popitem(last=False)
 
     async def _public_resolve(self, media, quality):
         cached = self._public_cache.get(media.content_id)
+        candidate = None
         if cached and cached[0] > time.monotonic():
             candidate = cached[2].get(quality.key)
             if candidate and candidate[0] == quality:
                 expiry = parse_qs(urlsplit(candidate[1].url).query).get("exp", [""])[0]
-                if not expiry.isdigit() or int(expiry) / 1000 > time.time() + 10:
-                    return candidate[1]
+                if not expiry or (
+                    re.fullmatch(r"[0-9]{1,20}", expiry) and int(expiry) / 1000 > time.time() + 10
+                ):
+                    if candidate[1].size_probed:
+                        return candidate[1]
+                else:
+                    candidate = None
+            else:
+                candidate = None
         parts = quality.endpoint.split(":")
         if (
             len(parts) != 3
@@ -565,10 +605,19 @@ class YouTubeClient:
             raise DownloadError("کیفیت انتخاب‌شده معتبر نیست.")
         try:
             async with asyncio.timeout(30):
-                async with self._public_session() as api:
-                    current, source = await self._public_convert(
-                        api, media.content_id, parts[1], parts[2], media.duration
+                if candidate:
+                    current, source = await self._public_source(
+                        {"status": "tunnel", "url": candidate[1].url},
+                        media.content_id,
+                        parts[1],
+                        parts[2],
+                        media.duration,
                     )
+                else:
+                    async with self._public_session() as api:
+                        current, source = await self._public_convert(
+                            api, media.content_id, parts[1], parts[2], media.duration
+                        )
             if (current.key, current.width, current.height) != (
                 quality.key,
                 quality.width,
