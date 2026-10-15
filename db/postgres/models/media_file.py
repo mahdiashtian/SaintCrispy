@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS media_files (
     PRIMARY KEY (site, content_id, quality, telegram_account_id)
 );
 ALTER TABLE media_files ADD COLUMN IF NOT EXISTS size_bytes BIGINT;
+CREATE INDEX IF NOT EXISTS media_files_origin ON media_files
+    (telegram_account_id,origin_peer,message_id);
 
 """,
 )

@@ -33,6 +33,44 @@ from upstream conversion time; a fresh cold workstation metadata lookup failed
 in that later connection state. See the dated access sections for successes,
 failures, byte counts and the untested production/Telegram boundary.
 
+## Downloaded file expiry (October 15)
+
+The operator clarified that automatic deletion applies only to downloaded files
+sent by the bot, from every platform; ordinary messages and progress/quality UI
+must remain. Final file captions now include an instruction to save/forward the
+file before its 30-second deletion deadline. Generic Telegram delivery schedules
+only confirmed user-facing publication IDs, covering fresh media and cached
+resends in private chats and groups. The original submitted link is never queued.
+
+Migration 8 adds the bot-scoped `file_message_expiry` queue and an origin-reference
+index. One managed worker, owned by the container after Telegram authentication,
+recovers overdue deadlines on restart and batches deletion with bounded concurrency
+and explicit FloodWait/backoff. Failed cleanup writes cannot cause another file
+publication. Pending writes survive request cancellation in the running worker.
+Storage-channel copies are preserved and their captions omit the expiry notice.
+
+Confirmed deletions remove only cache anchors matching that exact account/peer/
+message, including Redis invalidation. Two-day completion tombstones reject late
+producer writes that would restore an already-expired origin. User history and
+metadata are preserved. Fresh download remains possible when the user-facing
+message was the only file anchor. See [operations](OPERATIONS.md#downloaded-file-expiry)
+for deadlines, queue recovery and the external permission/API timing boundary.
+
+Workstation tests simulate Telegram sends/deletions and verify the 30-second
+boundary, private/basic-group/supergroup peers, per-file captions, cached resends,
+original-link preservation, storage exclusion, cancellation, offline persistence,
+FloodWait, lost permissions, batching and managed shutdown. Separate tests use
+dedicated real PostgreSQL/Redis to verify account isolation, additive migration,
+retry timestamps, restart recovery, Redis failure, late-cache-write rejection and
+tombstone pruning. No real chat, production host or source media was contacted.
+
+The complete workstation run passed **1,267 tests with zero skips** using dedicated
+PostgreSQL 16 and Redis services. After adding cached-resend/permission/cancellation
+cases and clarifying the internal-storage caption, **92 affected tests** passed.
+Lint and formatting passed for 235 Python files. The ten existing Windows curl
+selector warnings remained. No dependency or environment setting was added;
+the additive expiry queue is migration 8.
+
 ## Inspection acknowledgment and original-link replies (October 15)
 
 The operator requested a visible format-discovery message for every download,

@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import logging
 import re
 import time
 from contextlib import aclosing, nullcontext
@@ -12,7 +13,7 @@ from telethon.extensions import BinaryReader
 from bot.cards.preview import MAX_PREVIEW_INPUT, video_thumbnail
 from bot.premium_emoji import BotPresentation
 from bot.progress import TransferProgress
-from bot.texts.downloads import download_caption
+from bot.texts.downloads import FILE_EXPIRY_NOTICE, download_caption
 from bot.transfers.faststart import prepared_video
 from bot.transfers.integrity import require_duration, validated_mp4
 from bot.transfers.streaming import media_chunks, source_size, upload_stream
@@ -22,6 +23,7 @@ from bot.transfers.video import (
     inspect_mp4,
     require_video_info,
 )
+from core.diagnostics import error_fields
 from core.request_context import request_chat, request_message
 from schemas.media import (
     DownloadError,
@@ -45,6 +47,8 @@ REFERENCE_FAILURES = (
     errors.FileReferenceInvalidError,
     errors.FileReferenceEmptyError,
 )
+
+log = logging.getLogger("activity")
 
 
 class ExternalFetchTimeout(Exception):
@@ -77,6 +81,7 @@ class TelegramDelivery:
         external_timeout: float = 30,
         presentation: BotPresentation | None = None,
         bot_username: str | None = None,
+        file_expiry=None,
     ):
         self.client = client
         self.http = http
@@ -86,6 +91,7 @@ class TelegramDelivery:
         self.external_timeout = external_timeout
         self.presentation = presentation if presentation is not None else BotPresentation()
         self.bot_username = bot_username
+        self.file_expiry = file_expiry
         self._remux_slots = asyncio.Semaphore(remux_concurrency)
         if upload_inflight_parts < 1:
             raise ValueError("Global upload window must be positive")
@@ -124,14 +130,18 @@ class TelegramDelivery:
                     progress.phase = "waiting_telegram"
 
     async def _send_file(self, peer, media, *, progress=None, **options):
+        try:
+            same_chat = utils.get_peer_id(peer) == request_chat.get()
+        except (TypeError, ValueError):
+            same_chat = False
+        if self.file_expiry is not None and not same_chat:
+            # The internal storage copy is a durable anchor, not a user delivery.
+            options["caption"] = options.get("caption", "").removesuffix(
+                f"\n\n{FILE_EXPIRY_NOTICE}"
+            )
         message_id = request_message.get()
-        if message_id:
-            try:
-                same_chat = utils.get_peer_id(peer) == request_chat.get()
-            except (TypeError, ValueError):
-                same_chat = False
-            if same_chat:
-                options.setdefault("reply_to", message_id)
+        if message_id and same_chat:
+            options.setdefault("reply_to", message_id)
         if progress is not None:
             progress.phase = "waiting_telegram"
         with timed("publish"):
@@ -141,6 +151,11 @@ class TelegramDelivery:
                 progress=progress,
             )
         count("telegram_publications")
+        if self.file_expiry is not None and same_chat:
+            try:
+                await self.file_expiry.schedule(peer, result)
+            except Exception as error:
+                log.warning({"event": "file_expiry_schedule_failed", **error_fields(error)})
         return result
 
     async def _upload_part(self, request):

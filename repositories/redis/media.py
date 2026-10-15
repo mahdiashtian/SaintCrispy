@@ -38,6 +38,25 @@ class FileRepository(PostgresMediaRepository):
     def _lock(self, key: str) -> asyncio.Lock:
         return self._locks[int(key[-8:], 16) % len(self._locks)]
 
+    async def forget_origin(self, peer: bytes, message_id: int):
+        for row in await super().origin_files(peer, message_id):
+            key = self.key(row["site"], row["content_id"], row["quality"])
+            async with self._lock(key):
+                if not await super().forget_origin_file(
+                    row["site"], row["content_id"], row["quality"], peer, message_id
+                ):
+                    continue
+                self._dirty.add(key)
+                if self.redis is None:
+                    self._dirty.discard(key)
+                else:
+                    try:
+                        await self._redis_call(lambda: self.redis.delete(key))
+                    except RedisError:
+                        self._redis_retry_at = time.monotonic() + 5
+                    else:
+                        self._dirty.discard(key)
+
     async def get(self, site: str, content_id: str, quality: str) -> TelegramFile | None:
         key = self.key(site, content_id, quality)
         async with self._lock(key):
@@ -66,8 +85,8 @@ class FileRepository(PostgresMediaRepository):
         key = self.key(site, content_id, quality)
         async with self._lock(key):
             self._dirty.add(key)
-            await super().save(site, content_id, quality, file)
-            await self._cache(key, file)
+            if await super()._save_if_live(site, content_id, quality, file):
+                await self._cache(key, file)
 
     async def _cache(self, key: str, file: TelegramFile) -> None:
         if self.redis is None:

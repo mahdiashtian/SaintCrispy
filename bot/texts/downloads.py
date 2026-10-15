@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from bot.deeplinks import bot_handle
 from schemas.media import Media, Quality
 
+FILE_DELETE_SECONDS = 30
+FILE_EXPIRY_NOTICE = (
+    "⏳ این فایل تا ۳۰ ثانیهٔ دیگر از چت حذف می‌شود؛ "
+    "همین حالا ذخیره یا به Saved Messages فورواردش کن."
+)
+
 
 @dataclass(frozen=True)
 class DownloadCopy:
@@ -114,4 +120,5 @@ def download_caption(media: Media, quality: Quality, bot_username: str | None = 
         f"{copy.icon} {copy.name}\n{copy.tagline}\n\n"
         + "\n".join(details)
         + f"\n\n💬 دریافت با {bot_handle(bot_username)}"
+        + f"\n\n{FILE_EXPIRY_NOTICE}"
     )

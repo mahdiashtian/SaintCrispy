@@ -490,6 +490,39 @@ that request; the selected rendition is still refreshed and validated separately
 See [the live workstation comparison](PROVIDER_VERIFICATION.md#october-15-2026-quality-menu-latency)
 for measured changes and the boundary between origin and simulated Telegram tests.
 
+## Downloaded file expiry
+
+Confirmed user-facing files are scheduled for deletion 30 seconds after the send
+completes, for all providers and fresh/cached delivery paths. This includes video,
+audio, photos and documents. The final caption tells the recipient to save or
+forward the file to Saved Messages immediately. Link submissions, inspection
+acknowledgments, quality menus, progress/status messages and callback notifications
+are not scheduled for deletion. Existing messages from before this version are
+not scanned or retroactively removed.
+
+`file_message_expiry` records the bot account, destination peer, confirmed sent
+message ID and UTC deadline. Migration 8 creates this queue automatically at
+startup; it is also applied by `python scripts/migrate.py`. No new environment
+setting is needed. One coordinator-owned worker recovers overdue rows after a
+restart, polls every half second and batches at most 100 IDs for the same peer,
+with at most four simultaneous deletion requests. It never uses the submitted
+link's message ID as a deletion target.
+
+Telegram deletion is revoked for the chat, not just hidden locally. API delays,
+lost delete permission and FloodWait can delay completion beyond the requested
+deadline; failures stay queued with bounded backoff. Inspect
+`file_messages_expired`, `file_expiry_delete_failed`, `file_expiry_persist_failed`
+and `file_expiry_worker_failed`. Cleanup persistence failures never retry file
+publication. A small pending registry lets the worker retry an interrupted or
+failed queue write; shutdown attempts a bounded flush before closing the database.
+
+After confirmed deletion, matching file references are removed from PostgreSQL
+and invalidated in Redis under their key locks. Completed queue tombstones remain
+for two days to reject late cache writes referencing an expired message. A future
+request can download the source again. Metadata/history remain stored. An internal
+`MEDIA_STORAGE_CHAT` copy is not expired and does not show the expiry notice;
+recipient copies still expire, keeping the internal refresh anchor usable.
+
 ## Transfer status messages
 
 All providers use the same progress reporter. Successful publication ends with

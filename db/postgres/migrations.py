@@ -1,6 +1,6 @@
 """Ordered additive migrations; preserve the existing version ledger."""
 
-from .models import GROUP_SCHEMA, SCHEMA, WORKFLOW_SCHEMA
+from .models import FILE_EXPIRY, GROUP_SCHEMA, SCHEMA, WORKFLOW_SCHEMA
 
 MIGRATIONS = (
     (1, "existing_media_schema", SCHEMA),
@@ -27,4 +27,10 @@ MIGRATIONS = (
         "ALTER TABLE media_files ADD COLUMN IF NOT EXISTS video_faststart BOOLEAN;",
     ),
     (7, "group_lifecycle_and_admission", GROUP_SCHEMA),
+    (
+        8,
+        "downloaded_file_message_expiry",
+        FILE_EXPIRY.schema + "\nCREATE INDEX IF NOT EXISTS media_files_origin ON media_files "
+        "(telegram_account_id,origin_peer,message_id);",
+    ),
 )

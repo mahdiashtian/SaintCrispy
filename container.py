@@ -10,6 +10,7 @@ from telethon import TelegramClient
 from telethon.crypto import aes
 
 from bot.delivery import TelegramDelivery
+from bot.file_expiry import FileExpiry
 from bot.handlers import register_handlers
 from bot.jobs import TransferJobs
 from bot.premium_emoji import BotPresentation
@@ -39,6 +40,7 @@ from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.youtube.client import YouTubeClient
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
 from downloader_bot.downloaders.youtube.urls import network_host as youtube_network_host
+from repositories.postgres.file_expiry import FileExpiryRepository
 from repositories.postgres.group import GroupRepository
 from repositories.postgres.unit_of_work import PostgresUnitOfWork
 from repositories.postgres.workflow import WorkflowRepository
@@ -235,6 +237,9 @@ class Container:
         presentation = BotPresentation()
         await stack.enter_async_context(presentation.loading(client, settings.custom_emoji_set))
         access = ProviderAccess(settings.main_admin_id)
+        file_expiry = await stack.enter_async_context(
+            FileExpiry(client, FileExpiryRepository(pool, bot.id), repository)
+        )
         service = DownloadService(
             downloader,
             repository,
@@ -249,6 +254,7 @@ class Container:
                 max_file_bytes=settings.max_file_bytes,
                 presentation=presentation,
                 bot_username=bot.username,
+                file_expiry=file_expiry,
             ),
             storage_peer=storage_peer,
             concurrency=settings.concurrency,

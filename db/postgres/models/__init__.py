@@ -1,4 +1,5 @@
 from .conversation import MODEL as CONVERSATION
+from .file_expiry import MODEL as FILE_EXPIRY
 from .group import MODEL as GROUP
 from .group_event import MODEL as GROUP_EVENT
 from .group_request_limit import MODEL as GROUP_REQUEST_LIMIT
@@ -27,7 +28,7 @@ WORKFLOW_TABLES = (
     MENU,
 )
 GROUP_TABLES = (GROUP, GROUP_EVENT, GROUP_REQUEST_LIMIT)
-TABLES = MEDIA_TABLES + WORKFLOW_TABLES + GROUP_TABLES
+TABLES = MEDIA_TABLES + WORKFLOW_TABLES + GROUP_TABLES + (FILE_EXPIRY,)
 SCHEMA = "\n".join(table.schema for table in MEDIA_TABLES)
 WORKFLOW_SCHEMA = "\n".join(table.schema for table in WORKFLOW_TABLES)
 GROUP_SCHEMA = "\n".join(table.schema for table in GROUP_TABLES)

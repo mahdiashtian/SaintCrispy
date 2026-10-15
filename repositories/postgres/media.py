@@ -16,6 +16,28 @@ class PostgresMediaRepository:
     async def initialize(self) -> None:
         await migrate(self.pool)
 
+    async def origin_files(self, peer: bytes, message_id: int):
+        return await self.pool.fetch(
+            """SELECT site,content_id,quality FROM media_files
+              WHERE telegram_account_id=$1 AND origin_peer=$2 AND message_id=$3""",
+            self.bot_id,
+            peer,
+            message_id,
+        )
+
+    async def forget_origin_file(self, site, content_id, quality, peer, message_id):
+        return await self.pool.fetchval(
+            """DELETE FROM media_files WHERE telegram_account_id=$1 AND site=$2
+              AND content_id=$3 AND quality=$4 AND origin_peer=$5 AND message_id=$6
+              RETURNING TRUE""",
+            self.bot_id,
+            site,
+            content_id,
+            quality,
+            peer,
+            message_id,
+        )
+
     async def get(self, site: str, content_id: str, quality: str) -> TelegramFile | None:
         row = await self.pool.fetchrow(
             """SELECT document_id, access_hash, file_reference, origin_peer, message_id, size_bytes,
@@ -34,12 +56,18 @@ class PostgresMediaRepository:
         return result
 
     async def save(self, site: str, content_id: str, quality: str, file: TelegramFile) -> None:
-        await self.pool.execute(
+        await self._save_if_live(site, content_id, quality, file)
+
+    async def _save_if_live(self, site, content_id, quality, file) -> bool:
+        result = await self.pool.execute(
             """INSERT INTO media_files
             (site, content_id, quality, telegram_account_id, document_id,
              access_hash, file_reference, origin_peer, message_id, size_bytes, video_streaming,
              verified_complete, video_preview, video_faststart)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+            SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
+            WHERE NOT EXISTS (SELECT 1 FROM file_message_expiry
+                WHERE telegram_account_id=$4 AND peer=$8 AND message_id=$9
+                AND delete_at<=clock_timestamp())
             ON CONFLICT (site, content_id, quality, telegram_account_id) DO UPDATE SET
               document_id=EXCLUDED.document_id, access_hash=EXCLUDED.access_hash,
               file_reference=EXCLUDED.file_reference, origin_peer=EXCLUDED.origin_peer,
@@ -63,6 +91,7 @@ class PostgresMediaRepository:
             file.video_preview,
             file.video_faststart,
         )
+        return result != "INSERT 0 0"
 
     async def accounts(self, site: str) -> list[dict]:
         rows = await self.pool.fetch(
