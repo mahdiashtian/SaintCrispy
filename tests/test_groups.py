@@ -227,8 +227,13 @@ async def test_every_provider_replies_with_menu_and_delivers_in_same_group(site,
     media = Media(site, "id", "Title", "Author", 5, url, None, (quality,))
 
     async def respond(text, **options):
+        position = len(responses)
         responses.append((text, options))
-        return SimpleNamespace(edit=AsyncMock())
+
+        async def edit(text, **edited):
+            responses[position] = (text, {**options, **edited})
+
+        return SimpleNamespace(edit=AsyncMock(side_effect=edit))
 
     async def deliver(peer, actual, selected, progress):
         assert peer is PEER and actual is media and selected is quality

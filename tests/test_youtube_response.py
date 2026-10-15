@@ -47,9 +47,9 @@ async def test_fast_cached_inspection_sends_one_usable_text_menu_without_thumbna
         event(respond), SimpleNamespace(inspect=AsyncMock(return_value=MEDIA)), menus
     )
     respond.assert_awaited_once()
-    options = respond.call_args.kwargs
+    options = respond.return_value.edit.call_args.kwargs
     assert "file" not in options and options["link_preview"] is False
-    assert options["reply_to"] == 42
+    assert respond.call_args.kwargs["reply_to"] == 42
     button = options["buttons"][0][0]
     assert (await menus.fetch(button.type.data.decode().split(":")[1], 7, -10)).media == MEDIA
 
@@ -107,32 +107,37 @@ async def test_failure_after_ack_replaces_pending_text_and_never_creates_quality
     assert status.edit.call_args.kwargs["buttons"] is None
 
 
-async def test_cancellation_or_rejected_ack_cancels_and_awaits_owned_inspection():
-    for rejected in (False, True):
-        entered, closed = asyncio.Event(), asyncio.Event()
+async def test_cancellation_closes_inspection_and_removes_pending_ack():
+    entered, closed = asyncio.Event(), asyncio.Event()
+    status = SimpleNamespace(edit=AsyncMock(), delete=AsyncMock())
 
-        async def inspect(url):
-            entered.set()
-            try:
-                await asyncio.Future()
-            finally:
-                closed.set()
+    async def inspect(url):
+        entered.set()
+        try:
+            await asyncio.Future()
+        finally:
+            closed.set()
 
-        async def respond(*args, **options):
-            raise errors.ChatWriteForbiddenError(None)
-
-        task = asyncio.create_task(
-            handle_youtube_link(event(respond), SimpleNamespace(inspect=inspect), MenuStore())
+    task = asyncio.create_task(
+        handle_youtube_link(
+            event(AsyncMock(return_value=status)), SimpleNamespace(inspect=inspect), MenuStore()
         )
-        await entered.wait()
-        if rejected:
-            with pytest.raises(errors.ChatWriteForbiddenError):
-                await task
-        else:
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
-        assert closed.is_set()
+    )
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert closed.is_set()
+    status.delete.assert_awaited_once()
+
+
+async def test_rejected_ack_does_not_start_origin_work():
+    service = SimpleNamespace(inspect=AsyncMock())
+    with pytest.raises(errors.ChatWriteForbiddenError):
+        await handle_youtube_link(
+            event(AsyncMock(side_effect=errors.ChatWriteForbiddenError(None))), service, MenuStore()
+        )
+    service.inspect.assert_not_awaited()
 
 
 async def test_ack_timeout_does_not_cancel_the_inspection_or_hide_the_menu():

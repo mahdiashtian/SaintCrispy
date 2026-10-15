@@ -109,7 +109,7 @@ async def test_main_admin_can_create_youtube_menu_without_start_in_private_or_gr
     )
     await callback(event)
     service.inspect.assert_awaited_once_with(MEDIA.page_url)
-    button = event.respond.call_args.kwargs["buttons"][0][0]
+    button = event.respond.return_value.edit.call_args.kwargs["buttons"][0][0]
     prefix, token, index = button.type.data.decode().split(":")
     assert prefix == "yt" and index == "0"
     assert menus.get(token, ADMIN, chat).media == MEDIA

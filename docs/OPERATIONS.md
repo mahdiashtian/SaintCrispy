@@ -459,9 +459,26 @@ Quality menus are text replies with link previews disabled. They do not wait for
 Telegram to fetch a remote thumbnail before showing the selection buttons;
 artwork/preview processing remains part of final-file delivery where appropriate.
 
+Every accepted provider link first receives an inspection acknowledgment replying
+to that original link, before cache/provider inspection starts. The same bot
+message is edited into the quality text/buttons or a recoverable inspection
+error, including cached requests. An Instagram album edits that message for its
+first 50 choices and sends additional pages for the rest. If the user deleted
+the acknowledgment, a replacement menu replies to the original link. Cancellation
+or an unhandled storage failure attempts to remove an unfinished acknowledgment.
+Acknowledgment sends and cleanup have five- and three-second deadlines; there
+are no detached UI tasks or automatic retries of ambiguous message sends.
+
+The menu continues to store the submitted link's message ID, not the bot's
+acknowledgment/menu ID. Selected fresh downloads and cached resends reply to the
+submitted link in private chats and groups, keeping the existing site-specific
+caption and premium-emoji handling. The separate transfer-progress reporter
+retains its existing completion behavior.
+
 Pinterest, SoundCloud, XVideos and XNXX emit `quality_menu_shown` only after the
 menu response succeeds. The activity record includes `site`, `qualities`,
-`inspection_seconds`, `menu_storage_seconds`, `telegram_seconds` and total
+`acknowledgment_seconds`, `inspection_seconds`, `menu_storage_seconds`,
+`telegram_seconds` and total
 `elapsed_seconds`. Inspection includes application cache/provider discovery;
 menu storage includes durable menu creation and button/text building; Telegram
 time measures the menu response RPC. Dispatcher admission happens before these

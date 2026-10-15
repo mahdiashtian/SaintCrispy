@@ -81,6 +81,11 @@ async def test_youtube_menu_and_callback_registration():
     async def respond(text, **kwargs):
         responses.append(kwargs)
 
+        async def edit(text, **options):
+            responses[0].update(options)
+
+        return SimpleNamespace(edit=edit)
+
     menus = MenuStore()
     await handle_youtube_link(
         SimpleNamespace(

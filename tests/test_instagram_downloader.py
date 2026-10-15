@@ -556,6 +556,11 @@ async def test_router_and_instagram_menu_use_the_shared_delivery_contract():
     async def respond(text, **kwargs):
         responses.append(kwargs)
 
+        async def edit(text, **options):
+            responses[0].update(options)
+
+        return SimpleNamespace(edit=edit)
+
     event = SimpleNamespace(raw_text="لینک " + PAGE, sender_id=1, chat_id=2, respond=respond)
     await handle_instagram_link(event, SimpleNamespace(inspect=router.inspect), MenuStore())
     assert "file" not in responses[0] and responses[0]["link_preview"] is False
@@ -577,7 +582,13 @@ async def test_large_album_quality_menu_is_split_without_losing_choices():
         return media
 
     async def respond(text, **kwargs):
-        replies.append(kwargs["buttons"])
+        position = len(replies)
+        replies.append(kwargs.get("buttons"))
+
+        async def edit(text, **options):
+            replies[position] = options["buttons"]
+
+        return SimpleNamespace(edit=edit)
 
     event = SimpleNamespace(raw_text=PAGE, sender_id=1, chat_id=2, respond=respond)
     await handle_instagram_link(event, SimpleNamespace(inspect=inspect), MenuStore())

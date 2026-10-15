@@ -168,8 +168,14 @@ async def test_xvideos_menu_transfer_progress_and_success_only_cache(
         stored[site, identity, quality] = reference
 
     async def respond(text, **kwargs):
+        position = len(replies)
         replies.append((text, kwargs))
-        return SimpleNamespace(edit=edit)
+
+        async def edit_reply(text, **options):
+            replies[position] = (text, {**kwargs, **options})
+            await edit(text, **options)
+
+        return SimpleNamespace(edit=edit_reply)
 
     async def edit(text, **kwargs):
         edits.append(text)

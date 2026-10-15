@@ -149,8 +149,13 @@ async def test_first_link_without_start_reaches_quality_and_delivery(site, url):
         progress.phase = "done"
 
     async def respond(text, **options):
+        position = len(responses)
         responses.append((text, options))
-        return SimpleNamespace(edit=respond)
+
+        async def edit(text, **edited):
+            responses[position] = (text, {**options, **edited})
+
+        return SimpleNamespace(edit=edit)
 
     async def answer(*args, **options):
         pass

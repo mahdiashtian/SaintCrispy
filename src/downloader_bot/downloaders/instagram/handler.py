@@ -5,6 +5,7 @@ from functools import partial
 import httpx
 from telethon import events
 
+from bot.inspection import InspectionReply
 from bot.keyboards.inline import quality_buttons
 from bot.texts.downloads import quality_menu_text
 from core.diagnostics import error_fields
@@ -22,7 +23,9 @@ async def handle_instagram_link(event, service, menus) -> None:
     if url is None:
         return
     started = time.monotonic()
+    reply = InspectionReply(event, "instagram")
     try:
+        await reply.start()
         media = await service.inspect(url)
         token = await menus.create(
             event.sender_id, event.chat_id, media, message_id=getattr(event, "id", None)
@@ -32,12 +35,9 @@ async def handle_instagram_link(event, service, menus) -> None:
             chunk = quality_buttons(
                 media.qualities[offset : offset + 50], "ig", token, start_index=offset
             )
-            await event.respond(
+            await reply.show(
                 text,
                 buttons=chunk,
-                parse_mode=None,
-                reply_to=getattr(event, "id", None),
-                link_preview=False,
             )
         log.info(
             {
@@ -51,13 +51,14 @@ async def handle_instagram_link(event, service, menus) -> None:
         log.warning(
             {"event": "provider_inspection_failed", "site": "instagram", **error_fields(error)}
         )
-        await event.respond(f"⚠️ {error}", parse_mode=None, reply_to=getattr(event, "id", None))
+        await reply.show(f"⚠️ {error}", buttons=None)
     except (httpx.HTTPError, TimeoutError):
-        await event.respond(
+        await reply.show(
             "⚠️ نتونستم اطلاعات این لینک رو بگیرم. کمی بعد دوباره بفرستش.",
-            parse_mode=None,
-            reply_to=getattr(event, "id", None),
+            buttons=None,
         )
+    finally:
+        await reply.close()
 
 
 CALLBACK_PREFIX = "ig"

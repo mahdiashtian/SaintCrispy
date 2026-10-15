@@ -26,7 +26,13 @@ async def test_menu_has_quality_buttons_even_without_usable_thumbnail(thumbnail)
     async def respond(text, **kwargs):
         if kwargs.get("file"):
             raise errors.WebpageCurlFailedError(request=None)
+        position = len(responses)
         responses.append((text, kwargs))
+
+        async def edit(text, **options):
+            responses[position] = (text, {**kwargs, **options})
+
+        return SimpleNamespace(edit=edit)
 
     event = SimpleNamespace(
         raw_text="این آهنگ www.soundcloud.com/gdaal/mojezeh",
@@ -88,7 +94,13 @@ async def test_pinterest_menu_uses_its_own_callback_prefix():
         return media
 
     async def respond(text, **kwargs):
+        position = len(responses)
         responses.append((text, kwargs))
+
+        async def edit(text, **options):
+            responses[position] = (text, {**kwargs, **options})
+
+        return SimpleNamespace(edit=edit)
 
     event = SimpleNamespace(raw_text="پین pin.it/demo", sender_id=1, chat_id=2, respond=respond)
     await handle_pinterest_link(event, SimpleNamespace(inspect=inspect), menus)
@@ -127,6 +139,12 @@ async def test_quality_buttons_do_not_wait_for_an_external_thumbnail(
         assert options["reply_to"] == 42
         calls.append(options)
 
+        async def edit(text, **edited):
+            assert "file" not in edited and edited["link_preview"] is False
+            calls[0].update(edited)
+
+        return SimpleNamespace(edit=edit)
+
     menus = MenuStore()
     event = SimpleNamespace(raw_text=url, sender_id=1, chat_id=2, id=42, respond=respond)
     await handler(event, SimpleNamespace(inspect=inspect), menus)
@@ -139,6 +157,7 @@ async def test_quality_buttons_do_not_wait_for_an_external_thumbnail(
     ]
     assert len(shown) == 1 and shown[0]["site"] == site
     for field in (
+        "acknowledgment_seconds",
         "inspection_seconds",
         "menu_storage_seconds",
         "telegram_seconds",
@@ -167,7 +186,13 @@ async def test_video_menu_uses_its_own_callback_prefix(site, callback_prefix, ha
         return media
 
     async def respond(text, **kwargs):
+        position = len(responses)
         responses.append((text, kwargs))
+
+        async def edit(text, **options):
+            responses[position] = (text, {**kwargs, **options})
+
+        return SimpleNamespace(edit=edit)
 
     event = SimpleNamespace(
         raw_text=f"ویدیو www.{site}.com/{path}/example",

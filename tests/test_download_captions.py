@@ -3,11 +3,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from telethon import errors
+from telethon import errors, types
 
 from bot.delivery import TelegramDelivery
 from bot.premium_emoji import BotPresentation
 from bot.texts.downloads import DOWNLOAD_COPY, download_caption, quality_menu_text
+from core.request_context import user_request
 from schemas.media import Media, Quality, Source, TelegramFile
 from services.download import DownloadService
 
@@ -49,8 +50,9 @@ def test_instagram_copy_omits_source_advertising_and_formats_creator_once():
 
 
 @pytest.mark.parametrize("site", tuple(DOWNLOAD_COPY))
+@pytest.mark.parametrize("chat", [7, -1000000000123])
 async def test_fresh_file_and_cached_resend_have_identical_copy_and_premium_entities(
-    monkeypatch, site
+    monkeypatch, site, chat
 ):
     sent = []
 
@@ -76,6 +78,7 @@ async def test_fresh_file_and_cached_resend_have_identical_copy_and_premium_enti
         key=lambda *args: "key",
         get=AsyncMock(side_effect=[None, None, FILE]),
         save=AsyncMock(),
+        record_delivery=AsyncMock(),
     )
     service = DownloadService(
         SimpleNamespace(
@@ -88,10 +91,14 @@ async def test_fresh_file_and_cached_resend_have_identical_copy_and_premium_enti
         caption_builder=partial(download_caption, bot_username="ExampleBot"),
     )
     item = media(site, "**literal title**")
-    assert await service.deliver("peer", item, QUALITY) == "transferred"
-    assert await service.deliver("peer", item, QUALITY) == "reused"
+    peer = types.InputPeerUser(7, 0) if chat > 0 else types.InputPeerChannel(123, 0)
+    with user_request(7, chat, message_id=42):
+        assert await service.deliver(peer, item, QUALITY) == "transferred"
+        assert await service.deliver(peer, item, QUALITY) == "reused"
     assert sent[0]["caption"] == sent[1]["caption"]
+    assert repository.record_delivery.await_count == 2
     for options in sent:
+        assert options["reply_to"] == 42
         assert options["parse_mode"] is None
         entities = options["formatting_entities"]
         assert [e.document_id for e in entities] == [101, 102, 103]

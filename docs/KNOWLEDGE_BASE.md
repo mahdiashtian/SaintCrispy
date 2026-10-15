@@ -33,6 +33,39 @@ from upstream conversion time; a fresh cold workstation metadata lookup failed
 in that later connection state. See the dated access sections for successes,
 failures, byte counts and the untested production/Telegram boundary.
 
+## Inspection acknowledgment and original-link replies (October 15)
+
+The operator requested a visible format-discovery message for every download,
+edited into the quality menu, with the delivered file replying to the submitted
+link. All six provider handlers now acknowledge every accepted link before
+application cache/provider inspection, including immediate cache hits. Generic
+Telegram send/edit/cleanup lives in `bot/inspection.py`; provider extraction,
+sessions, URL rules and callback prefixes remain independently owned.
+
+The same message becomes the existing site-specific quality text/buttons or a
+recoverable inspection error. Large Instagram albums edit the first page and
+keep remaining choices in additional pages. A deleted acknowledgment permits one
+replacement response; cancellation/unhandled storage failure attempts bounded
+cleanup. A write-permission rejection prevents origin work. Timeout/connection
+failure during acknowledgment does not cancel otherwise useful discovery.
+Acknowledgments retain premium-emoji adaptation. There are no detached UI tasks
+or automatic retries of ambiguous sends. See [operations](OPERATIONS.md#quality-menu-timing)
+for acknowledgment/cleanup deadlines and timing fields.
+
+Menu persistence still records the user's original message ID. Workstation tests
+exercise fresh/cached inspection, slow discovery, per-request ownership,
+private/group replies, recoverable errors, deletion, cancellation, storage failure,
+album pagination, access rejection and premium entities. Fresh file publication
+and cached resend both keep the original-link reply ID and identical captions
+for every provider. Origin responses and Telegram RPCs are simulated for this
+presentation change; no production host or real chat was contacted.
+
+Final workstation validation passed **1,214 tests**, with **31 integration tests
+skipped** because dedicated local test services were not configured. Lint and
+format checks passed for 230 Python files. The local editable installation was
+updated to the existing `0.2.0` project layout and its already-pinned dependencies
+before the final run; no dependency declaration or database migration changed.
+
 ## Transfer status finalization (October 15)
 
 The reported Instagram statuses remained at 65% upload or at an estimated 0%

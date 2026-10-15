@@ -101,6 +101,11 @@ def quality_menu_text(media: Media) -> str:
     return f"{copy.icon} {copy.name}\n\n{details}\n\n{copy.prompt}"
 
 
+def inspection_text(site: str) -> str:
+    copy = DOWNLOAD_COPY.get(site, DEFAULT_COPY)
+    return f"{copy.icon} {copy.name}\n\n⏳ دارم فرمت‌ها و کیفیت‌های قابل دانلود رو می‌گیرم…"
+
+
 def download_caption(media: Media, quality: Quality, bot_username: str | None = None) -> str:
     copy = DOWNLOAD_COPY.get(media.site, DEFAULT_COPY)
     details = _details(media, copy)

@@ -5,6 +5,7 @@ from functools import partial
 import httpx
 from telethon import events
 
+from bot.inspection import InspectionReply
 from bot.keyboards.inline import quality_buttons
 from bot.texts.downloads import quality_menu_text
 from core.diagnostics import error_fields
@@ -22,7 +23,10 @@ async def handle_soundcloud_link(event, service, menus) -> None:
     if url is None:
         return
     started = time.monotonic()
+    reply = InspectionReply(event, "soundcloud")
     try:
+        await reply.start()
+        acknowledged = time.monotonic()
         media = await service.inspect(url)
         inspected = time.monotonic()
         token = await menus.create(
@@ -31,12 +35,9 @@ async def handle_soundcloud_link(event, service, menus) -> None:
         buttons = quality_buttons(media.qualities, "sc", token)
         text = quality_menu_text(media)
         stored = time.monotonic()
-        await event.respond(
+        await reply.show(
             text,
             buttons=buttons,
-            parse_mode=None,
-            reply_to=getattr(event, "id", None),
-            link_preview=False,
         )
         shown = time.monotonic()
         log.info(
@@ -44,7 +45,8 @@ async def handle_soundcloud_link(event, service, menus) -> None:
                 "event": "quality_menu_shown",
                 "site": "soundcloud",
                 "qualities": len(media.qualities),
-                "inspection_seconds": round(inspected - started, 4),
+                "acknowledgment_seconds": round(acknowledged - started, 4),
+                "inspection_seconds": round(inspected - acknowledged, 4),
                 "menu_storage_seconds": round(stored - inspected, 4),
                 "telegram_seconds": round(shown - stored, 4),
                 "elapsed_seconds": round(shown - started, 4),
@@ -54,13 +56,14 @@ async def handle_soundcloud_link(event, service, menus) -> None:
         log.warning(
             {"event": "provider_inspection_failed", "site": "soundcloud", **error_fields(error)}
         )
-        await event.respond(f"⚠️ {error}", parse_mode=None, reply_to=getattr(event, "id", None))
+        await reply.show(f"⚠️ {error}", buttons=None)
     except (httpx.HTTPError, TimeoutError):
-        await event.respond(
+        await reply.show(
             "⚠️ نتونستم اطلاعات این لینک رو بگیرم. کمی بعد دوباره بفرستش.",
-            parse_mode=None,
-            reply_to=getattr(event, "id", None),
+            buttons=None,
         )
+    finally:
+        await reply.close()
 
 
 CALLBACK_PREFIX = "sc"
