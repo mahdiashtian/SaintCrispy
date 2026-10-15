@@ -1148,3 +1148,91 @@ Final validation: **1,083 tests passed, zero skips**, with isolated real Postgre
 access-policy cases and existing provider/group/workflow/architecture tests passed.
 Ruff lint/format passed for 238 Python files. No dependencies or database migration
 were added, and local environment values are not included in the commit.
+
+## October 15 Instagram quality menu latency
+
+Investigation of revision `2a57873` found three independent discovery costs:
+native guest extraction could spend 35 seconds before fallback; metadata samples
+always consumed up to 1 MiB even when a complete movie index appeared first; and
+equal URLs/shared DASH audio, including a resolver's already-validated file, were
+probed again. Telegram also fetched an external thumbnail before quality buttons
+became available. The menu event was logged before that send completed.
+
+The provider now reads the post page before requesting homepage bootstrap. A
+complete page response or its LSD can avoid the homepage entirely. Guest canonical
+public-post native attempts have an eight-second configurable budget
+(`INSTAGRAM_NATIVE_TIMEOUT_SECONDS`, 1-35). Authenticated requests, stories and
+share links keep their existing native behavior. After verified public fallback,
+only that exact identity prefers that route for five minutes, bounded to 128
+identities. Other posts still obtain native catalogs. A failed preferred route
+allows one native recovery without another public loop. Origin/public 429 stops
+alternatives, including when the preferred service is cooling down. Request and
+resolver capacity waits count against their existing deadlines.
+
+File probing stops after a complete MP4 index supplies dimensions and duration.
+If a top-level `mdat` precedes `moov`, the provider stops consuming payload and
+reads a 64 KiB suffix, expanding once to the previous 1 MiB bound for a larger
+index. Complete duration/audio/dimension verification remains required. A crafted
+3 MiB payload-first MP4 test consumes 81,920 bytes in two probes, and the larger
+index case confirms bounded suffix expansion rather than dropping the video.
+
+Equal sample reads, shared DASH audio and failures coalesce only within one
+inspection or selection. This account-owned context cache retains at most 4 MiB
+and 128 results; it ends with that operation, so selection rechecks bytes and
+rejects changed dimensions. Canceled batches release all waiters. Network refresh
+locks are keyed by account/post, rather than holding unrelated selections behind
+one stalled post. Provider HTTP and converter concurrency were not increased.
+
+Menus now send their original text/quality buttons without an external-thumbnail
+fetch. Album button pages retain their complete indices; final-file artwork is
+unchanged. `quality_menu_shown.elapsed_seconds` is recorded after the sends.
+`instagram_native_attempt` and resolver logs provide elapsed times. The new
+`instagram_probe_batch` counters distinguish uncached samples, cache hits,
+returned sample bytes and retained cache bytes. Returned samples do not include
+transport buffering, failed connections or headers and are not total traffic.
+
+Before/after replay loaded the previous provider directly from Git and retained
+the recorded `audio_reel`, `muted_reel` and `carousel` response shapes. Mock CDN
+bodies contain complete MP4 metadata and 2 MiB payloads, explicitly paced at
+2 ms per 8 KiB. New clients were used in each before/after/after/before run.
+Catalog hashes over quality key/dimensions/protocol matched exactly for each pair:
+
+| Case | Choices retained | Before seconds | After seconds | Before → after sample requests | Before → after consumed sample bytes |
+| --- | ---: | --- | --- | --- | --- |
+| Reel with separate DASH audio | 6 | 1.430961 / 1.447727 | 0.028915 / 0.027770 | 13 → 7 | 3,155,968 → 22,528 |
+| Silent reel | 7 | 4.158322 / 4.246881 | 0.054060 / 0.034137 | 9 → 7 | 9,437,184 → 114,688 |
+| Carousel | 6 | 4.126905 / 4.205335 | 0.018594 / 0.044884 | 12 → 6 | 12,582,912 → 98,304 |
+
+These are controlled discovery/byte-consumption results, not live Instagram,
+Telegram, SQL or production response measurements. No rendering delay was added
+to the old handler to inflate a comparison. Integrity/remux tests exercise complete
+media separately; this replay is not a complete origin-download validation.
+
+Fresh live checks on the reported exact `DeR9eU8idi0` were unsuccessful in the
+current workstation connection state. The old provider failed after 60.0229 s
+(35 s native plus 25 s public attempt). Intermediate/current variants failed at
+33.0098/33.0163 s. The anonymous resolver returned a matching original CDN URL,
+but ordinary CDN TCP and HTTP/3 access did not reach a usable response before the
+deadline. Short HTTP/2 Cloudflare DoH, HTTP/3 Cloudflare DoH/IPv4 and HTTP/2 Google
+DoH/IPv4 probes each timed out at about five seconds. Google's JSON DNS requests
+also timed out. The CDN URL's `_nc_ht` matched its hostname, so no distinct regional
+host was tested or integrated. Do not call the shorter failure a successful menu
+or download, or repeat these profiles without connection-recovery evidence.
+
+The current [Instaloader request implementation](https://github.com/instaloader/instaloader/blob/master/instaloader/instaloadercontext.py)
+was re-reviewed: its synchronous request/sleep/retry path does not establish a
+faster accepted CDN connection. The [Cobalt Instagram implementation](https://github.com/imputnet/cobalt/blob/main/api/src/processing/services/instagram.js)
+also uses post-page GraphQL parameters. No replacement library was installed or
+blindly retried, and no new transport profile, account cookie or hostname rewrite
+was introduced. The measured correction removes redundant discovery work inside
+the existing independent provider.
+
+Final validation: **1,102 tests passed, zero skips**, with isolated real PostgreSQL
+17 and Redis 7.4. Ten existing Windows curl selector warnings remained. The
+105-test Instagram set includes fresh selection/dimension rejection, full remux,
+complete/tail/large MP4 headers, 1,000 equal sample followers, rate-failure
+coalescing, 4 MiB/128-result bounds, client isolation, cancellation, page/LSD
+bootstrap avoidance, preferred-route recovery and independent post refreshes.
+Ruff lint/format passed for 238 Python files, including architecture boundaries.
+No dependency or database migration was added. Research bodies, signed URLs,
+runtime logs and local environment values remain excluded from Git.

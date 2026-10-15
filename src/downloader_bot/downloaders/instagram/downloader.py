@@ -1,8 +1,10 @@
 import asyncio
 import time
 from collections import OrderedDict
+from contextlib import nullcontext
 from dataclasses import replace
 
+from core.locks import KeyedLocks
 from downloader_bot.downloaders.base import Downloader
 from schemas.media import DownloadError, Media, Quality, SiteHTTPError, Source
 
@@ -18,7 +20,7 @@ class InstagramDownloader(Downloader):
         self.accounts = accounts or {}
         self._next_account = 0
         self._resolution_cache = OrderedDict()
-        self._refresh_lock = asyncio.Lock()
+        self._refresh_locks = KeyedLocks()
 
     def cache_key(self, url: str) -> str:
         kind, code = content_path(url)
@@ -52,9 +54,10 @@ class InstagramDownloader(Downloader):
         for account_id, client in clients:
             try:
                 budget = ACCOUNT_ATTEMPT_SECONDS if len(clients) > 1 else 80
-                async with asyncio.timeout(budget):
-                    media, formats = await self._media(client, url)
-                    available = await self._available(client, media, formats)
+                with getattr(client, "probe_batch", nullcontext)():
+                    async with asyncio.timeout(budget):
+                        media, formats = await self._media(client, url)
+                        available = await self._available(client, media, formats)
                 if not available:
                     raise DownloadError(
                         "رسانه کامل و قابل دریافت برای این پست پیدا نشد.",
@@ -92,6 +95,10 @@ class InstagramDownloader(Downloader):
         client = self.client if media.account_id == "guest" else self.accounts.get(media.account_id)
         if client is None:
             raise DownloadError("نشست اینستاگرام این درخواست دیگر فعال نیست؛ لینک را دوباره بفرست.")
+        with getattr(client, "probe_batch", nullcontext)():
+            return await self._resolve_source(client, media, quality)
+
+    async def _resolve_source(self, client, media, quality):
         fresh, formats, cached = await self._resolution_media(client, media)
         available = await self._selected(client, fresh, formats, quality)
         if not available and cached:
@@ -110,7 +117,7 @@ class InstagramDownloader(Downloader):
     async def _resolution_media(self, client, media, *, refresh=False):
         # Keep one fresh snapshot for nearby quality selections in the same session.
         key = (client, media.content_id)
-        async with self._refresh_lock:
+        async with self._refresh_locks.hold(key):
             entry = self._resolution_cache.get(key)
             if not refresh and entry and entry[0] > time.monotonic():
                 self._resolution_cache.move_to_end(key)
@@ -134,9 +141,10 @@ class InstagramDownloader(Downloader):
         return await self._available(client, fresh, candidates)
 
     async def _available(self, client, media, formats):
-        results = await asyncio.gather(
-            *(self._check(client, media, f) for f in formats), return_exceptions=True
-        )
+        with getattr(client, "probe_batch", nullcontext)():
+            results = await asyncio.gather(
+                *(self._check(client, media, f) for f in formats), return_exceptions=True
+            )
         available, failure, urls = [], None, set()
         for result in results:
             if isinstance(result, SiteHTTPError) and result.status == 429:

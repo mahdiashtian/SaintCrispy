@@ -5,7 +5,8 @@ import os
 import re
 import time
 from collections import OrderedDict
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from http.cookies import SimpleCookie
 from urllib.parse import urljoin, urlsplit
 
@@ -14,6 +15,7 @@ from curl_cffi import CurlHttpVersion, CurlOpt
 from curl_cffi.requests.exceptions import RequestException
 
 from core.bounded_curl import BoundedSession as AsyncSession
+from core.locks import KeyedLocks
 from core.source_http import source_http
 from schemas.media import DownloadError, SiteHTTPError, Source
 
@@ -24,6 +26,7 @@ from .parser import (
     media_id,
     mp4_duration,
     mp4_info,
+    mp4_payload_before_metadata,
     page_media,
     validate_page_url,
 )
@@ -168,6 +171,7 @@ class InstagramClient:
         shortcode_doc_id: str = "27128499623469141",
         web_doc_id: str = "27830990013244856",
         resolver_url: str = "",
+        native_timeout: float | None = None,
     ):
         self.http = http
         self.cookie = cookie
@@ -185,6 +189,15 @@ class InstagramClient:
             if parsed.query or parsed.fragment:
                 raise ValueError("Instagram resolver must not contain a query or fragment")
         self.resolver_url = resolver_url.rstrip("/")
+        self.native_timeout = (
+            float(os.environ.get("INSTAGRAM_NATIVE_TIMEOUT_SECONDS") or "8")
+            if native_timeout is None
+            else native_timeout
+        )
+        if not 1 <= self.native_timeout <= 35:
+            raise ValueError("Instagram native timeout must be between 1 and 35 seconds")
+        self._resolver_preferred = OrderedDict()
+        self._probe_batch = ContextVar("instagram_probe_batch", default=None)
         self._resolver_until = 0.0
         self._resolver_slots = asyncio.Semaphore(2)
         self._http3_sources = OrderedDict()
@@ -227,36 +240,68 @@ class InstagramClient:
         fallback = bool(
             self.resolver_url and not self.cookie and kind == "post" and len(code) <= 14
         )
+        if time.monotonic() < self._cooldown_until:
+            raise SiteHTTPError(429, "اینستاگرام محدودیت موقت اعمال کرده؛ کمی بعد امتحان کن.")
+        if fallback and self._resolver_preferred.get(code, 0) > time.monotonic():
+            try:
+                return await self._resolve_public(code, reel="/reel" in urlsplit(url).path)
+            except SiteHTTPError:
+                raise
+            except DownloadError:
+                self._resolver_preferred.pop(code, None)
+                # A failed preferred route permits native recovery once.
+                return await self._native_content(url, self.native_timeout)
         try:
-            async with asyncio.timeout(35 if fallback else 60):
-                return await self._content(url)
+            return await self._native_content(url, self.native_timeout if fallback else 60)
         except SiteHTTPError as error:
             if error.status == 429:
                 raise
             failure = error
         except DownloadError as error:
             failure = error
-        except TimeoutError:
-            failure = DownloadError(
-                "دریافت اطلاعات اینستاگرام روی اتصال ربات طولانی شد؛ کمی بعد امتحان کن.",
-                code="instagram_extraction_timeout",
-            )
         if fallback:
             try:
-                return await self._resolve_public(code, reel="/reel" in urlsplit(url).path)
+                result = await self._resolve_public(code, reel="/reel" in urlsplit(url).path)
+                self._resolver_preferred[code] = time.monotonic() + 300
+                self._resolver_preferred.move_to_end(code)
+                while len(self._resolver_preferred) > 128:
+                    self._resolver_preferred.popitem(last=False)
+                return result
+            except SiteHTTPError:
+                raise
             except DownloadError as error:
                 log.warning({"event": "instagram_resolver_failed", "error_code": error.code})
         raise failure
 
+    async def _native_content(self, url, budget):
+        started = time.monotonic()
+        try:
+            async with asyncio.timeout(budget):
+                return await self._content(url)
+        except TimeoutError as error:
+            raise DownloadError(
+                "دریافت اطلاعات اینستاگرام روی اتصال ربات طولانی شد؛ کمی بعد امتحان کن.",
+                code="instagram_extraction_timeout",
+            ) from error
+        finally:
+            log.info(
+                {
+                    "event": "instagram_native_attempt",
+                    "elapsed_seconds": round(time.monotonic() - started, 4),
+                    "budget_seconds": budget,
+                }
+            )
+
     async def _resolve_public(self, code, *, reel=False):
         """An independent anonymous resolver receives only a canonical public URL."""
+        started = time.monotonic()
         if time.monotonic() < self._resolver_until:
-            raise DownloadError(code="instagram_resolver_cooldown")
+            raise SiteHTTPError(429, "مسیر عمومی اینستاگرام موقتاً محدود شده؛ کمی بعد امتحان کن.")
         page = f"https://www.instagram.com/p/{code}/"
         requested = f"https://www.instagram.com/reel/{code}/" if reel else page
         stage = "metadata"
         try:
-            async with self._resolver_slots, asyncio.timeout(25):
+            async with asyncio.timeout(25), self._resolver_slots:
                 async with httpx.AsyncClient(trust_env=False, timeout=10) as resolver:
                     async with resolver.stream(
                         "POST",
@@ -266,6 +311,9 @@ class InstagramClient:
                     ) as response:
                         if response.status_code == 429:
                             self._resolver_until = time.monotonic() + 60
+                            raise SiteHTTPError(
+                                429, "مسیر عمومی اینستاگرام موقتاً محدود شده؛ کمی بعد امتحان کن."
+                            )
                         response.raise_for_status()
                         body = bytearray()
                         async for chunk in response.aiter_bytes(8192):
@@ -313,6 +361,7 @@ class InstagramClient:
                         "event": "instagram_extracted",
                         "method": "public_resolver",
                         "content_id": code,
+                        "elapsed_seconds": round(time.monotonic() - started, 4),
                     }
                 )
                 return node, page, code
@@ -322,6 +371,7 @@ class InstagramClient:
                     "event": "instagram_resolver_attempt_failed",
                     "stage": stage,
                     "error_type": type(error).__name__,
+                    "elapsed_seconds": round(time.monotonic() - started, 4),
                 }
             )
             raise DownloadError(
@@ -355,16 +405,13 @@ class InstagramClient:
                     return node, page_url, code
             # Authorized REST access does not need a homepage LSD bootstrap.
             # A rejected homepage must not consume that account's request budget.
-            token = (
-                await self._bootstrap(failures)
-                if isinstance(self.http._transport, InstagramBrowserTransport)
-                else ""
-            )
             page = await self._optional_page(page_url, failures=failures)
             if node := page_media(page, code):
                 log.info({"event": "instagram_extracted", "method": "page", "content_id": code})
                 return node, page_url, code
-            token = token or lsd_token(page)
+            token = lsd_token(page)
+            if not token and isinstance(self.http._transport, InstagramBrowserTransport):
+                token = await self._bootstrap(failures)
             await self._optional_json(
                 "https://www.instagram.com/api/v1/web/get_ruling_for_content/",
                 params={"content_type": "MEDIA", "target_id": media_id(code)},
@@ -597,10 +644,80 @@ class InstagramClient:
         except (ValueError, RecursionError):
             return {}
 
-    async def sample(
+    @contextmanager
+    def probe_batch(self):
+        """Coalesce samples only inside this inspection; selections start fresh."""
+        if self._probe_batch.get() is not None:
+            yield
+            return
+        state = {
+            "cache": OrderedDict(),
+            "bytes": 0,
+            "locks": KeyedLocks(),
+            "uncached_samples": 0,
+            "cache_hits": 0,
+            "sample_bytes": 0,
+        }
+        token = self._probe_batch.set(state)
+        try:
+            yield
+        finally:
+            self._probe_batch.reset(token)
+            log.info(
+                {
+                    "event": "instagram_probe_batch",
+                    "uncached_samples": state["uncached_samples"],
+                    "sample_cache_hits": state["cache_hits"],
+                    "returned_sample_bytes": state["sample_bytes"],
+                    "cached_sample_bytes": state["bytes"],
+                }
+            )
+
+    async def sample(self, url, page_url, *, metadata=False, tail=False):
+        batch = self._probe_batch.get()
+        if batch is None:
+            return await self._sample(url, page_url, metadata=metadata, tail=tail)
+        key = (url, page_url, metadata, tail)
+        async with batch["locks"].hold(key):
+            cached = batch["cache"].get(key)
+            if cached is not None:
+                batch["cache_hits"] += 1
+                data, error = cached
+                if error is not None:
+                    message, code, status = error
+                    if status is not None:
+                        raise SiteHTTPError(status, message)
+                    raise DownloadError(message, code=code)
+                return data
+            error = None
+            batch["uncached_samples"] += 1
+            try:
+                data = await self._sample(url, page_url, metadata=metadata, tail=tail)
+            except DownloadError as failure:
+                error = (str(failure), failure.code, getattr(failure, "status", None))
+                data = b""
+            batch["sample_bytes"] += len(data)
+            if len(data) > 4 * 1024 * 1024:
+                return data
+            # A batch never retains more than 4 MiB or 128 results, including failures.
+            while batch["cache"] and (
+                batch["bytes"] + len(data) > 4 * 1024 * 1024 or len(batch["cache"]) >= 128
+            ):
+                _, (old, _) = batch["cache"].popitem(last=False)
+                batch["bytes"] -= len(old)
+            batch["cache"][key] = (data, error)
+            batch["bytes"] += len(data)
+            if error is not None:
+                message, code, status = error
+                if status is not None:
+                    raise SiteHTTPError(status, message)
+                raise DownloadError(message, code=code)
+            return data
+
+    async def _sample(
         self, url: str, page_url: str, *, metadata: bool = False, tail: bool = False
     ) -> bytes:
-        limit = 1024 * 1024 if metadata else 1024
+        limit = (65536 if tail else 1024 * 1024) if metadata else 1024
         options = {
             "headers": {
                 **self.source_headers(page_url),
@@ -609,7 +726,16 @@ class InstagramClient:
             },
             "cdn": True,
             "sample_limit": limit,
+            "stop_at_metadata": metadata,
         }
+        data = await self._sample_read(url, page_url, options)
+        if metadata and tail and (not mp4_info(data)[0] or not mp4_duration(data)):
+            options["headers"]["Range"] = "bytes=-1048576"
+            options["sample_limit"] = 1024 * 1024
+            data = await self._sample_read(url, page_url, options)
+        return data
+
+    async def _sample_read(self, url, page_url, options):
         if self._http3_sources.get(url, 0) > time.monotonic():
             async with source_http(
                 self.http,
@@ -655,13 +781,14 @@ class InstagramClient:
         data=None,
         cdn: bool = False,
         sample_limit: int = 0,
+        stop_at_metadata: bool = False,
         _http=None,
     ) -> tuple[bytes, str]:
         request_headers = {**({} if cdn else HEADERS), **(headers or {})}
         operation = "cdn" if cdn else query_kind(url, data, self)
         started = time.monotonic()
         try:
-            async with self._slots, asyncio.timeout(15):
+            async with asyncio.timeout(15), self._slots:
                 for _ in range(6):
                     if cdn:
                         if not cdn_url(url):
@@ -711,6 +838,14 @@ class InstagramClient:
                         buffer = bytearray()
                         async for chunk in response.aiter_bytes(16384):
                             buffer.extend(chunk)
+                            if stop_at_metadata and (
+                                (mp4_info(buffer)[0] and mp4_duration(buffer))
+                                or (
+                                    not request_headers.get("Range", "").startswith("bytes=-")
+                                    and mp4_payload_before_metadata(buffer)
+                                )
+                            ):
+                                return bytes(buffer), str(response.url)
                             if sample_limit and len(buffer) >= sample_limit:
                                 return bytes(buffer[:sample_limit]), str(response.url)
                             if len(buffer) > 4 * 1024 * 1024:

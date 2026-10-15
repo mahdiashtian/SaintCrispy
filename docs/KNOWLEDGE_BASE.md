@@ -253,6 +253,46 @@ permanently hidden behind the attempt cap.
 
 ## Instagram
 
+October 15 menu-latency follow-up: avoid reading an entire 1 MiB sample when a
+complete MP4 index is already present. A leading `mdat` now sends metadata lookup
+to a 64 KiB suffix, expanding once to 1 MiB if the movie index is larger. The
+provider coalesces equal sample reads and shared DASH audio inside one inspection
+or selection, bounded to 4 MiB/128 results. The cache ends with that operation;
+selections still verify fresh bytes and reject changed dimensions. Resolver
+validation and the immediately following discovery share their checks. Post-refresh
+locks are keyed by account/post instead of serializing unrelated posts. Menus use
+text/buttons without a Telegram external-thumbnail fetch, and log their actual
+elapsed time after sending.
+
+Guest canonical public-post fallback uses an eight-second native budget, adjustable
+with `INSTAGRAM_NATIVE_TIMEOUT_SECONDS` (1-35). Successful anonymous resolver routes
+are preferred for that exact identity for five minutes, capped at 128 identities;
+other posts retain native discovery and their complete quality catalogs. A failed
+preferred route allows one native recovery, without another resolver loop. Stories,
+shares and authenticated requests retain native-only behavior. Native and public
+429 cooldowns stop alternatives. The post page now precedes a homepage bootstrap;
+a usable page or page LSD avoids that request. No credentials or concurrency
+increase were introduced.
+
+A reversed-order replay against revision `2a57873`, using recorded three-post
+response shapes and explicitly paced mock HTTP bodies, retained exactly the same
+quality identities/dimensions/protocols. Audio reel: 13 to 7 sample requests and
+3,155,968 to 22,528 consumed bytes; muted reel: 9 to 7 and 9,437,184 to 114,688;
+carousel: 12 to 6 and 12,582,912 to 98,304. Those are controlled discovery savings,
+not live CDN/Telegram throughput. See [the dated Instagram speed evidence](YOUTUBE_INSTAGRAM_ACCESS.md#october-15-instagram-quality-menu-latency).
+
+Fresh live workstation checks were negative in this connection state: the old
+exact-reel inspection failed after 60.0229 seconds; intermediate/current variants
+failed after 33.0098/33.0163 seconds. The resolver returned a matching CDN URL, but
+native TCP and HTTP/3 CDN access timed out. HTTP/2 Cloudflare DoH, HTTP/3 Cloudflare
+DoH/IPv4 and HTTP/2 Google DoH/IPv4 small probes also timed out at five seconds;
+Google's JSON DNS checks timed out as well. The returned `_nc_ht` matched its URL
+host, so there was no evidenced regional-host alternative. No hostname rewrite or
+new network-profile fallback was integrated. Retry only after connection recovery
+or new transport evidence; none of these runs is a successful live download or
+production menu-speed measurement. Instaloader's synchronous request/sleep/retry
+path was re-reviewed, not installed or retried as a presumed transport cure.
+
 Compared yt-dlp, Instaloader, Instagrapi and gallery-dl against their current primary
 source. Different POST envelopes and document IDs are distinct methods, not aliases.
 

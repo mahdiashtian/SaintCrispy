@@ -3,11 +3,11 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from urllib.parse import parse_qs
 
 import httpx
 import pytest
-from telethon import types
 
 from bot.state.menus import MenuStore
 from bot.transfers.streaming import media_chunks
@@ -26,6 +26,7 @@ from downloader_bot.downloaders.instagram.parser import (
     media_id,
     mp4_duration,
     mp4_info,
+    mp4_payload_before_metadata,
     page_media,
     read_media,
 )
@@ -557,7 +558,7 @@ async def test_router_and_instagram_menu_use_the_shared_delivery_contract():
 
     event = SimpleNamespace(raw_text="لینک " + PAGE, sender_id=1, chat_id=2, respond=respond)
     await handle_instagram_link(event, SimpleNamespace(inspect=router.inspect), MenuStore())
-    assert isinstance(responses[0]["file"], types.InputMediaPhotoExternal)
+    assert "file" not in responses[0] and responses[0]["link_preview"] is False
     assert responses[0]["buttons"][0][0].type.data.startswith(b"ig:")
     assert len(responses[0]["buttons"][0][0].type.data) <= 64
 
@@ -1152,3 +1153,328 @@ def test_resolver_movie_duration_is_read_from_a_bounded_complete_header():
     assert mp4_duration(timed_sample()) == 11.7
     assert mp4_duration(timed_sample()[:-1]) == 0
     assert mp4_duration(bytes(20)) == 0
+
+
+async def test_native_page_with_media_needs_no_homepage_bootstrap():
+    visits = []
+
+    class Browser:
+        async def request(self, method, url, **options):
+            visits.append(url)
+            assert url == PAGE
+
+            async def chunks():
+                yield (
+                    '<script type="application/json">' + json.dumps(fixture()) + "</script>"
+                ).encode()
+
+            return SimpleNamespace(
+                status_code=200, headers=httpx.Headers(), aiter_content=chunks, aclose=AsyncMock()
+            )
+
+    async with httpx.AsyncClient(transport=InstagramBrowserTransport(Browser())) as http:
+        node, _, code = await InstagramClient(http).content(PAGE)
+    assert find_media(node, code) and visits == [PAGE]
+
+
+async def test_complete_metadata_closes_stream_without_reading_payload():
+    closed = asyncio.Event()
+
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            header = timed_sample()
+            yield header + bytes(16384 - len(header))
+            await asyncio.Event().wait()
+
+        async def aclose(self):
+            closed.set()
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(206, stream=Body()))
+    ) as http:
+        data = await asyncio.wait_for(
+            InstagramClient(http).sample(
+                "https://scontent.cdninstagram.com/full.mp4", PAGE, metadata=True
+            ),
+            1,
+        )
+    assert mp4_info(data) == (480, 854, True)
+    assert mp4_duration(data) == 11.7 and len(data) == 16384 and closed.is_set()
+
+
+@pytest.mark.parametrize("large_header", [False, True])
+async def test_mdat_prefix_uses_small_tail_and_expands_only_for_large_movie_index(large_header):
+    def box(tag, body):
+        return (len(body) + 8).to_bytes(4, "big") + tag + body
+
+    movie = timed_sample()[len(MP4) :]
+    if large_header:
+        movie = box(b"moov", box(b"free", bytes(128 * 1024)) + movie[8:])
+    blob = MP4 + box(b"mdat", bytes(3 * 1024 * 1024)) + movie
+    ranges, consumed = [], []
+
+    class Body(httpx.AsyncByteStream):
+        def __init__(self, data):
+            self.data = data
+
+        async def __aiter__(self):
+            for offset in range(0, len(self.data), 8192):
+                chunk = self.data[offset : offset + 8192]
+                consumed.append(len(chunk))
+                yield chunk
+
+    def respond(request):
+        value = request.headers["range"]
+        ranges.append(value)
+        if value.startswith("bytes=-"):
+            selected = blob[-int(value.partition("=-")[2]) :]
+        else:
+            selected = blob[: int(value.partition("-")[2]) + 1]
+        return httpx.Response(206, stream=Body(selected))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        client = InstagramClient(http)
+        front = await client.sample(
+            "https://scontent.cdninstagram.com/full.mp4", PAGE, metadata=True
+        )
+        assert mp4_payload_before_metadata(front) and len(front) == 16384
+        tail = await client.sample(
+            "https://scontent.cdninstagram.com/full.mp4", PAGE, metadata=True, tail=True
+        )
+    assert mp4_info(tail) == (480, 854, True) and mp4_duration(tail) == 11.7
+    assert ranges[:2] == ["bytes=0-1048575", "bytes=-65536"]
+    if large_header:
+        assert ranges[2:] == ["bytes=-1048576"]
+    else:
+        assert len(ranges) == 2 and sum(consumed) == 81920
+
+
+async def test_probe_batch_coalesces_one_thousand_followers_and_ends_before_selection(monkeypatch):
+    client = InstagramClient(None)
+    sample = AsyncMock(return_value=timed_sample())
+    monkeypatch.setattr(client, "_sample", sample)
+    url = "https://scontent.cdninstagram.com/full.mp4"
+    with client.probe_batch():
+        rows = await asyncio.gather(*(client.sample(url, PAGE, metadata=True) for _ in range(1000)))
+        assert all(row == timed_sample() for row in rows)
+        assert sample.await_count == 1
+    assert client._probe_batch.get() is None
+    await client.sample(url, PAGE, metadata=True)
+    assert sample.await_count == 2
+
+
+async def test_probe_batch_shares_rate_failure_without_retrying_it(monkeypatch):
+    client = InstagramClient(None)
+    sample = AsyncMock(side_effect=SiteHTTPError(429, "rate limited"))
+    monkeypatch.setattr(client, "_sample", sample)
+    with client.probe_batch():
+        rows = await asyncio.gather(
+            *(
+                client.sample("https://scontent.cdninstagram.com/full.mp4", PAGE)
+                for _ in range(1000)
+            ),
+            return_exceptions=True,
+        )
+    assert sample.await_count == 1
+    assert all(isinstance(row, SiteHTTPError) and row.status == 429 for row in rows)
+
+
+async def test_probe_batch_has_byte_and_entry_bounds_and_is_session_owned(monkeypatch):
+    client, other = InstagramClient(None), InstagramClient(None)
+    monkeypatch.setattr(client, "_sample", AsyncMock(return_value=bytes(1024 * 1024)))
+    monkeypatch.setattr(other, "_sample", AsyncMock(return_value=b"other-session"))
+    with client.probe_batch():
+        state = client._probe_batch.get()
+        for index in range(12):
+            await client.sample(f"https://scontent.cdninstagram.com/{index}.mp4", PAGE)
+        assert state["bytes"] == 4 * 1024 * 1024 and len(state["cache"]) == 4
+        assert (
+            await other.sample("https://scontent.cdninstagram.com/11.mp4", PAGE) == b"other-session"
+        )
+        monkeypatch.setattr(client, "_sample", AsyncMock(side_effect=DownloadError("missing")))
+        for index in range(200):
+            with pytest.raises(DownloadError):
+                await client.sample(f"https://scontent.cdninstagram.com/error{index}.mp4", PAGE)
+        assert state["bytes"] <= 4 * 1024 * 1024 and len(state["cache"]) <= 128
+    assert client._probe_batch.get() is None and other._probe_batch.get() is None
+
+
+async def test_shared_dash_audio_is_probed_once_per_discovery(monkeypatch):
+    media, formats = read_media(
+        find_media(fixture("audio_reel"), "DZwzHDsiVlk"), PAGE, "DZwzHDsiVlk"
+    )
+    formats = [fmt for fmt in formats if fmt.source.audio_url]
+    client = InstagramClient(None)
+    sample = AsyncMock(return_value=MP4)
+    monkeypatch.setattr(client, "_sample", sample)
+    provider = InstagramDownloader(client)
+    assert len(await provider._available(client, media, formats)) == len(formats)
+    audio = formats[0].source.audio_url
+    assert sum(call.args[0] == audio for call in sample.call_args_list) == 1
+    assert sample.await_count == len(formats) + 1
+    await provider._available(client, media, formats[:1])
+    assert sum(call.args[0] == audio for call in sample.call_args_list) == 2
+
+
+async def test_native_guest_deadline_cancels_work_before_verified_public_fallback(monkeypatch):
+    client = InstagramClient(None, resolver_url="https://resolver.example")
+    monkeypatch.setattr(client, "native_timeout", 0.01)
+    cancelled = asyncio.Event()
+
+    async def stalled(url):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(client, "_content", stalled)
+    recovered = (fixture(), PAGE, "Chunk8-jurw")
+    fallback = AsyncMock(return_value=recovered)
+    monkeypatch.setattr(client, "_resolve_public", fallback)
+    assert await asyncio.wait_for(client.content(PAGE), 1) == recovered
+    assert cancelled.is_set() and fallback.await_count == 1
+
+
+async def test_preferred_resolver_is_identity_scoped_and_failure_allows_native_once(monkeypatch):
+    client = InstagramClient(None, resolver_url="https://resolver.example")
+    recovered = (fixture(), PAGE, "Chunk8-jurw")
+    native = AsyncMock(side_effect=DownloadError("native rejected"))
+    fallback = AsyncMock(return_value=recovered)
+    monkeypatch.setattr(client, "_content", native)
+    monkeypatch.setattr(client, "_resolve_public", fallback)
+    assert await client.content(PAGE) == recovered
+    assert await client.content(PAGE) == recovered
+    assert native.await_count == 1 and fallback.await_count == 2
+    native.side_effect, native.return_value = None, recovered
+    other = "https://www.instagram.com/p/DZwzHDsiVlk/"
+    assert await client.content(other) == recovered
+    assert native.await_count == 2 and fallback.await_count == 2
+    fallback.side_effect = DownloadError("resolver unavailable")
+    assert await client.content(PAGE) == recovered
+    assert native.await_count == 3 and fallback.await_count == 3
+    assert "Chunk8-jurw" not in client._resolver_preferred
+
+
+async def test_public_resolver_429_is_not_hidden_by_the_previous_native_failure(monkeypatch):
+    original = httpx.AsyncClient
+    visits = []
+
+    def limited(request):
+        visits.append(request)
+        return httpx.Response(429)
+
+    client = InstagramClient(None, resolver_url="https://resolver.example")
+    monkeypatch.setattr(client, "_content", AsyncMock(side_effect=DownloadError("native rejected")))
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(limited), **kw)
+    )
+    for _ in range(2):
+        with pytest.raises(SiteHTTPError) as failure:
+            await client.content(PAGE)
+        assert failure.value.status == 429
+    assert len(visits) == 1
+
+
+async def test_unrelated_selected_posts_do_not_share_a_network_refresh_lock(monkeypatch):
+    client = InstagramClient(None)
+    provider = InstagramDownloader(client)
+    media, formats = read_media(find_media(fixture(), "Chunk8-jurw"), PAGE, "Chunk8-jurw")
+    blocked, released = asyncio.Event(), asyncio.Event()
+
+    async def content(actual, url):
+        if url == PAGE:
+            blocked.set()
+            await released.wait()
+            return media, formats
+        return replace(media, content_id="DZwzHDsiVlk"), formats
+
+    monkeypatch.setattr(provider, "_media", content)
+    first = asyncio.create_task(provider._resolution_media(client, media))
+    await blocked.wait()
+    try:
+        other = replace(
+            media, content_id="DZwzHDsiVlk", page_url="https://www.instagram.com/p/DZwzHDsiVlk/"
+        )
+        result = await asyncio.wait_for(provider._resolution_media(client, other), 1)
+        assert result[0].content_id == other.content_id
+    finally:
+        released.set()
+        await first
+    assert provider._refresh_locks.count == 0
+
+
+@pytest.mark.parametrize("value", [0, 36, float("nan"), float("inf")])
+def test_native_budget_is_bounded(value):
+    with pytest.raises(ValueError):
+        InstagramClient(None, native_timeout=value)
+
+
+async def test_cancelled_probe_batch_releases_every_waiter_without_cache_leak(monkeypatch):
+    client = InstagramClient(None)
+    entered, closed = asyncio.Event(), asyncio.Event()
+    state = None
+
+    async def stalled(*args, **kwargs):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    async def request():
+        nonlocal state
+        with client.probe_batch():
+            state = client._probe_batch.get()
+            await asyncio.gather(
+                *(
+                    client.sample("https://scontent.cdninstagram.com/full.mp4", PAGE)
+                    for _ in range(1000)
+                )
+            )
+
+    monkeypatch.setattr(client, "_sample", stalled)
+    task = asyncio.create_task(request())
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert closed.is_set() and state["locks"].count == 0
+    assert client._probe_batch.get() is None and not state["cache"]
+
+
+async def test_page_lsd_can_feed_graphql_without_a_homepage_request():
+    visits = []
+
+    class Browser:
+        async def request(self, method, url, **options):
+            visits.append(url)
+            assert url != "https://www.instagram.com/"
+            if url == PAGE:
+                body = b'<script>["LSD",[],{"token":"page-lsd"}]</script>'
+            elif method == "POST":
+                assert options["headers"]["x-fb-lsd"] == "page-lsd"
+                body = json.dumps(fixture()).encode()
+            else:
+                body = b"{}"
+
+            async def chunks():
+                yield body
+
+            return SimpleNamespace(
+                status_code=200, headers=httpx.Headers(), aiter_content=chunks, aclose=AsyncMock()
+            )
+
+    async with httpx.AsyncClient(transport=InstagramBrowserTransport(Browser())) as http:
+        node, _, code = await InstagramClient(http).content(PAGE)
+    assert find_media(node, code) and len(visits) == 3
+
+
+async def test_successful_resolver_preference_has_a_fixed_bound(monkeypatch):
+    client = InstagramClient(None, resolver_url="https://resolver.example")
+    monkeypatch.setattr(client, "_content", AsyncMock(side_effect=DownloadError("native rejected")))
+    monkeypatch.setattr(
+        client, "_resolve_public", AsyncMock(return_value=(fixture(), PAGE, "code"))
+    )
+    for index in range(200):
+        await client.content(f"https://www.instagram.com/p/A{index:011d}/")
+    assert len(client._resolver_preferred) == 128

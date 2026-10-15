@@ -114,6 +114,33 @@ refresh clears both caches so the next inspection rediscovers available choices.
 Catalog expiry is fixed from discovery, not extended on every cache hit. Restart
 clears this provider-local cache. Native/authenticated extraction is unchanged.
 
+Instagram quality discovery stops once a complete MP4 header supplies dimensions
+and duration. If payload precedes the index, it reads a 64 KiB suffix and expands
+once to the existing 1 MiB bound only if needed. Within an inspection/selection,
+equal samples (including shared DASH audio) coalesce under provider-owned locks
+and a 4 MiB/128-result cache. The cache is discarded before the next operation;
+selected source dimensions/audio and full-transfer integrity remain checked.
+Unrelated account/post refreshes no longer share a network lock. Quality menus
+send text/buttons without waiting for Telegram to fetch an external thumbnail;
+final-file artwork is unchanged.
+
+`INSTAGRAM_NATIVE_TIMEOUT_SECONDS=8` bounds guest native public-post work before
+the anonymous fallback; accepted range 1-35. It does not shorten authenticated or
+story inspection. Restore 35 if a healthy native route needs more time. After
+verified fallback, only that exact identity prefers it for five minutes; other
+posts still discover native renditions. Preference is capped at 128 entries, does
+not extend source URL validity and clears on failure. Failure permits native
+recovery once; rate limits stop alternatives. Queue waits count against the
+existing HTTP/resolver deadlines. No public-service quota is implied.
+
+Safe Instagram logs separate `instagram_native_attempt` budget/elapsed time,
+resolver attempt stage/elapsed time, and `quality_menu_shown.elapsed_seconds` after
+the menu sends. `instagram_probe_batch` records `uncached_samples`,
+`sample_cache_hits`, `returned_sample_bytes` and `cached_sample_bytes` without
+URLs or cookies. Returned sample bytes exclude headers, native buffering and any
+earlier failed transport; they are not total interface traffic. See the
+[dated replay and live limitations](YOUTUBE_INSTAGRAM_ACCESS.md#october-15-instagram-quality-menu-latency).
+
 The YouTube handler starts inspection immediately. If it is still pending after
 150 ms, it sends a bounded acknowledgment and later edits that reply into a text
 menu or safe error. Fast cache hits send one menu directly. Menus no longer wait

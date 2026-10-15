@@ -422,6 +422,27 @@ def read_media(node: dict, page_url: str, content_id: str) -> tuple[Media, list[
     return media, list(unique.values())
 
 
+def mp4_payload_before_metadata(data: bytes) -> bool:
+    """A top-level mdat before moov means the small suffix must be inspected."""
+    offset = 0
+    while offset + 8 <= len(data):
+        size, tag = int.from_bytes(data[offset : offset + 4], "big"), data[offset + 4 : offset + 8]
+        if tag == b"moov":
+            return False
+        if tag == b"mdat":
+            return True
+        if size == 1:
+            if offset + 16 > len(data):
+                return False
+            size = int.from_bytes(data[offset + 8 : offset + 16], "big")
+            if size < 16:
+                return False
+        if size < 8:
+            return False
+        offset += size
+    return False
+
+
 def mp4_info(data: bytes) -> tuple[int | None, int | None, bool | None]:
     """Read bounded moov metadata; never mistake the source's original size for a rendition."""
     start = data.find(b"moov")

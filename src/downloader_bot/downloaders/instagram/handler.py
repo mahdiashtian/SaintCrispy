@@ -1,10 +1,10 @@
 import logging
+import time
 from functools import partial
 
 import httpx
-from telethon import events, types
+from telethon import events
 
-from bot.delivery import EXTERNAL_FAILURES
 from bot.keyboards.inline import quality_buttons
 from bot.texts.downloads import quality_menu_text
 from core.diagnostics import error_fields
@@ -21,34 +21,32 @@ async def handle_instagram_link(event, service, menus) -> None:
     url = extract_url(event.raw_text)
     if url is None:
         return
+    started = time.monotonic()
     try:
         media = await service.inspect(url)
         token = await menus.create(
             event.sender_id, event.chat_id, media, message_id=getattr(event, "id", None)
         )
         text = quality_menu_text(media)
-        log.info(
-            {"event": "quality_menu_shown", "site": "instagram", "qualities": len(media.qualities)}
-        )
         for offset in range(0, len(media.qualities), 50):
             chunk = quality_buttons(
                 media.qualities[offset : offset + 50], "ig", token, start_index=offset
             )
-            if media.thumbnail and offset == 0:
-                try:
-                    await event.respond(
-                        text,
-                        file=types.InputMediaPhotoExternal(media.thumbnail),
-                        buttons=chunk,
-                        parse_mode=None,
-                        reply_to=getattr(event, "id", None),
-                    )
-                    continue
-                except EXTERNAL_FAILURES:
-                    pass
             await event.respond(
-                text, buttons=chunk, parse_mode=None, reply_to=getattr(event, "id", None)
+                text,
+                buttons=chunk,
+                parse_mode=None,
+                reply_to=getattr(event, "id", None),
+                link_preview=False,
             )
+        log.info(
+            {
+                "event": "quality_menu_shown",
+                "site": "instagram",
+                "qualities": len(media.qualities),
+                "elapsed_seconds": round(time.monotonic() - started, 4),
+            }
+        )
     except DownloadError as error:
         log.warning(
             {"event": "provider_inspection_failed", "site": "instagram", **error_fields(error)}

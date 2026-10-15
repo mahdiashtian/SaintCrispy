@@ -279,6 +279,18 @@ request and real Telegram latency. With real PostgreSQL, the new path took 1.402
 seconds. This improves menu discovery, not measured CDN bandwidth or Telegram
 upload speed. See the [deferred-probe evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md#october-15-cross-checked-catalog-and-selected-file-probes).
 
+Instagram menus now stop file probing at a complete MP4 index instead of reading
+1 MiB unconditionally. A payload-first MP4 uses a small suffix with bounded
+expansion for large indexes. Repeated URL/audio probes share one operation-scoped
+cache; callbacks revalidate fresh bytes. Menus no longer wait for an external
+thumbnail fetch. `INSTAGRAM_NATIVE_TIMEOUT_SECONDS=8` bounds guest public-post
+native attempts before anonymous fallback (range 1-35); a verified fallback is
+preferred only for that exact post for five minutes. Stories/accounts retain their
+native behavior and other posts keep their native quality discovery. Controlled
+replay preserved all quality identities while reducing sampled bytes by over 98%.
+Live CDN checks on the workstation still timed out, so this is not a measured
+production speed guarantee. See the [Instagram performance evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md#october-15-instagram-quality-menu-latency).
+
 ## Group downloads
 
 Supported links also work in basic groups and supergroups without `/start` or a
