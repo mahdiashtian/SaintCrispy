@@ -157,14 +157,15 @@ async def decoded_seconds(ffmpeg, data, maps):
 
 
 @pytest.mark.parametrize(
-    "site", ["soundcloud", "youtube", "instagram", "pinterest", "xvideos", "xnxx"]
+    "site", ["soundcloud", "youtube", "instagram", "pinterest", "xvideos", "xnxx", "tiktok"]
 )
 async def test_each_provider_delivery_rejects_11_second_external_preview_and_sends_full_video(
     integrity_origin,
     site,
 ):
     origin = integrity_origin
-    media = Media(site, "id", "Public test", "", 18, "page", None, (QUALITY,))
+    quality = replace(QUALITY, codec="video") if site == "tiktok" else QUALITY
+    media = Media(site, "id", "Public test", "", 18, "page", None, (quality,))
     document = SimpleNamespace(
         id=10,
         access_hash=20,
@@ -177,7 +178,7 @@ async def test_each_provider_delivery_rejects_11_second_external_preview_and_sen
         file = await TelegramDelivery(client, http, origin.ffmpeg).new_file(
             PEER,
             media,
-            QUALITY,
+            quality,
             Source(origin.url + "/full.mp4", "progressive", require_audio=True),
         )
     assert file.verified_complete and len(client.messages) == 1

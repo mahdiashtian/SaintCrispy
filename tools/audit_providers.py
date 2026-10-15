@@ -1,4 +1,4 @@
-"""Inspect all six origin providers, resolve real URLs, optionally register with Telegram.
+"""Inspect origin providers, resolve real URLs, optionally register with Telegram.
 
 Prints no credentials or signed CDN URLs. --telegram uses UploadMedia only, never
 sends chat messages. This is a live origin check, separate from simulated load tests.
@@ -33,6 +33,8 @@ from downloader_bot.downloaders.pinterest.client import PinterestClient
 from downloader_bot.downloaders.pinterest.downloader import PinterestDownloader
 from downloader_bot.downloaders.soundcloud.client import SoundCloudClient
 from downloader_bot.downloaders.soundcloud.downloader import SoundCloudDownloader
+from downloader_bot.downloaders.tiktok.client import TikTokClient, tiktok_session
+from downloader_bot.downloaders.tiktok.downloader import TikTokDownloader
 from downloader_bot.downloaders.xnxx.client import XNXXClient
 from downloader_bot.downloaders.xnxx.downloader import XNXXDownloader
 from downloader_bot.downloaders.xvideos.client import XVideosClient
@@ -44,6 +46,7 @@ from schemas.media import DownloadError
 from services.observability import error_fields
 
 SAMPLES = {
+    "tiktok": "https://www.tiktok.com/@scout2015/video/6718335390845095173",
     "soundcloud": "https://soundcloud.com/gdaal/mojezeh",
     "youtube": "https://youtu.be/jNQXAC9IVRw",
     "instagram": "https://www.instagram.com/reel/Chunk8-jurw/",
@@ -262,6 +265,8 @@ async def audit(args):
             site: await stack.enter_async_context(
                 instagram_session(instagram_proxy)
                 if site == "instagram"
+                else tiktok_session()
+                if site == "tiktok"
                 else httpx.AsyncClient(
                     timeout=20,
                     headers={"User-Agent": "Mozilla/5.0"},
@@ -276,6 +281,14 @@ async def audit(args):
             proxy=await configured_proxy(stack, os.environ, "YOUTUBE", youtube_network_host),
         )
         providers = {
+            "tiktok": TikTokDownloader(
+                TikTokClient.from_environment(
+                    sessions["tiktok"],
+                    await stack.enter_async_context(
+                        tiktok_session(os.environ.get("TIKTOK_PROXY", ""))
+                    ),
+                )
+            ),
             "soundcloud": SoundCloudDownloader(
                 SoundCloudClient(sessions["soundcloud"], os.environ.get("SOUNDCLOUD_OAUTH_TOKEN"))
             ),

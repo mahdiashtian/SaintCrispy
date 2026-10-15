@@ -8,6 +8,7 @@ from downloader_bot.downloaders.pinterest.downloader import PinterestDownloader
 from downloader_bot.downloaders.pinterest.parser import read_pin
 from downloader_bot.downloaders.soundcloud.downloader import SoundCloudDownloader
 from downloader_bot.downloaders.soundcloud.parser import read_qualities
+from downloader_bot.downloaders.tiktok.downloader import TikTokDownloader
 from downloader_bot.downloaders.xnxx.downloader import XNXXDownloader
 from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
@@ -17,6 +18,13 @@ from schemas.media import DownloadError
 @pytest.mark.parametrize(
     "downloader,aliases",
     [
+        (
+            TikTokDownloader(None),
+            [
+                "https://www.tiktok.com/@test/video/6718335390845095173?is_from_webapp=1",
+                "https://m.tiktok.com/@other/video/6718335390845095173",
+            ],
+        ),
         (
             YouTubeDownloader(None),
             ["https://youtu.be/jNQXAC9IVRw?si=one", "https://www.youtube.com/shorts/jNQXAC9IVRw"],

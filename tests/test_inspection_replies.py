@@ -15,6 +15,7 @@ from bot.texts.downloads import inspection_text, quality_menu_text
 from downloader_bot.downloaders.instagram.handler import handle_instagram_link
 from downloader_bot.downloaders.pinterest.handler import handle_pinterest_link
 from downloader_bot.downloaders.soundcloud.handler import handle_soundcloud_link
+from downloader_bot.downloaders.tiktok.handler import handle_tiktok_link
 from downloader_bot.downloaders.xnxx.handler import handle_xnxx_link
 from downloader_bot.downloaders.xvideos.handler import handle_xvideos_link
 from downloader_bot.downloaders.youtube.handler import handle_youtube_link
@@ -27,6 +28,7 @@ PROVIDERS = [
     ("pinterest", "pin", handle_pinterest_link, "https://www.pinterest.com/pin/123456789/"),
     ("xvideos", "xv", handle_xvideos_link, "https://www.xvideos.com/video.demo/example"),
     ("xnxx", "xnxx", handle_xnxx_link, "https://www.xnxx.com/video-demo/example"),
+    ("tiktok", "tt", handle_tiktok_link, "https://www.tiktok.com/@test/video/6718335390845095173"),
 ]
 QUALITY = Quality("720", "720p", "h264", None, "mp4", "video/mp4", "progressive", "")
 

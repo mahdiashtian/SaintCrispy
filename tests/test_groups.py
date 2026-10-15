@@ -215,6 +215,7 @@ async def test_old_activity_with_definitely_left_entity_does_not_discover_active
         ("pinterest", "pin", "https://www.pinterest.com/pin/123456789/"),
         ("xvideos", "xv", "https://www.xvideos.com/video.demo/test"),
         ("xnxx", "xnxx", "https://www.xnxx.com/video-demo/test"),
+        ("tiktok", "tt", "https://www.tiktok.com/@test/video/6718335390845095173"),
     ],
 )
 async def test_every_provider_replies_with_menu_and_delivers_in_same_group(site, prefix, url):

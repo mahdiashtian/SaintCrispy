@@ -9,6 +9,7 @@ from core.diagnostics import error_fields
 from downloader_bot.downloaders.instagram.handler import register_handler as register_instagram
 from downloader_bot.downloaders.pinterest.handler import register_handler as register_pinterest
 from downloader_bot.downloaders.soundcloud.handler import register_handler as register_soundcloud
+from downloader_bot.downloaders.tiktok.handler import register_handler as register_tiktok
 from downloader_bot.downloaders.xnxx.handler import register_handler as register_xnxx
 from downloader_bot.downloaders.xvideos.handler import register_handler as register_xvideos
 from downloader_bot.downloaders.youtube.handler import register_handler as register_youtube
@@ -28,6 +29,7 @@ PROVIDER_HANDLERS = (
     register_youtube,
     register_instagram,
     register_pinterest,
+    register_tiktok,
 )
 
 log = logging.getLogger("activity")
@@ -154,7 +156,7 @@ def register_handlers(
             presentation=presentation,
             access=access,
         ),
-        events.CallbackQuery(pattern=rb"^(?:sc|xnxx|xv|yt|ig|pin):([0-9a-f]{16}):([0-9]+)$"),
+        events.CallbackQuery(pattern=rb"^(?:sc|xnxx|xv|yt|ig|pin|tt):([0-9a-f]{16}):([0-9]+)$"),
     )
     client.add_event_handler(
         partial(handle_stop, jobs=jobs),

@@ -2,6 +2,21 @@
 
 Verification separates parser/unit behavior, database/concurrency behavior, full origin streams, and Telegram registration. A green unit suite cannot establish unrestricted access from every server IP.
 
+## October 15, 2026 TikTok addition
+
+See the [TikTok implementation and dated measurement table](TIKTOK.md) for the
+primary-source research, HTTP/source-cache design and exact workstation evidence.
+Two public full URLs passed metadata extraction; one passed complete consumption
+of both MP4 versions and soundtrack through the actual application integrity path.
+Cold discovery was 1.5604/1.629 seconds, with a 0.000073-second cached selection.
+Native connections and two old short-link references did not pass on this egress;
+those failures are recorded separately and are not production diagnoses.
+
+The final full local suite passed **1,409 tests with zero skips** on dedicated real
+PostgreSQL 16/Redis, including provider isolation and the existing generic delivery,
+menu/reply, caption and expiry contracts with TikTok. Lint/format and isolated wheel
+imports passed. Live Telegram and production access remain outside this evidence.
+
 ## October 15, 2026 quality-menu latency
 
 Compared baseline `85bfefa` with the updated Pinterest provider on the Windows

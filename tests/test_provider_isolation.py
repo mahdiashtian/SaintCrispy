@@ -10,7 +10,7 @@ from container import create_provider_session
 from downloader_bot.downloaders.base import Downloader
 
 ROOT = Path(__file__).resolve().parents[1] / "src/downloader_bot/downloaders"
-PROVIDERS = ("soundcloud", "xnxx", "xvideos", "pinterest", "youtube", "instagram")
+PROVIDERS = ("soundcloud", "xnxx", "xvideos", "pinterest", "youtube", "instagram", "tiktok")
 FILES = {"__init__.py", "client.py", "parser.py", "downloader.py", "handler.py", "urls.py"}
 
 

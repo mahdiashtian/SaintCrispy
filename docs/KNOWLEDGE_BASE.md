@@ -33,6 +33,42 @@ from upstream conversion time; a fresh cold workstation metadata lookup failed
 in that later connection state. See the dated access sections for successes,
 failures, byte counts and the untested production/Telegram boundary.
 
+## TikTok provider (October 15)
+
+The new independent six-file TikTok provider uses an anonymous TikWM-compatible
+JSON request as its measured fast path, with bounded native Universal/SIGI page
+extraction as fallback. Research compared the primary yt-dlp, TikTok-Api,
+Tikorgzo/TikWM and tt-dlp implementations; the bot adds no browser/runtime dependency.
+See [method comparison, implementation and evidence](TIKTOK.md).
+
+The same payload supplies video/photo/music choices. Fresh sources are bounded
+to 45 seconds/128 posts, selected without another metadata lookup, and shared by
+concurrent identical inspections. Signed endpoints are excluded from SQL snapshots;
+callbacks refresh the same post/quality. Photo identity survives carousel reordering
+and URL signature/host changes. User acknowledgment, quality edit, original-link
+reply, caption and file-only 30-second expiry use existing generic infrastructure.
+
+Two anonymous public posts returned three choices in 1.5604 and 1.629 seconds.
+The first selection took 0.000073 seconds; 100 warm inspections took 0.005919
+seconds with no additional metadata requests. The first post's two MP4 versions
+(2,004,627 and 2,953,029 bytes) and soundtrack were fully consumed through the
+application's actual stream/integrity checks. These are workstation observations,
+not Telegram delivery, server acceptance or large-scale throughput evidence.
+
+Native access timed out with both plain and browser-TLS transports. Another
+public-reference post and two old short tokens were rejected by the resolver;
+native fallback was unavailable on this egress. Their causes remain unproven.
+Short-token canonical recovery is bounded and covered with simulated HTTP;
+do not report those rejected live cases as successful or retry them unchanged.
+
+Final full verification passed **1,409 tests with zero skips**, with dedicated real
+PostgreSQL 16/Redis. Existing presentation/delivery/caption/file-expiry tests include
+TikTok, and real FFmpeg with a Telegram mock verifies complete prepared video
+delivery when resolver dimensions/codec are undeclared. Lint/format passed for
+251 Python files. The isolated wheel contains the complete provider and excludes
+runtime credentials/sessions/logs. No dependency or schema migration was added;
+no real Telegram message or production server verification was performed.
+
 ## October 15 updated architecture reference
 
 The operator supplied the corrected `docss` Couplyo architecture/porting/database

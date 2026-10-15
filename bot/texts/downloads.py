@@ -23,6 +23,14 @@ class DownloadCopy:
 
 
 DOWNLOAD_COPY = {
+    "tiktok": DownloadCopy(
+        "🎵",
+        "TikTok",
+        "ویدیوهای کوتاه، آمادهٔ ذخیره",
+        "🎬 عنوان",
+        "👤 سازنده",
+        "نسخهٔ ویدیو، عکس یا موسیقی پست رو انتخاب کن:",
+    ),
     "soundcloud": DownloadCopy(
         "🎵",
         "SoundCloud",

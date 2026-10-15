@@ -33,6 +33,8 @@ from downloader_bot.downloaders.pinterest.downloader import PinterestDownloader
 from downloader_bot.downloaders.router import DownloaderRouter
 from downloader_bot.downloaders.soundcloud.client import SoundCloudClient
 from downloader_bot.downloaders.soundcloud.downloader import SoundCloudDownloader
+from downloader_bot.downloaders.tiktok.client import TikTokClient, tiktok_session
+from downloader_bot.downloaders.tiktok.downloader import TikTokDownloader
 from downloader_bot.downloaders.xnxx.client import XNXXClient
 from downloader_bot.downloaders.xnxx.downloader import XNXXDownloader
 from downloader_bot.downloaders.xvideos.client import XVideosClient
@@ -242,6 +244,10 @@ class Container:
                 youtube_accounts[str(row["id"])] = replace(youtube_client, cookies_file=path)
         if youtube_client.cookies_file:
             youtube_accounts["environment"] = youtube_client
+        tiktok = TikTokClient.from_environment(
+            await stack.enter_async_context(tiktok_session()),
+            await stack.enter_async_context(tiktok_session(os.environ.get("TIKTOK_PROXY", ""))),
+        )
         downloader = DownloaderRouter(
             {
                 "soundcloud": SoundCloudDownloader(
@@ -254,6 +260,7 @@ class Container:
                     replace(youtube_client, cookies_file=None), youtube_accounts
                 ),
                 "instagram": InstagramDownloader(await instagram_client(), instagram_accounts),
+                "tiktok": TikTokDownloader(tiktok),
             }
         )
         return downloader

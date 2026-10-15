@@ -2,10 +2,14 @@
 
 An asynchronous Telegram media downloader built with Python, Telethon, PostgreSQL and Redis. Each website has an independent implementation with its own client, parser, downloader, handler and URL rules.
 
-Supported providers: **SoundCloud, Instagram, Pinterest, XVideos and XNXX**.
+Supported providers: **TikTok, SoundCloud, Instagram, Pinterest, XVideos and XNXX**.
 YouTube is temporarily restricted to the configured main administrator. Available
 media, qualities and account requirements depend on the source website. The bot
 interface is currently Persian; developer documentation and code comments are English.
+
+TikTok supports public video/photo posts and available soundtracks, with one
+asynchronous metadata request and immediate reuse of fresh selected sources.
+See [TikTok setup, speed measurements and access limits](docs/TIKTOK.md).
 
 See [application architecture](docs/ARCHITECTURE.md), the [reference mapping](docs/REFERENCE_MAPPING.md)
 and the [database dictionary](docs/DATABASE.md) for layer ownership, all fourteen
