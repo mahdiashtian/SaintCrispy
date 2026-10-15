@@ -296,3 +296,46 @@ Its safe `instagram_origin_response.operation` and `instagram_query_failed` logs
 identify which extraction methods were rejected. A 403 is evidence of HTTP refusal,
 not proof of its policy reason or proof that a cookie will always fix it. Authorized
 session/accepted-route validation remains separate from JavaScript installation.
+
+### Production full-stream check after Node installation
+
+The operator's next `--live` report, timestamped October 15 at 07:49 UTC, shows
+Node 24.21.0 available, current pinned packages and no deployment issues. Both
+YouTube attempts returned `youtube_login_required`. Instagram's `web_graphql`
+returned a GraphQL rejection; `shortcode_graphql` returned HTTP 403 in 0.146 seconds.
+Neither provider finished inspection or resolved a source; zero complete streams
+and zero Telegram messages were verified. Environment-default cookies/proxies/helper
+remain absent, and database accounts were not checked. Missing Node and old Python
+packages are no longer an explanation for this result. The shell's OS restart
+notice does not explain an origin's structured login/403 responses.
+
+Before the next origin test, change one evidenced condition: use an authorized
+session, or verify an accepted provider route. Do not retest identical guest
+conditions in a loop. A cookie is a testable recovery path, not a guaranteed cure
+for every query/IP restriction.
+
+For an authorized-session test on this host:
+
+1. Export the operator's own YouTube session as a Netscape cookie file following
+   [yt-dlp's official export instructions](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies).
+   Store it privately under the ignored `.runtime/credentials/` directory, writable
+   by the bot user and readable only by that user (mode 600). Do not paste it into
+   chat, source, logs or issue reports.
+2. In the local `.env`, set `YOUTUBE_COOKIES_FILE` to that file's absolute server
+   path. Set `INSTAGRAM_COOKIE` to the complete one-line Cookie header from the
+   operator's authorized Instagram browser session. This is a header value, not
+   the `Cookie:` prefix, a username/password, or a cookie-file path. The account
+   must be able to view the requested post. Keep the two providers' sessions separate.
+3. Run the non-live diagnostic once to confirm `cookies.readable/netscape/writable`
+   for YouTube and `cookies_configured` for Instagram. This confirms configuration,
+   not acceptance of the sessions. Run `--live` after this actual session change.
+4. After a successful full-origin check, stop the old coordinator and start
+   `python main.py` in the updated environment; an existing process retains its
+   old configuration. If origin access is still refused, retain safe method/error
+   evidence and validate the session and configured egress rather than retrying
+   unbounded guest clients or claiming delivery success.
+
+The diagnostic now loads `.env` exactly like the bot and audit child: explicit
+file overrides inherited shell values, UTF-8 BOM is accepted and interpolation is
+disabled. This fixes misleading configuration reporting; it cannot authenticate
+a rejected origin request by itself.

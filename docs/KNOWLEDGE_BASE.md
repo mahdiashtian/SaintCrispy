@@ -446,3 +446,25 @@ availability still needs repair, but is unrelated to Instagram and does not by
 itself clear YouTube login challenges. The failing Instagram operation must be
 identified from the safe origin-response/query logs or a same-host live check;
 HTTP 403 alone does not establish whether a query, session or IP policy caused it.
+
+The operator then supplied the production `--live` result at 07:49 UTC on October
+15: Node 24.21.0 is available, package pins match and `deployment_issues` is empty.
+YouTube's two guest player attempts both returned `youtube_login_required`.
+Instagram's `web_graphql` returned a GraphQL error classified as `rejected`;
+`shortcode_graphql` returned HTTP 403 in 0.146 seconds. Both inspections failed
+before resolution, with zero full streams or Telegram messages. The diagnostic
+still reported no environment-default cookies, proxy or helper; database accounts
+were not queried. Do not attribute this result to missing Node, old packages,
+Telegram upload, or the OS restart banner. These installation issues are resolved.
+The next useful experiment is an authorized session/accepted route, not another
+unchanged guest run. The GraphQL rejection's policy reason is not established.
+
+The diagnostic's `.env` loader previously differed from `main.py` and its live
+audit child. It now uses the same explicit-file precedence, BOM-safe UTF-8 and
+disabled interpolation. A regression test proves stale inherited values cannot
+override the file and literal `${...}` inside credentials remains unchanged.
+This corrects reporting parity; it is not a live-access workaround.
+
+The 34 affected diagnostic, architecture, provider-boundary, nonblocking and
+code-language tests passed, with one expected Windows curl-cffi selector warning;
+lint and formatting passed. No new unchanged-condition origin retry was performed.

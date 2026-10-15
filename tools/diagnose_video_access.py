@@ -235,7 +235,7 @@ async def main():
     parser.add_argument("--youtube-url", default="https://www.youtube.com/watch?v=l6zflbTGNFQ")
     parser.add_argument("--instagram-url", default="https://www.instagram.com/reel/DeR9eU8idi0/")
     args = parser.parse_args()
-    load_dotenv(ROOT / ".env")
+    load_dotenv(ROOT / ".env", override=True, interpolate=False, encoding="utf-8-sig")
     report = await configuration()
     if args.network:
         report["network"] = await network_status()

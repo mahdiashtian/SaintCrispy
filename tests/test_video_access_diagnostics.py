@@ -12,6 +12,26 @@ diagnostics = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(diagnostics)
 
 
+async def test_diagnostic_uses_bot_environment_precedence_and_literal_secret_values(
+    monkeypatch, tmp_path, capsys
+):
+    (tmp_path / ".env").write_text(
+        "\ufeffINSTAGRAM_COOKIE='sessionid=SECRET${OTHER}'\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(diagnostics, "ROOT", tmp_path)
+    monkeypatch.setenv("INSTAGRAM_COOKIE", "stale")
+    monkeypatch.setenv("OTHER", "expanded")
+    monkeypatch.setattr(diagnostics.sys, "argv", ["diagnose_video_access.py"])
+
+    async def configuration():
+        assert diagnostics.os.environ["INSTAGRAM_COOKIE"] == "sessionid=SECRET${OTHER}"
+        return {"configuration_loaded": True}
+
+    monkeypatch.setattr(diagnostics, "configuration", configuration)
+    assert await diagnostics.main() == 0
+    assert "SECRET" not in capsys.readouterr().out
+
+
 async def test_configuration_reports_health_without_disclosing_credentials(monkeypatch, tmp_path):
     cookies = tmp_path / "SECRET.cookies"
     cookies.write_text("# Netscape HTTP Cookie File\nSECRET", encoding="utf-8")
