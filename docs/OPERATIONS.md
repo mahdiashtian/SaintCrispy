@@ -35,6 +35,23 @@ interpretation and the unresolved session/route conditions.
 
 ## Optional guest network profiles
 
+YouTube's anonymous converter fallback is enabled by default through
+`YOUTUBE_RESOLVER_URL=https://cnv.cx`; set it empty to disable it. It runs after a
+bounded native guest failure, without account cookies, API credentials or a login.
+The resolver receives the canonical video URL. A separate public metadata endpoint
+must return the exact requested video ID and duration. Download destinations are
+restricted to the verified HTTPS service domain and exact video ID. Only sampled
+MP4 renditions with actual dimensions and audio, or a verified MP3 header, enter
+the menu. Converted MP3 is labeled separately from native original audio.
+
+The service's signed links last approximately one minute. The provider retains a
+validated snapshot for at most 15 seconds and regenerates expired selections
+before transfer. Concurrent inspection/refresh for the same identity coalesces
+under bounded locks; conversion concurrency is two. Native HTTP 429 stops public
+fallback, and public 429 starts a 60-second cooldown. No retry loop attempts to
+turn application concurrency into unlimited public-service throughput. Disabled
+or authenticated clients never send their URLs through this public path.
+
 Instagram's anonymous public-post fallback is enabled in application composition
 by default. `INSTAGRAM_RESOLVER_URL=https://dwnld.nichind.dev` selects the tested
 public Cobalt-compatible service; set the variable to an empty value to disable it,
@@ -70,8 +87,9 @@ INSTAGRAM_HTTP_VERSION=3
 ```
 
 HTTP/3 requires working UDP/443 and support in the installed `curl-cffi` binary.
-It is explicitly forced only by `INSTAGRAM_HTTP_VERSION=3`; `auto` preserves the
-normal browser transport. HTTP/3 through an HTTP proxy depends on transport support;
+For native origin requests, `INSTAGRAM_HTTP_VERSION=3` forces it; `auto` preserves
+the normal browser transport. Resolver CDN recovery can select it independently
+after a failed TCP probe. HTTP/3 through an HTTP proxy depends on transport support;
 the verified workstation profile used no proxy. Both Instagram options remain
 inside Instagram's independent session. Account credentials are not introduced by
 these options. The current recovery task is anonymous only.
@@ -96,8 +114,9 @@ The diagnostic reports profile-presence booleans without printing endpoint value
 credentials or signed URLs. The network check establishes only receipt of headers;
 the live check attempts complete downloads and may fail at origin access. These
 settings produced complete transfers of the reported YouTube video/audio from
-accepted sources, but subsequent fresh extraction was challenged. The later
-Instagram resolver route recovered the exact guest reel as described above.
+accepted sources, but subsequent fresh native extraction was challenged. The later
+anonymous resolver routes recovered fresh YouTube downloads and the exact Instagram
+reel as described above.
 Do not deploy these as a claimed universal login/403 fix or repeatedly run live tests under unchanged
 conditions. See the [dated evidence](YOUTUBE_INSTAGRAM_ACCESS.md#anonymous-github-library-and-transport-comparison-october-15).
 

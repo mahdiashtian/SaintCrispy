@@ -125,6 +125,8 @@ async def configuration():
             "cookies": cookie_status(os.environ.get("YOUTUBE_COOKIES_FILE")),
             "proxy_configured": bool(os.environ.get("YOUTUBE_PROXY")),
             "doh_configured": bool(os.environ.get("YOUTUBE_DOH_URL")),
+            "public_resolver_enabled": bool(os.environ.get("YOUTUBE_RESOLVER_URL", "default"))
+            and not bool(os.environ.get("YOUTUBE_COOKIES_FILE")),
             "player_override_configured": bool(os.environ.get("YOUTUBE_PLAYER_CLIENTS")),
             "pot_helper": helper,
         },

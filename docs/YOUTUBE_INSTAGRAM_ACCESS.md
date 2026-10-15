@@ -541,7 +541,8 @@ hashes across handle reuse and cancellation. Native libcurl/QUIC/OS buffers rema
 additional memory, independent of the Python window. See the upstream
 [pause contract](https://curl.se/libcurl/c/curl_easy_pause.html).
 
-Fresh YouTube extraction is still under investigation. Additional changed-method
+At the conclusion of that Instagram batch, fresh YouTube extraction was still under
+investigation. Additional changed-method
 checks (TV Samsung without web/config bootstrap; HTTP/3/browser transport; the
 public resolver's audio/auto modes) did not recover it. Invidious's listed API-enabled
 instance returned HTTP 500 without formats. Three documented Piped API instances
@@ -554,3 +555,83 @@ with **858 passed, 18 skipped** (external/dedicated-service opt-in cases were no
 configured). Ruff lint/format checks and diff whitespace checks passed. All six
 provider boundaries remain intact; no provider implementation was shared. The
 live success above is original-CDN full consumption, not Telegram delivery.
+
+## Final October 15: fresh anonymous YouTube fallback verified in the project
+
+Compared [Simatwa/ytube-api](https://github.com/Simatwa/ytube-api) (MIT) with the
+already-reviewed [pybalt](https://github.com/nichind/pybalt) flow. No extra library
+dependency or vendored provider implementation was added. The YouTube protocol is
+implemented with independent asynchronous sessions inside its existing six-file
+provider boundary. pybalt's compatible service remains Instagram's own fallback.
+
+The earlier local bgutil 2.0.2 research helper was healthy and actually minted PO
+tokens, but native mweb/web_safari and forced player/GVS contexts still returned
+login challenges. The official alternate API host, TV Samsung bootstrap variant
+and HTTP/3/browser-native variants did not recover the video. Merely installing
+Node, another extractor or a token helper was not the missing access permission.
+The task-owned helper and isolated research browsers were closed after comparison.
+
+The reviewed public converter wrapper's request-key call omitted `link`. The live
+API's HTTP 400 named that required query parameter. Adding the exact canonical
+video URL produced a fresh public request nonce and a successful converter reply.
+The nonce is request-scoped and anonymous; no service API credential, YouTube
+account, cookies or login was used. The metadata endpoint moved by HTTP 301 from
+`wwd.mp3juice.blog` to `mw.mp3juice.blog`; the original non-following integration
+failed there, and using the verified HTTPS endpoint fixed it. HTTPX's default UA
+is also removed from the isolated Chrome-impersonated API session.
+
+The final run started from the user's tracking-bearing URL, with all YouTube
+cookies/proxy/player/helper/DNS overrides cleared in its own process. It used
+`YouTubeDownloader.inspect`, `resolve`, the normal source transfer path and
+complete MP4/audio validation. No captured signed source was supplied to inspection.
+All four advertised options were then downloaded to EOF:
+
+| Quality | Complete bytes | Measured media seconds | Transfer seconds | SHA-256 |
+| --- | --- | --- | --- | --- |
+| H264 MP4 360p, with audio | 36,176,593 | 1300.500 | 23.659 | `122f79de568733898a82ee1f9a2b1c4f1cabdcad43015b10cc9ebba06300c8c6` |
+| H264 MP4 720p, with audio | 56,705,073 | 1300.500 | 39.054 | `6a6c81de91b5c52ea663548688539e5438078f47f3249f51510c268e42cc7c44` |
+| H264 MP4 1080p, with audio | 143,789,188 | 1300.500 | 87.284 | `471cbddb2dc8324e1725e56d11466d1fcd6152375fedb38a80e604f853f9dc7a` |
+| Converted MP3 128 kbps | 20,808,765 | 1300.536 | 16.896 | `0cad21e90164442088a0e99616f54f5cc9ee8bd3d6136220c223fcf3e6bde394` |
+
+Total fresh native inspection plus all four sequential full checks took 239.790
+seconds. Duration was checked against exact-ID metadata's rounded 1301 seconds.
+The MP4 sources are fragmented files whose initialization duration is zero; an
+initialization header alone would not have established full duration. The bot's
+full-stream integrity checks established it at EOF. `format=m4a` was rejected with
+HTTP 400; this route exposes MP3 conversion rather than claiming original AAC.
+No complete media file was retained locally, and no Telegram message was sent.
+
+The public response must contain the requested 11-character video ID in the
+approved HTTPS `yt-dl.click` destination. Metadata title similarity never substitutes
+for the ID. Bounded MP4 probes establish actual dimensions, H264 and an audio
+track; failed renditions are omitted, and identical actual renditions deduplicate.
+The selected rendition's dimensions are checked again when a fresh URL is minted.
+An anonymous request key never reaches the download CDN.
+
+These signed URLs last roughly one minute. Reusing an expired captured URL returned
+404; immediate fresh generation and complete transfer succeeded. Selection uses a
+15-second verified snapshot with an expiry margin, otherwise regenerates and
+probes the source. Same-identity inspection/refresh uses a fixed bounded lock set,
+and public conversion concurrency is two. Tests cover 1,000 duplicate inspections
+sharing one full catalog and 1,000 expired same-quality selections sharing one
+refresh, while preserving every other catalog choice. HTTP 429 enters cooldown
+and stops queued alternatives. Native private/age/rate failures and authenticated
+clients do not invoke the public path.
+
+Both exact reported inputs now have successful fresh native-provider full-transfer
+evidence on this workstation. This result does not verify Telegram ingestion or
+the separate production connection, all possible posts/videos, or 1,000 successful
+distinct origin downloads per second. The public services' availability, quotas
+and format coverage remain external dependencies. Defaults and disable switches
+are documented in `.env.example` and operations; no login is required for these
+verified fallback runs.
+
+Validation: the complete workstation suite passed with **883 passed, 18 skipped**.
+After the final connection-failure recovery classification, all **119** affected
+provider/transport/diagnostic tests and **5** architecture tests passed. Ruff lint,
+format checks (220 Python files) and diff whitespace checks passed. These include
+JSON POST forwarding through the curl transport, anonymous header isolation,
+wrong-identity/destination refusal, actual-rendition deduplication, cooldown,
+signed-link renewal and both 1,000-request coalescing cases. External/dedicated
+service opt-in tests were not configured; live workstation evidence is recorded
+separately above.

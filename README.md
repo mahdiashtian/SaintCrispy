@@ -198,10 +198,10 @@ For the reported YouTube/Instagram access failures, run `python tools/diagnose_v
 For guest connections with filtered DNS or blocked TCP, optional `YOUTUBE_DOH_URL`,
 `INSTAGRAM_DOH_URL` and `INSTAGRAM_HTTP_VERSION` profiles are documented in
 [operations](docs/OPERATIONS.md#optional-guest-network-profiles). They preserve
-provider isolation and do not log in. The October 15 workstation test received the
-complete reported YouTube video/audio, but later fresh extraction was challenged;
-the reported Instagram input subsequently passed through the anonymous resolver
-fallback and original CDN. Page connectivity alone is
+provider isolation and do not log in. The October 15 workstation tests received the
+complete reported YouTube video/audio and Instagram reel. Native origin extraction
+remained challenged; later anonymous resolver routes recovered fresh downloads
+through the actual provider/transfer pipeline. Page connectivity alone is
 not download success. See the [guest comparison evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md#anonymous-github-library-and-transport-comparison-october-15).
 
 Instagram's guest fallback uses the tested public Cobalt-compatible endpoint in
@@ -212,6 +212,18 @@ the shortcode and pass dimension/duration/audio checks. The fallback currently
 offers one verified progressive MP4; native discovery remains responsible for the
 full catalog. HTTP/3 CDN recovery is also retained for the full transfer. Public
 service availability and quotas are separate from the bot's concurrency limits.
+
+YouTube's guest fallback uses `YOUTUBE_RESOLVER_URL=https://cnv.cx` after bounded
+native extraction failure; empty disables it. It follows the public protocol
+reviewed in [ytube-api](https://github.com/Simatwa/ytube-api), implemented asynchronously
+inside YouTube's own provider. No account cookie or API credential is sent. Metadata
+and download responses must identify the exact video ID. A bounded file sample
+verifies actual MP4 dimensions/audio before listing a quality. MP3 is a converted
+128 kbps option, not original AAC. Short-lived links refresh when selected, and
+duplicate concurrent requests share the same verified snapshot. HTTP 429 stops
+fallback and applies cooldown. Public service availability, format coverage and
+quotas remain external dependencies; they do not establish 1,000 origin downloads
+per second. See the [dated full-transfer evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md).
 
 ## Data and concurrency model
 

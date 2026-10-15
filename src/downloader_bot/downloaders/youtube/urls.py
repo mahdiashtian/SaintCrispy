@@ -1,5 +1,9 @@
 import re
 
+DEFAULT_RESOLVER = "https://cnv.cx"
+PUBLIC_METADATA_URL = "https://mw.mp3juice.blog/search.php"
+PUBLIC_ORIGIN = "https://iframe.y2meta-uk.com"
+
 PAGE_HOSTS = {
     "youtu.be",
     "youtube-nocookie.com",

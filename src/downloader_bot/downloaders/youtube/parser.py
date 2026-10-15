@@ -41,6 +41,91 @@ def canonical_url(identity: str) -> str:
     return f"https://www.youtube.com/watch?v={identity}"
 
 
+def public_metadata(payload, identity):
+    items = payload.get("items", []) if isinstance(payload, dict) else []
+    for item in items[:200] if isinstance(items, list) else []:
+        if not isinstance(item, dict) or item.get("id") != identity:
+            continue
+        parts = str(item.get("duration", "")).split(":")
+        if len(parts) not in (2, 3) or any(not p.isdigit() or len(p) > 3 for p in parts):
+            break
+        values = list(map(int, parts))
+        if values[-1] >= 60 or (len(values) == 3 and values[-2] >= 60):
+            break
+        seconds = sum(value * 60**index for index, value in enumerate(reversed(values)))
+        if seconds > 0:
+            return (
+                str(item.get("title") or identity)[:500],
+                str(item.get("channelTitle") or "YouTube")[:100],
+                seconds,
+            )
+    raise DownloadError(
+        "اطلاعات کامل همین ویدیو در مسیر عمومی پیدا نشد.",
+        code="youtube_public_metadata_unavailable",
+    )
+
+
+def public_download_url(value, identity):
+    if not isinstance(value, str) or len(value) > 16384:
+        return None
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname or ""
+        if (
+            parsed.scheme == "https"
+            and not parsed.port
+            and not parsed.username
+            and not parsed.password
+            and (host == "yt-dl.click" or host.endswith(".yt-dl.click"))
+            and parse_qs(parsed.query).get("vid") == [identity]
+        ):
+            return value
+    except ValueError:
+        pass
+    return None
+
+
+def public_video_info(data):
+    """Read this provider's bounded MP4 initialization header, including fMP4."""
+
+    def boxes(blob):
+        offset = 0
+        while offset + 8 <= len(blob):
+            size = int.from_bytes(blob[offset : offset + 4], "big")
+            if size < 8 or offset + size > len(blob):
+                return
+            yield bytes(blob[offset + 4 : offset + 8]), blob[offset + 8 : offset + size]
+            offset += size
+
+    def child(blob, tag):
+        return next((value for name, value in boxes(blob) if name == tag), b"")
+
+    movie = child(data, b"moov")
+    width = height = 0
+    audio, codec = False, ""
+    for tag, track in boxes(movie):
+        if tag != b"trak":
+            continue
+        mdia = child(track, b"mdia")
+        handler = child(mdia, b"hdlr")[8:12]
+        if handler == b"soun":
+            audio = True
+        if handler != b"vide":
+            continue
+        tkhd = child(track, b"tkhd")
+        if len(tkhd) < 84:
+            continue
+        width = int.from_bytes(tkhd[-8:-4], "big") >> 16
+        height = int.from_bytes(tkhd[-4:], "big") >> 16
+        if tkhd[-44:-40] == bytes(4) and tkhd[-28:-24] == bytes(4):
+            width, height = height, width
+        stsd = child(child(child(mdia, b"minf"), b"stbl"), b"stsd")
+        sample = next(boxes(stsd[8:]), None)
+        if sample and sample[0] in {b"avc1", b"avc3"}:
+            codec = "h264"
+    return width, height, audio, codec
+
+
 def number(value) -> float:
     return float(value) if isinstance(value, (int, float)) and math.isfinite(value) else 0
 

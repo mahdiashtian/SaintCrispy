@@ -4,14 +4,27 @@ import logging
 import os
 import sys
 import time
+from collections import OrderedDict
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
-from schemas.media import DownloadError, SiteHTTPError
+from core.bounded_curl import BoundedSession
+from core.source_http import CurlTransport
+from schemas.media import DownloadError, Media, Quality, SiteHTTPError, Source
 
-from .parser import codec, source_headers, usable
+from .parser import (
+    canonical_url,
+    codec,
+    public_download_url,
+    public_metadata,
+    public_video_info,
+    source_headers,
+    usable,
+)
+from .urls import DEFAULT_RESOLVER, PUBLIC_METADATA_URL, PUBLIC_ORIGIN
 
 log = logging.getLogger(__name__)
 RETRYABLE_EXTRACTION = {
@@ -25,12 +38,14 @@ RETRYABLE_EXTRACTION = {
 
 @dataclass(frozen=True)
 class YouTubeClient:
-    """Run yt-dlp outside the bot's event loop; only metadata crosses stdout."""
+    """Own isolated native extraction and anonymous public recovery sessions."""
 
     js_runtime: str = "node"
     cookies_file: str | None = field(default=None, repr=False)
     proxy: str = field(default="", repr=False)
     dns_resolver: str = field(default="", repr=False)
+    resolver_url: str = field(default="", repr=False)
+    resolver_proxy: str = field(default="", repr=False)
     player_clients: str | None = None
     pot_base_url: str | None = None
     timeout: float = 80
@@ -40,10 +55,36 @@ class YouTubeClient:
     _cooldowns: dict[str, float] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
+    _public_cache: OrderedDict = field(
+        default_factory=OrderedDict, init=False, repr=False, compare=False
+    )
+    _public_cooldown: dict = field(default_factory=dict, init=False, repr=False, compare=False)
+    _public_slots: asyncio.Semaphore = field(
+        default_factory=lambda: asyncio.Semaphore(2), init=False, repr=False, compare=False
+    )
+    _public_locks: tuple = field(
+        default_factory=lambda: tuple(asyncio.Lock() for _ in range(32)),
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self):
         if self.proxy and urlsplit(self.proxy).scheme != "http":
             raise DownloadError("YOUTUBE_PROXY باید نشانی یک پراکسی HTTP باشد.")
+        if self.resolver_url:
+            parsed = urlsplit(self.resolver_url)
+            if (
+                parsed.scheme != "https"
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError(
+                    "YouTube resolver must be an HTTPS base URL without credentials, query or fragment"
+                )
 
     @classmethod
     def from_environment(cls):
@@ -59,9 +100,290 @@ class YouTubeClient:
             dns_resolver=(
                 os.environ.get("YOUTUBE_DOH_URL", "") if not os.environ.get("YOUTUBE_PROXY") else ""
             ),
+            resolver_url=os.environ.get("YOUTUBE_RESOLVER_URL", DEFAULT_RESOLVER),
+            resolver_proxy=os.environ.get("YOUTUBE_PROXY", ""),
             player_clients=player_clients,
             pot_base_url=pot_base_url,
         )
+
+    async def _public_json(self, http, method, url, **options):
+        if self._public_cooldown.get("until", 0) > time.monotonic():
+            raise SiteHTTPError(429, "مسیر عمومی یوتیوب موقتاً محدود شده؛ کمی بعد امتحان کن.")
+        async with http.stream(method, url, **options) as response:
+            operation = (
+                "request_key"
+                if url.endswith("/key")
+                else "convert"
+                if url.endswith("/converter")
+                else "metadata"
+            )
+            log.debug(
+                {
+                    "event": "youtube_public_response",
+                    "operation": operation,
+                    "http_status": response.status_code,
+                }
+            )
+            if response.status_code == 429:
+                self._public_cooldown["until"] = time.monotonic() + 60
+                raise SiteHTTPError(429, "مسیر عمومی یوتیوب موقتاً محدود شده؛ کمی بعد امتحان کن.")
+            response.raise_for_status()
+            body = bytearray()
+            async for chunk in response.aiter_bytes(8192):
+                body.extend(chunk)
+                if len(body) > 1024 * 1024:
+                    raise ValueError("Public metadata exceeds limit")
+        return json.loads(body)
+
+    @asynccontextmanager
+    async def _public_session(self):
+        async with BoundedSession(
+            impersonate="chrome",
+            discard_cookies=True,
+            trust_env=False,
+            proxy=self.resolver_proxy or None,
+        ) as browser:
+            async with httpx.AsyncClient(
+                transport=CurlTransport(browser),
+                trust_env=False,
+                timeout=12,
+                headers={"Origin": PUBLIC_ORIGIN, "Referer": PUBLIC_ORIGIN + "/"},
+            ) as api:
+                # Preserve the real impersonation profile instead of HTTPX's default UA.
+                api.headers.pop("User-Agent", None)
+                yield api
+
+    async def _public_convert(self, api, identity, kind, value, seconds):
+        async with self._public_slots:
+            link = canonical_url(identity)
+            key = await self._public_json(
+                api, "GET", self.resolver_url.rstrip("/") + "/v2/sanity/key", params={"link": link}
+            )
+            key = key.get("key") if isinstance(key, dict) else None
+            if not isinstance(key, str) or not 1 <= len(key) <= 8192 or "\n" in key or "\r" in key:
+                raise ValueError("Missing public request key")
+            result = await self._public_json(
+                api,
+                "POST",
+                self.resolver_url.rstrip("/") + "/v2/converter",
+                json={
+                    "link": link,
+                    "format": kind,
+                    "audioBitrate": value if kind == "mp3" else "128",
+                    "videoQuality": value if kind == "mp4" else "360",
+                    "vCodec": "h264",
+                    "filenameStyle": "pretty",
+                },
+                headers={"key": key},
+            )
+            if not isinstance(result, dict) or result.get("status") not in {"tunnel", "redirect"}:
+                raise ValueError("Public conversion unavailable")
+            target = public_download_url(result.get("url"), identity)
+            if not target:
+                raise ValueError("Public result identity or destination mismatch")
+            source = Source(
+                target,
+                "progressive",
+                headers={"Referer": PUBLIC_ORIGIN + "/"},
+                proxy=self.resolver_proxy,
+                duration=seconds,
+                require_audio=kind == "mp4",
+            )
+            async with httpx.AsyncClient(
+                trust_env=False, proxy=self.resolver_proxy or None, timeout=12
+            ) as cdn:
+                async with cdn.stream(
+                    "GET",
+                    target,
+                    headers={
+                        **source.headers,
+                        "Range": "bytes=0-262143",
+                        "Accept-Encoding": "identity",
+                    },
+                ) as response:
+                    response.raise_for_status()
+                    sample = bytearray()
+                    async for chunk in response.aiter_bytes(16384):
+                        sample.extend(chunk)
+                        if len(sample) >= 256 * 1024:
+                            break
+            if kind == "mp4":
+                width, height, audio, family = public_video_info(sample)
+                if not width or not height or not audio or family != "h264":
+                    raise ValueError("Missing playable public MP4 header")
+                quality = Quality(
+                    f"public_video_{height}p_h264_mp4",
+                    f"{height}p · H264 · MP4",
+                    "h264",
+                    None,
+                    "mp4",
+                    "video/mp4",
+                    "progressive",
+                    f"public:mp4:{value}",
+                    width=width,
+                    height=height,
+                    duration=seconds,
+                )
+            else:
+                if not (
+                    sample.startswith(b"ID3")
+                    or any(
+                        sample[index] == 255 and sample[index + 1] & 224 == 224
+                        for index in range(min(1024, len(sample) - 1))
+                    )
+                ):
+                    raise ValueError("Missing public MP3 header")
+                quality = Quality(
+                    f"public_audio_mp3_{value}",
+                    f"MP3 · {value}kbps",
+                    "mp3",
+                    int(value),
+                    "mp3",
+                    "audio/mpeg",
+                    "progressive",
+                    f"public:mp3:{value}",
+                    duration=seconds,
+                )
+            return quality, source
+
+    async def public_inspect(self, identity):
+        if not self.resolver_url or self.cookies_file:
+            raise DownloadError(code="youtube_public_disabled")
+        try:
+            async with asyncio.timeout(35):
+                async with self._public_locks[hash(identity) % len(self._public_locks)]:
+                    return await self._public_inspect(identity)
+        except TimeoutError as error:
+            raise DownloadError(
+                "دریافت اطلاعات مسیر عمومی یوتیوب طولانی شد؛ کمی بعد امتحان کن.",
+                code="youtube_public_unavailable",
+            ) from error
+
+    async def _public_inspect(self, identity):
+        cached = self._public_cache.get(identity)
+        if cached and cached[0] > time.monotonic():
+            self._public_cache.move_to_end(identity)
+            return cached[1]
+        try:
+            async with asyncio.timeout(35):
+                async with self._public_session() as api:
+                    metadata = await self._public_json(
+                        api, "GET", PUBLIC_METADATA_URL, params={"q": identity}
+                    )
+                    title, author, seconds = public_metadata(metadata, identity)
+                    results = await asyncio.gather(
+                        *(
+                            self._public_convert(api, identity, kind, value, seconds)
+                            for kind, value in (
+                                ("mp4", "360"),
+                                ("mp4", "720"),
+                                ("mp4", "1080"),
+                                ("mp3", "128"),
+                            )
+                        ),
+                        return_exceptions=True,
+                    )
+                rows = {}
+                for result in results:
+                    if isinstance(result, SiteHTTPError) and result.status == 429:
+                        raise result
+                    if isinstance(result, (httpx.HTTPError, TimeoutError, ValueError)):
+                        log.warning(
+                            {
+                                "event": "youtube_public_quality_unavailable",
+                                "error_type": type(result).__name__,
+                            }
+                        )
+                        continue
+                    if isinstance(result, BaseException):
+                        raise result
+                    quality, source = result
+                    rows.setdefault(quality.key, (quality, source))
+                if not rows:
+                    raise ValueError("No verified public sources")
+                media = Media(
+                    "youtube",
+                    identity,
+                    title,
+                    author,
+                    seconds,
+                    canonical_url(identity),
+                    f"https://i.ytimg.com/vi/{identity}/hqdefault.jpg",
+                    tuple(q for q, _ in rows.values()),
+                    account_id="public_resolver",
+                )
+                self._public_cache[identity] = (time.monotonic() + 15, media, rows)
+                self._public_cache.move_to_end(identity)
+                while len(self._public_cache) > 128:
+                    self._public_cache.popitem(last=False)
+                log.info({"event": "youtube_public_extracted", "qualities": len(rows)})
+                return media
+        except SiteHTTPError:
+            raise
+        except (httpx.HTTPError, TimeoutError, ValueError) as error:
+            log.warning(
+                {"event": "youtube_public_inspection_failed", "error_type": type(error).__name__}
+            )
+            raise DownloadError(
+                "مسیر عمومی دریافت این ویدیو پاسخ قابل استفاده نداد.",
+                code="youtube_public_unavailable",
+            ) from error
+
+    async def public_resolve(self, media, quality):
+        if not self.resolver_url or self.cookies_file:
+            raise DownloadError(code="youtube_public_disabled")
+        try:
+            async with asyncio.timeout(30):
+                async with self._public_locks[hash(media.content_id) % len(self._public_locks)]:
+                    return await self._public_resolve(media, quality)
+        except TimeoutError as error:
+            raise DownloadError(
+                "دریافت لینک تازه یوتیوب طولانی شد؛ کمی بعد امتحان کن.",
+                code="youtube_public_unavailable",
+            ) from error
+
+    async def _public_resolve(self, media, quality):
+        cached = self._public_cache.get(media.content_id)
+        if cached and cached[0] > time.monotonic():
+            candidate = cached[2].get(quality.key)
+            if candidate and candidate[0] == quality:
+                expiry = parse_qs(urlsplit(candidate[1].url).query).get("exp", [""])[0]
+                if not expiry.isdigit() or int(expiry) / 1000 > time.time() + 10:
+                    return candidate[1]
+        parts = quality.endpoint.split(":")
+        if (
+            len(parts) != 3
+            or parts[0] != "public"
+            or (parts[1], parts[2])
+            not in {("mp4", "360"), ("mp4", "720"), ("mp4", "1080"), ("mp3", "128")}
+        ):
+            raise DownloadError("کیفیت انتخاب‌شده معتبر نیست.")
+        try:
+            async with asyncio.timeout(30):
+                async with self._public_session() as api:
+                    current, source = await self._public_convert(
+                        api, media.content_id, parts[1], parts[2], media.duration
+                    )
+            if (current.key, current.width, current.height) != (
+                quality.key,
+                quality.width,
+                quality.height,
+            ):
+                raise ValueError("Public rendition changed")
+            rows = dict(cached[2]) if cached and cached[1] == media else {}
+            rows[quality.key] = (quality, source)
+            self._public_cache[media.content_id] = (time.monotonic() + 15, media, rows)
+            self._public_cache.move_to_end(media.content_id)
+            while len(self._public_cache) > 128:
+                self._public_cache.popitem(last=False)
+            return source
+        except SiteHTTPError:
+            raise
+        except (httpx.HTTPError, TimeoutError, ValueError) as error:
+            raise DownloadError(
+                "دریافت لینک تازه این کیفیت ناموفق بود؛ لینک پست را دوباره بفرست.",
+                code="youtube_public_unavailable",
+            ) from error
 
     async def available(self, items: list[dict]) -> set[str]:
         """Small same-egress samples; never list a format solely from metadata."""

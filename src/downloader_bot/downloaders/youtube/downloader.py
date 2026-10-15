@@ -36,7 +36,28 @@ class YouTubeDownloader(Downloader):
     async def inspect(self, url: str) -> Media:
         try:
             async with asyncio.timeout(85):
-                return await self._inspect(url)
+                public = bool(getattr(self.client, "resolver_url", "")) and not getattr(
+                    self.client, "cookies_file", None
+                )
+                try:
+                    async with asyncio.timeout(45 if public else 85):
+                        return await self._inspect(url)
+                except DownloadError as error:
+                    if not public or error.code not in {
+                        "youtube_login_required",
+                        "youtube_extraction_failed",
+                        "youtube_cdn_forbidden",
+                        "youtube_cdn_unavailable",
+                        "youtube_cdn_connection_failed",
+                        "youtube_connection_failed",
+                        "youtube_extraction_timeout",
+                        "youtube_js_challenge_failed",
+                    }:
+                        raise
+                except TimeoutError:
+                    if not public:
+                        raise
+                return await self.client.public_inspect(video_id(url))
         except TimeoutError as error:
             raise DownloadError(
                 "دریافت اطلاعات یوتیوب طولانی شد. کمی بعد دوباره امتحان کن.",
@@ -143,6 +164,8 @@ class YouTubeDownloader(Downloader):
         identity = video_id(media.page_url)
         if identity != media.content_id:
             raise DownloadError("شناسه ویدیو معتبر نیست؛ لینک را دوباره بفرست.")
+        if media.account_id == "public_resolver":
+            return await self.client.public_resolve(media, quality)
         try:
             client = self.client if media.account_id == "guest" else self.accounts[media.account_id]
         except KeyError:

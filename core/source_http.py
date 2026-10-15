@@ -34,6 +34,7 @@ class CurlTransport(httpx.AsyncBaseTransport):
                 request.method,
                 str(request.url),
                 headers=dict(request.headers),
+                data=(await request.aread()) or None,
                 allow_redirects=False,
                 stream=True,
                 timeout=30,

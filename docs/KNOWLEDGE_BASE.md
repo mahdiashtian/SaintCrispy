@@ -25,6 +25,12 @@ Detailed dated evidence is in [provider verification](PROVIDER_VERIFICATION.md),
 [operations](OPERATIONS.md). Sanitized Actions reports provide independent evidence;
 private workstation reports remain in ignored `.runtime/`.
 
+Latest October 15 result: both reported identities passed fresh anonymous native
+provider inspection/resolution and complete project transfer validation. Instagram
+used its public resolver and original CDN; YouTube used a separately implemented
+public converter fallback. See the final dated section of the access investigation
+for byte counts, durations, hashes, dependencies and the untested Telegram boundary.
+
 ## Provider identity and isolation
 
 | Provider | Stable identity | Do not use as the durable file identity |
@@ -60,6 +66,11 @@ or youtube-dl is not evidence of a working alternative for a modern challenge.
 | October 15 workstation public-DNS comparison, no account | yt-dlp extracted 65 formats; PyTubeFix 11.2.0 `ANDROID_VR` extracted 25 streams. PyTubeFix's native download returned HTTP 403, while small HTTP Range header probes succeeded | Compare extraction and actual CDN transfer separately; library metadata is insufficient |
 | October 15 complete guest YouTube transfer with corrected DNS | Project transfer/MP4 validation consumed 58,521,501 video bytes (1,300.5 s) and 21,048,861 audio bytes (1,300.55 s) to EOF, twice; the second run used the optional production DNS tunnel | This verifies those accepted sources on this workstation, not fresh extraction or Telegram delivery |
 | Fresh extraction after the successful guest capture | Native yt-dlp worker, repeated API extraction and PyTubeFix were subsequently challenged; `VISION_OS` returned bot detection and `TV_EMBED` timed out | Do not claim that DNS alone cures the player challenge; wait for changed origin/connection evidence rather than hammering |
+| Later October 15 local bgutil 2.0.2 helper with native mweb/web_safari and forced player/GVS token contexts | The healthy helper actually minted tokens, but the exact video still returned a login challenge; TV Samsung bootstrap/alternate API-host and HTTP/3 methods also failed | Token generation alone is not accepted player access; revisit on a documented origin/client change |
+| Simatwa/ytube-api public protocol comparison | The current request-key API requires a canonical `link` query parameter omitted by the reviewed wrapper; adding it produced a fresh anonymous download URL. The metadata host redirected from `wwd` to `mw.mp3juice.blog`; use the verified HTTPS endpoint | Revisit protocol/host changes after a specific failure; do not guess player names or treat HTTP 200 alone as media |
+| Final native project YouTube fallback, reported exact ID | Fresh anonymous inspection listed actual 360p/720p/1080p H264+audio and MP3 128. Every listed option reached EOF and passed project integrity checks: 36,176,593 / 56,705,073 / 143,789,188 / 20,808,765 bytes respectively; video duration 1300.5 s, audio 1300.536 s | Verified on this workstation, without Telegram or production access; third-party service availability and quotas remain external |
+| Public signed URL reused after expiry | Returned 404. Fresh key/conversion immediately followed by full consumption worked. URLs expire in approximately 60 seconds; native selection refreshes short-lived sources and validates exact ID/dimensions | Regenerate on selection after snapshot/URL expiry; do not persist signed URLs or loop the expired one |
+| Public converter requested with `format=m4a` | HTTP 400; MP3 128 succeeded completely and is labeled as conversion rather than original AAC | Only add other audio formats after current API acceptance and full validation |
 
 Upstream [PR 17805](https://github.com/yt-dlp/yt-dlp/pull/17805) changed default
 clients on October 10. The [official nightly release](https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/tag/2026.10.10.233141)
