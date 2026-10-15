@@ -277,3 +277,22 @@ challenge, test an authorized session and accepted provider route. Installing No
 or reinstalling packages does not create those credentials. Instagram has no Node
 requirement; its current session/query/route rejection needs its own evidence.
 Do not retry the same rejected guest route in a loop or publish secrets.
+
+### Operator's production result after reinstall
+
+The next supplied report confirms that yt-dlp now matches the nightly pin. Node
+remains unavailable (`node: command not found`); no default credentials, proxy or
+helper were configured. Header-only production probes returned YouTube HTTP 200
+in 0.101 seconds and Instagram HTTP 200 in 0.241 seconds. The operator's subsequent
+bot messages still report `youtube_login_required` and `instagram_http_forbidden`.
+The agent did not SSH into or modify that host.
+
+Production can reach both public pages. This is distinct from the workstation's
+TCP/browser timeouts and does not establish access to player APIs, GraphQL or CDN
+media. The package mismatch is resolved; do not repeatedly reinstall unchanged
+dependencies as the remedy. Restore a supported Node executable for the actual
+Python/supervisor environment, then run the same-host `--live` diagnostic once.
+Its safe `instagram_origin_response.operation` and `instagram_query_failed` logs
+identify which extraction methods were rejected. A 403 is evidence of HTTP refusal,
+not proof of its policy reason or proof that a cookie will always fix it. Authorized
+session/accepted-route validation remains separate from JavaScript installation.

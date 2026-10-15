@@ -434,3 +434,15 @@ Validation: 188 affected provider, diagnostic, architecture, nonblocking and
 code-language tests passed, with two expected Windows curl-cffi selector warnings.
 Ruff lint/formatting passed. These are code checks; both new local full-stream
 attempts remain failed, and production download recovery remains unverified.
+
+The operator's next production report confirms the editable reinstall succeeded:
+yt-dlp now matches 2026.10.10.233141.dev0 and the only reported deployment issue
+is unavailable Node. Header-only probes received YouTube HTTP 200 in 0.101 seconds
+and Instagram HTTP 200 in 0.241 seconds. Subsequent real bot requests still returned
+YouTube login-required and Instagram HTTP 403. This disproves a total production
+connectivity outage; it does not prove player/GraphQL/CDN authorization. Do not
+keep prescribing a package reinstall after the pin already matches. Node runtime
+availability still needs repair, but is unrelated to Instagram and does not by
+itself clear YouTube login challenges. The failing Instagram operation must be
+identified from the safe origin-response/query logs or a same-host live check;
+HTTP 403 alone does not establish whether a query, session or IP policy caused it.
