@@ -468,3 +468,16 @@ This corrects reporting parity; it is not a live-access workaround.
 The 34 affected diagnostic, architecture, provider-boundary, nonblocking and
 code-language tests passed, with one expected Windows curl-cffi selector warning;
 lint and formatting passed. No new unchanged-condition origin retry was performed.
+
+At the operator's explicit request, one fresh bounded workstation full-stream run
+tested the exact YouTube `l6zflbTGNFQ` and Instagram `DeR9eU8idi0` identities at
+07:53 UTC on October 15. Python 3.13.14, Node 22.23.2 and all reported package pins
+were available, with no deployment issues or configured default cookies/proxies/helper.
+Both inspections failed with extraction timeouts before resolving any source;
+zero complete streams and zero Telegram messages were produced. Instagram's
+bootstrap, page, ruling, root and web GraphQL requests each logged connection
+failures at approximately ten seconds, without origin HTTP status. This is not the
+production login/403 result and not evidence that the reported posts were deleted.
+The private report is `.runtime/workstation-20261015-direct.json`; raw reports and
+local network configuration remain ignored. No extraction code changed for this
+check. Further identical local guest retries need changed route/session evidence.

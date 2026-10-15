@@ -339,3 +339,24 @@ The diagnostic now loads `.env` exactly like the bot and audit child: explicit
 file overrides inherited shell values, UTF-8 BOM is accepted and interpolation is
 disabled. This fixes misleading configuration reporting; it cannot authenticate
 a rejected origin request by itself.
+
+### Fresh workstation test requested by the operator
+
+At 07:53 UTC (11:23 Asia/Tehran) on October 15, one fresh full-stream audit tested
+the exact two reported identities on this Windows workstation. Node 22.23.2,
+Python 3.13.14 and the pinned packages were available; no default cookies, provider
+proxy or helper were configured. The test used direct provider connections, a
+180-second case limit and the diagnostic's normal 64 MiB per-stream cap. It made
+no Telegram requests and retained no complete media on disk.
+
+| Input | Inspection | Complete streams | Result |
+| --- | --- | ---: | --- |
+| YouTube `l6zflbTGNFQ` | Failed before source resolution | 0 | `youtube_extraction_timeout` |
+| Instagram `DeR9eU8idi0` | Failed before source resolution | 0 | `instagram_extraction_timeout` |
+
+Instagram's bootstrap, page, ruling, root GraphQL and web GraphQL requests logged
+connection failures around ten seconds each, without HTTP responses. Neither
+provider reached transfer/completeness verification. The private sanitized report
+is `.runtime/workstation-20261015-direct.json`. These fresh failures are workstation
+results; the production host was not used or changed. No alternative was claimed
+successful and no new extraction fallback was added without live evidence.
