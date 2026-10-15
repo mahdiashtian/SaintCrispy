@@ -23,12 +23,14 @@ class RequestLimiter:
         *,
         cache_capacity=100000,
         admission_repository=None,
+        groups=None,
     ):
         if interval_seconds < 1:
             raise ValueError("Request interval must be positive")
         self.interval = interval_seconds
         self.repository = repository
         self.admission_repository = admission_repository
+        self.groups = groups
         self.telemetry = telemetry
         if cache_capacity < 1:
             raise ValueError("Admission cache capacity must be positive")
@@ -37,6 +39,13 @@ class RequestLimiter:
         self._deadlines: OrderedDict[tuple[int, str], float] = OrderedDict()
 
     async def check_link(self, user_id, chat_id, request_id) -> bool:
+        if chat_id < 0 and self.groups is not None:
+            await self.check(
+                user_id,
+                "inspect",
+                claim=lambda: self.groups.claim_link(user_id, chat_id, request_id, self.interval),
+            )
+            return True
         if self.admission_repository is None:
             await self.check(user_id, "inspect")
             return False
@@ -66,6 +75,8 @@ class RequestLimiter:
                             if claim is not None
                             else await self.repository.claim_request(user_id, scope, self.interval)
                         )
+                    except DownloadError:
+                        raise
                     except Exception as error:
                         if self.telemetry is not None:
                             self.telemetry.emit(

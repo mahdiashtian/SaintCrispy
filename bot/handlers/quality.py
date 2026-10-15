@@ -130,7 +130,7 @@ async def run_transfer(event, service, menu, index, status, progress, conversati
         if progress.error:
             progress.phase = "error"
             if status is None:
-                await event.respond(progress.error, parse_mode=None)
+                await event.respond(progress.error, parse_mode=None, reply_to=menu.message_id)
         if conversations:
             await conversations.finish_transfer(
                 event.sender_id,

@@ -39,10 +39,12 @@ from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.youtube.client import YouTubeClient
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
 from downloader_bot.downloaders.youtube.urls import network_host as youtube_network_host
+from repositories.postgres.group import GroupRepository
 from repositories.postgres.unit_of_work import PostgresUnitOfWork
 from repositories.postgres.workflow import WorkflowRepository
 from repositories.redis.media import FileRepository
 from services.download import DownloadService
+from services.group import GroupService
 from services.limits import RequestLimiter
 from services.observability import Telemetry, error_fields
 from services.user import UserService
@@ -261,6 +263,9 @@ class Container:
         workflow = WorkflowRepository(pool, bot.id)
         conversations = ConversationManager(PostgresStateStorage(workflow))
         self.uow_factory = lambda: PostgresUnitOfWork(pool, bot.id)
+        groups = GroupService(
+            GroupRepository(pool, bot.id), self.uow_factory, settings.group_links_per_minute
+        )
         recovered = await workflow.recover()
         telemetry.emit("conversations_recovered", interrupted_requests=recovered)
         menus = PersistentMenuStore(
@@ -271,11 +276,13 @@ class Container:
             repository,
             telemetry=telemetry,
             admission_repository=workflow,
+            groups=groups,
         )
         self.client = client
         self.pool = pool
         self.repository = repository
         self.workflow = workflow
+        self.groups = groups
         self.conversations = conversations
         self.service = service
         self.jobs = jobs
@@ -291,6 +298,8 @@ class Container:
             bot_username=bot.username,
             presentation=presentation,
             max_link_handlers=settings.max_requests,
+            groups=groups,
+            bot_id=bot.id,
         )
         await catch_up_bot(client, telemetry)
         telemetry.emit("bot_ready", bot_username=bot.username)

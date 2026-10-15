@@ -44,7 +44,8 @@ class LimitedHandlers:
         now = time.monotonic()
         while self._warnings and next(iter(self._warnings.values())) <= now:
             self._warnings.popitem(last=False)
-        key = event.sender_id, event.chat_id, reason
+        owner = None if event.chat_id < 0 and reason == "group_rate_limited" else event.sender_id
+        key = owner, event.chat_id, reason
         if self._error_replies >= 32 or (reason and self._warnings.get(key, 0) > now):
             self._count("link_error_replies_suppressed")
             return
@@ -56,7 +57,7 @@ class LimitedHandlers:
         self._error_replies += 1
         try:
             async with asyncio.timeout(5):
-                await event.respond(text, parse_mode=None)
+                await event.respond(text, parse_mode=None, reply_to=getattr(event, "id", None))
         except Exception as error:
             self._count("link_error_reply_failures")
             log.warning({"event": "link_error_reply_failed", **error_fields(error)})

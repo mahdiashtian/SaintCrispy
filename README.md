@@ -238,6 +238,21 @@ versus a 14.409 s metadata failure with the preceding revision on this workstati
 Full 360p/720p and MP3 transfers passed completeness checks with simulated Telegram
 calls. See the [dated metadata and transfer evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md#october-15-unindexed-video-metadata-and-menu-latency).
 
+## Group downloads
+
+Supported links also work in basic groups and supergroups without `/start` or a
+private conversation. The bot replies to the link with its quality menu; its
+sender chooses, and progress/files stay in that group. Set
+`GROUP_LINKS_PER_MINUTE=5` in `.env` for the shared rolling 60-second group quota.
+The existing per-user interval still applies. PostgreSQL admits both quotas
+atomically and preserves them across restarts. Added/re-added, removed, promoted,
+demoted and migration events update the group snapshot and durable audit, with
+safe events in `logs/activity.log`. Migration 7 is additive.
+
+For plain group links to reach the bot, make it an admin or disable its privacy
+mode through BotFather (`/setprivacy`). See [Telegram's message visibility rules](https://core.telegram.org/bots/faq#what-messages-will-my-bot-get)
+and the [group setup, schema and event guide](docs/GROUPS.md).
+
 ## Data and concurrency model
 
 A file's database key is `(site, content_id, quality, telegram_account_id)`. PostgreSQL upserts prevent duplicate rows. Content IDs are provider-owned: SoundCloud numeric track IDs, YouTube video IDs, Instagram media/story IDs, Pinterest pin/asset IDs, and XVideos/XNXX canonical video IDs. Album order and temporary CDN query strings do not determine asset identity.

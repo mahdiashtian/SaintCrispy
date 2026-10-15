@@ -13,6 +13,7 @@ from downloader_bot.downloaders.xnxx.handler import register_handler as register
 from downloader_bot.downloaders.xvideos.handler import register_handler as register_xvideos
 from downloader_bot.downloaders.youtube.handler import register_handler as register_youtube
 
+from .groups import GROUP_UPDATES, GroupTracker
 from .home import handle_home
 from .limited import LimitedHandlers
 from .quality import handle_quality
@@ -34,15 +35,33 @@ log = logging.getLogger("activity")
 class Dispatcher:
     """Isolate every update and validate user context before any side effect."""
 
-    def __init__(self, client):
+    def __init__(self, client, groups=None):
         self.client = client
+        self.groups = groups
 
     def add_event_handler(self, callback, builder):
+        self._register(callback, builder, require_user=True)
+
+    def add_system_handler(self, callback, builder):
+        self._register(callback, builder, require_user=False)
+
+    def _register(self, callback, builder, *, require_user):
         async def dispatch(event):
-            if not has_user_context(event):
+            if require_user and not has_user_context(event):
                 log.warning({"event": "update_context_rejected"})
                 return
             try:
+                if (
+                    require_user
+                    and getattr(event, "is_channel", False)
+                    and getattr(event, "is_group", None) is None
+                ):
+                    # A cold callback cache may not know whether this channel is
+                    # a supergroup. Trust the persisted group kind, never guess.
+                    known = await self.groups.get(event.chat_id) if self.groups else None
+                    if known is None or known["chat_kind"] != "supergroup":
+                        log.warning({"event": "update_group_context_unknown"})
+                        return
                 await callback(event)
             except errors.RPCError as error:
                 log.warning(
@@ -72,8 +91,17 @@ def register_handlers(
     bot_username=None,
     presentation=None,
     max_link_handlers=1000,
+    groups=None,
+    bot_id=None,
 ) -> None:
-    client = Dispatcher(client)
+    tracker = GroupTracker(client, groups, bot_id) if groups is not None else None
+    client = Dispatcher(client, groups)
+    if tracker:
+        client.add_system_handler(tracker.handle_update, events.Raw(GROUP_UPDATES))
+        client.add_system_handler(
+            tracker.observe,
+            events.NewMessage(incoming=True, func=lambda event: event.is_group),
+        )
     client.add_event_handler(
         partial(
             handle_start,
@@ -82,6 +110,7 @@ def register_handlers(
             conversations=conversations,
             users=users,
             presentation=presentation,
+            group_limit=getattr(groups, "links_per_minute", 5),
         ),
         events.NewMessage(incoming=True, pattern=r"^/start(?:@\w+)?(?:\s.*)?$"),
     )

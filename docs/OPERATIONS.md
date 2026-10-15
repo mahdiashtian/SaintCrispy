@@ -199,7 +199,7 @@ conditions. See the [dated evidence](YOUTUBE_INSTAGRAM_ACCESS.md#anonymous-githu
 The reference-layout upgrade moves application imports to root packages. Reinstall
 the editable project after pulling so `core`, `db`, `schemas`, `repositories`,
 `services`, `bot` and `container` are registered together with the provider package.
-`scripts/migrate.py` uses the same idempotent six-revision ledger as startup and
+`scripts/migrate.py` uses the same idempotent migration ledger as startup and
 needs only database configuration. It does not reset volumes or require Telegram
 credentials. Existing ports, passwords, file references, menus, histories and
 account-scoped session paths remain valid. Details are in

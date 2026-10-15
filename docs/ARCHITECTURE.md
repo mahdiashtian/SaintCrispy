@@ -30,7 +30,8 @@ Handlers do not execute SQL or Redis commands. Business services do not import T
 ## Deliberate backend choices
 
 The database driver remains native asyncpg. `db/postgres/models` owns executable
-table/constraint definitions; `migrations.py` retains the existing six revisions.
+table/constraint definitions; `migrations.py` retains the existing revisions and
+adds version 7 for group lifecycle/audit/quota storage.
 `Database` owns the asynchronous pool. `PostgresUnitOfWork` acquires one private
 connection, binds its repositories to that connection and commits or rolls back
 on context exit, including cancellation. The container injects a factory into
@@ -42,6 +43,16 @@ history is replaced.
 Migrations are additive and tracked in `app_schema_migrations`. Startup acquires a transaction-scoped migration lock and applies unapplied versions in one transaction. Version 1 adopts existing tables; version 2 adds users, conversations and owned menus; version 3 adds `video_streaming`; version 4 adds `verified_complete` with a false default for legacy references; version 5 adds nullable `video_preview`; version 6 adds nullable `video_faststart` for a complete classic MP4 index at the front. Older video references are checked or repaired on demand. Catalog alias writes use one SQL transaction. File and history writes retain unique-key upserts. Tests cover adoption of an existing database and concurrent migration attempts.
 
 Redis is an optional, evictable accelerator. PostgreSQL is authoritative for files, admission, conversations and menus. This provides the reference's durable, non-expiring conversation semantics without introducing a third Docker database or relying on Redis availability for state. `REDIS_CACHE_URL` can select an independent cache endpoint; blank uses the existing URL derived from `.env` ports.
+
+Groups follow the same layer direction with a framework-independent `GroupChange`,
+`GroupService` and a UoW-bound group repository. Raw self-membership and service
+updates bypass only the human-request gate, while retaining dispatch exception
+isolation. A negative chat ID and verified group kind prevent phantom peers.
+Snapshot/audit writes and group/user quota admission each commit atomically.
+Ordinary message discovery does not overwrite known lifecycle standing. Details
+and nullable-state/ordering rules are in [group architecture](GROUPS.md).
+Migration 7 adds `bot_groups`, `group_events` and `group_request_limits`; no
+existing revisions or data are replaced.
 
 The cache pool waits for capacity for up to two seconds, caps connections at 16 and
 is owned/closed by its client. Central key factories and strict file envelopes
@@ -64,7 +75,7 @@ Pure parsing, validation and button formatting remain synchronous functions.
 
 ## Conversation and transfer flow
 
-1. Any supported link registers the user, with `is_started=false` unless `/start` was previously used. This flag is analytics, never authorization.
+1. Any supported link registers the user, with `is_started=false` unless `/start` was previously used in private. This flag is analytics, never authorization.
 2. Atomic rate admission allows one inspection per configured interval across all chats. The state becomes `INSPECTING` with a request correlation ID.
 3. A successful inspection persists the owned quality menu and enters `CHOOSING_QUALITY`. A failed inspection becomes `FAILED` only if it still owns the current operation.
 4. A quality callback validates the bot, owner, chat and index before reserving a bounded transfer task. The state becomes `TRANSFERRING` with its stable transfer ID.

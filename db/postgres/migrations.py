@@ -1,6 +1,6 @@
 """Ordered additive migrations; preserve the existing version ledger."""
 
-from .models import SCHEMA, WORKFLOW_SCHEMA
+from .models import GROUP_SCHEMA, SCHEMA, WORKFLOW_SCHEMA
 
 MIGRATIONS = (
     (1, "existing_media_schema", SCHEMA),
@@ -26,4 +26,5 @@ MIGRATIONS = (
         "indexed_video_references",
         "ALTER TABLE media_files ADD COLUMN IF NOT EXISTS video_faststart BOOLEAN;",
     ),
+    (7, "group_lifecycle_and_admission", GROUP_SCHEMA),
 )

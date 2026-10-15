@@ -56,6 +56,38 @@ six-file folder. Shared models and generic transfer/database/Telegram infrastruc
 are allowed. Similar provider implementations must not be merged into a shared
 concrete extractor in violation of `AGENTS.md`.
 
+## Group lifecycle and admission (October 15)
+
+The supplied Couplyo reference was used for negative group identity, private UoW,
+unknown standing, replay and event ordering. Basic-group/supergroup downloads now
+retain the original link reply, owner-only quality choice and same-chat delivery
+for all six providers. No provider implementation was shared or changed.
+
+Migration 7 adds bot-scoped snapshots, a durable replay-safe audit and a rolling
+60-second group quota. `GROUP_LINKS_PER_MINUTE` defaults to five; the per-user
+interval still applies globally. Real isolated workstation PostgreSQL tests sent
+1,000 concurrent group admissions: five grants, 995 group denials, five users and
+five owned conversations. Denials do not consume the other quota; rollback and
+restart preserve the rules. Ordinary observations must not advance an existing
+lifecycle watermark or resurrect a removed group. Telegram access/timeout errors
+are unknown evidence, not a removal/demotion. Group migration carries quota once.
+
+The installed Telethon `ChatAction` build logic omits many promotions/demotions.
+Use raw self-participant updates plus service messages, not that event alone.
+Tests must construct patched `MessageService` with keyword `action=`: its unified
+constructor otherwise interprets the fourth positional argument as message text,
+leaving action empty. An initial test failed for this fixture mistake; corrected
+Telegram-shaped fixtures exercised the unchanged raw-service interpretation.
+
+Group flow/origin/Telegram tests use simulated network boundaries; no live group
+or production claim follows. The database tests use isolated real PostgreSQL 17
+and Redis 7.4. Bots need admin standing or disabled Telegram privacy mode to
+receive unaddressed group links. Startup cannot invent an inventory of unseen
+groups; received activity provides lazy discovery. Full design, deployment and
+verification scope are in [the group guide](GROUPS.md).
+Final current-tree validation passed **998 tests, zero skips**, with dedicated
+PostgreSQL/Redis; lint/format and architecture checks passed for 235 Python files.
+
 ## YouTube
 
 October 15 unindexed-video fix: the newly reported `-YVIEsTEZCw` was absent from

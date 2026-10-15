@@ -1,0 +1,13 @@
+from typing import Protocol
+
+from schemas.group import GroupChange
+
+
+class GroupRepository(Protocol):
+    async def get(self, chat_id: int): ...
+
+    async def record(self, change: GroupChange): ...
+
+    async def claim_link(self, user_id, chat_id, request_id, interval, limit): ...
+
+    async def migrate(self, old_id, new_id, occurred_at): ...

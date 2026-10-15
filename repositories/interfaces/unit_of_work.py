@@ -3,6 +3,7 @@
 from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 
+from .group import GroupRepository
 from .media import MediaRepository
 from .workflow import StateStorage, UserRepository
 
@@ -14,6 +15,7 @@ class WorkflowStore(StateStorage, UserRepository, Protocol):
 class UnitOfWork(Protocol):
     workflow: WorkflowStore
     media: MediaRepository
+    groups: GroupRepository
 
 
 class UnitOfWorkFactory(Protocol):

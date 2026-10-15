@@ -95,6 +95,7 @@ class Settings:
     session_name: str = ".runtime/sessions/saintcrispy"
     custom_emoji_set: str = "IconsEmoji"
     postgres_pool_size: int = 32
+    group_links_per_minute: int = 5
 
     @classmethod
     def from_environment(cls):
@@ -143,4 +144,5 @@ class Settings:
             session_name=os.environ.get("SESSION_NAME") or ".runtime/sessions/saintcrispy",
             custom_emoji_set=os.environ.get("CUSTOM_EMOJI_SET", "IconsEmoji"),
             postgres_pool_size=integer_setting("POSTGRES_POOL_SIZE", 32, 2, 64),
+            group_links_per_minute=integer_setting("GROUP_LINKS_PER_MINUTE", 5, 1, 1000),
         )

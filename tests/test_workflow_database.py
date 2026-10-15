@@ -11,6 +11,7 @@ from bot.state.manager import ConversationManager
 from bot.state.menus import PersistentMenuStore
 from bot.state.states import ConversationState
 from db.postgres.engine import WORKFLOW_SCHEMA, migrate
+from db.postgres.migrations import MIGRATIONS
 from repositories.postgres.workflow import WorkflowRepository
 from repositories.redis.media import FileRepository
 from schemas.media import Media, Quality, TelegramFile
@@ -54,7 +55,7 @@ async def test_additive_upgrade_preserves_files_and_recovers_conversations(alrea
             file.size_bytes,
         )
         await asyncio.gather(migrate(pool), migrate(pool))
-        assert await pool.fetchval("SELECT count(*) FROM app_schema_migrations") == 6
+        assert await pool.fetchval("SELECT count(*) FROM app_schema_migrations") == len(MIGRATIONS)
         assert await files.get("youtube", "video", "high") == file
         workflow = WorkflowRepository(pool, 123)
         manager = ConversationManager(workflow)

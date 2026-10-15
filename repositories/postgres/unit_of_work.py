@@ -3,6 +3,7 @@
 import sys
 from contextlib import AsyncExitStack
 
+from .group import GroupRepository
 from .media import PostgresMediaRepository
 from .workflow import WorkflowRepository
 
@@ -21,6 +22,7 @@ class PostgresUnitOfWork:
             await stack.enter_async_context(connection.transaction())
             self.media = PostgresMediaRepository(connection, self.bot_id)
             self.workflow = WorkflowRepository(connection, self.bot_id)
+            self.groups = GroupRepository(connection, self.bot_id)
         except BaseException:
             await stack.__aexit__(*sys.exc_info())
             self._stack = None

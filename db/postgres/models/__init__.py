@@ -1,4 +1,7 @@
 from .conversation import MODEL as CONVERSATION
+from .group import MODEL as GROUP
+from .group_event import MODEL as GROUP_EVENT
+from .group_request_limit import MODEL as GROUP_REQUEST_LIMIT
 from .link_history import MODEL as LINK_HISTORY
 from .media_alias import MODEL as MEDIA_ALIAS
 from .media_catalog import MODEL as MEDIA_CATALOG
@@ -23,6 +26,8 @@ WORKFLOW_TABLES = (
     CONVERSATION,
     MENU,
 )
-TABLES = MEDIA_TABLES + WORKFLOW_TABLES
+GROUP_TABLES = (GROUP, GROUP_EVENT, GROUP_REQUEST_LIMIT)
+TABLES = MEDIA_TABLES + WORKFLOW_TABLES + GROUP_TABLES
 SCHEMA = "\n".join(table.schema for table in MEDIA_TABLES)
 WORKFLOW_SCHEMA = "\n".join(table.schema for table in WORKFLOW_TABLES)
+GROUP_SCHEMA = "\n".join(table.schema for table in GROUP_TABLES)

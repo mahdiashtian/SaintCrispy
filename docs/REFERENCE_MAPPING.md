@@ -54,12 +54,18 @@ Completion remains guarded by the current transfer/request ID.
 
 ## Downloader-specific implementation choices
 
-The existing native asyncpg driver, immutable dataclasses and six-revision ledger
+The existing native asyncpg driver, immutable dataclasses and additive migration ledger
 remain the storage/DTO implementation. The reference's SQLAlchemy/Pydantic/Alembic
 frameworks are not introduced as a second database/serialization system. Table
 definitions and constraints have actual owners in `models`; migrations remain
 additive and tracked in `app_schema_migrations`. `python scripts/migrate.py` applies
 the same idempotent chain before startup and requires database settings only.
+
+Group support extends that mapping with migration 7, a bot-scoped group snapshot,
+durable lifecycle audit and atomic rolling group admission. Raw self-membership
+updates retain unknown-state and stale-event guards from the reference. Domain
+couple selection and full member-roster crawling are not downloader requirements.
+See [group design and verification](GROUPS.md).
 
 FSM is already durable in SQL, so no second Redis state server is added. This
 separates state durability from cache eviction. The cache owns/closes its blocking

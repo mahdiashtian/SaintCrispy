@@ -30,6 +30,17 @@ def help_text(interval: int = 60) -> str:
     )
 
 
+def group_start_text(bot_username: str | None, interval: int, group_limit: int) -> str:
+    return (
+        f"👥 {bot_handle(bot_username)} در این گروه آمادهٔ دریافت لینک است.\n\n"
+        "لینک یکی از سایت‌های پشتیبانی‌شده رو بفرست؛ روی همون پیام، کیفیت‌ها رو می‌فرستم. "
+        "کیفیت رو فرستندهٔ لینک انتخاب می‌کنه و فایل همین‌جا ارسال می‌شه.\n\n"
+        f"⏱ سهمیهٔ کل گروه: {group_limit} لینک در هر ۶۰ ثانیه.\n"
+        f"سهمیهٔ هر کاربر: یک لینک در هر {interval} ثانیه.\n"
+        "برای فرستادن لینک نیازی به /start یا پیام خصوصی نیست."
+    )
+
+
 def sites_text() -> str:
     return (
         "🌐 لینک چی رو می‌تونم بگیرم؟\n\n"
