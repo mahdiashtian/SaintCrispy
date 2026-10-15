@@ -6,6 +6,7 @@ import asyncpg
 
 from .migrations import MIGRATIONS as MIGRATIONS
 from .models import WORKFLOW_SCHEMA as WORKFLOW_SCHEMA
+from .schema import LEDGER_SCHEMA
 
 
 @asynccontextmanager
@@ -35,9 +36,7 @@ async def migrate(pool) -> None:
     # Serialize DDL across bots sharing the same database, without deleting data.
     async with pool.acquire() as connection, connection.transaction():
         await connection.execute("SELECT pg_advisory_xact_lock(739286410)")
-        await connection.execute("""CREATE TABLE IF NOT EXISTS app_schema_migrations (
-            version INTEGER PRIMARY KEY, name TEXT NOT NULL,
-            applied_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
+        await connection.execute(LEDGER_SCHEMA)
         applied = await connection.fetch("SELECT version FROM app_schema_migrations")
         versions = {row["version"] for row in applied}
         for version, name, sql in MIGRATIONS:

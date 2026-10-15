@@ -185,7 +185,7 @@ async def test_cancellation_after_publication_preserves_pending_deadline_for_the
         await task
     assert worker._pending
     repository.add = original
-    await worker._flush()
+    await worker.flush()
     assert repository.rows[7, 901]["delete_at"] == clock[0] + timedelta(seconds=30)
 
 
@@ -204,7 +204,7 @@ async def test_database_failure_does_not_repeat_publication_and_recovers_pending
     client.delete_messages.assert_awaited_once()
     assert worker._pending
     repository.offline = False
-    await worker._flush()
+    await worker.flush()
     clock[0] += timedelta(seconds=3)
     await worker.run_once()
     client.delete_messages.assert_awaited_once()
@@ -215,7 +215,7 @@ async def test_database_failure_does_not_repeat_publication_and_recovers_pending
 async def test_flood_wait_defers_cleanup_without_renewing_the_original_lifetime(monkeypatch):
     clock, repository, client, files, worker = cleanup_fixture()
     timer = [100.0]
-    monkeypatch.setattr("bot.file_expiry.time.monotonic", lambda: timer[0])
+    monkeypatch.setattr("services.file_expiry.time.monotonic", lambda: timer[0])
     await worker.schedule(PEER, SimpleNamespace(id=901))
     deadline = repository.rows[7, 901]["delete_at"]
     clock[0] += timedelta(seconds=30)

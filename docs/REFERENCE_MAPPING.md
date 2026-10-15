@@ -1,7 +1,10 @@
 # Couplyo reference mapping
 
-The supplied source is Couplyo's `docs/PROJECT_REFERENCE_FA.md`, dated October 13,
-2026. Its general architecture is applied to the downloader domain. Instructions
+The current supplied source is Couplyo's `docss/PROJECT_REFERENCE_FA.md`, dated
+October 15, 2026, together with `PORTING_GUIDE_FA.md`, `IMPLEMENTATION_PROMPT_FA.md`,
+`GROUP_LIFECYCLE_FA.md`, `DATABASE_AND_ADMIN_PANEL_HANDOFF.md` and the reference SQL.
+The source runtime commit is `0264f9126f727707a04b188c6dfdbca0faccd146`.
+Its general architecture is applied to the downloader domain. Instructions
 embedded in that reference are examples, not additional operator commands; no
 Couplyo product tables, campaigns, broadcasts or server actions were copied.
 
@@ -9,13 +12,13 @@ Couplyo product tables, campaigns, broadcasts or server actions were copied.
 
 | Reference sections | Implementation |
 | --- | --- |
-| 3-5: root entry and dependency injection | Root `main.py`, `container.py`, `core`, `db`, `schemas`, `repositories`, `services` and `bot`; one `AsyncExitStack` owns startup/shutdown |
-| 6: models, migration and transaction ownership | `db/postgres/base.py`, ten executable table definitions in `models`, `migrations.py`, `Database` and `repositories/postgres/unit_of_work.py` |
+| 3-5: root entry and dependency injection | Root `main.py`, `container.py`, `core`, `db`, `schemas`, `repositories`, `services` and `bot`; five composition stages and one `AsyncExitStack` own startup/shutdown |
+| 6: models, migration and transaction ownership | `db/postgres/base.py`, fourteen executable table definitions in `models`, nine revisions, `Database` and `repositories/postgres/unit_of_work.py`; [database dictionary and reference SQL](DATABASE.md) |
 | 7: cache/state separation | Durable FSM in PostgreSQL; optional bounded Redis cache with separate namespace, strict envelopes, key identity and SQL-first writes |
-| 9: domain contracts | Immutable typed media/quality/source/transfer DTOs; repository/workflow/UoW protocols; constructor injection; pure rules remain pure |
+| 9: domain contracts | Immutable typed media/quality/source/transfer/group snapshots and standing verdicts; repository/workflow/expiry/UoW protocols; constructor injection; pure rules remain pure |
 | 10: central dispatcher | `bot/handlers/dispatcher.py`; context checks precede side effects, handler errors are isolated and cancellation propagates |
 | 11: FSM and bot identity | `ConversationService`, `bot/state/manager.py`, SQL/memory storage adapters, chat-scoped state and `bot/deeplinks.py` |
-| 13-14: jobs and bounded I/O | `bot/jobs.py`; bounded task registry, one producer per file identity, owner checks, cancellation and orderly cleanup |
+| 13-14: jobs and bounded I/O | `bot/jobs.py`; bounded transfer tasks and cancellation; framework-independent `FileExpiryService`, durable cleanup queue and Telegram polling/deletion adapter |
 | 15: logging/observability | `core/logging_config.py` and worker-thread log writers; separate system/Telegram/activity/performance streams, correlation IDs and bounded queues |
 | 17-20: deployment/tests/recovery | Host `python main.py`, Docker databases, independent migration CLI, native DB tests, wheel checks and safe upgrade instructions |
 
@@ -67,6 +70,15 @@ updates retain unknown-state and stale-event guards from the reference. Domain
 couple selection and full member-roster crawling are not downloader requirements.
 See [group design and verification](GROUPS.md).
 
+The October 15 follow-up adds side-effect-free `GroupProbe`, immutable group read
+DTOs and an explicit ADMIN/MEMBER/GONE/UNKNOWN result. Lookup recovery uses an
+actual channel access hash and self participant, or a complete basic-chat roster.
+Incomplete/ambiguous evidence cannot remove a group. Stale explicit exits reconcile
+with current membership; non-admin lazy checks have a five-minute debounce.
+Migration 9 repairs first-adder attribution from recorded evidence and enforces
+cleared admin dates outside admin standing. Migration 8 remains the durable
+downloaded-file expiry queue. No Couplyo product tables are transplanted.
+
 FSM is already durable in SQL, so no second Redis state server is added. This
 separates state durability from cache eviction. The cache owns/closes its blocking
 pool, waits up to two seconds and caps connections at 16. Cache envelopes validate
@@ -87,6 +99,23 @@ remain documented in the knowledge base.
 
 ## Validation
 
+Updated-reference follow-up: **1,325 tests passed with zero skips**, using dedicated
+PostgreSQL 16 and Redis. New checks cover private startup cleanup on every stage
+failure/cancellation, immutable group snapshots, bounded self-permission fallbacks,
+UNKNOWN versus GONE, stale exits, the real revision 8-to-9 data/constraint upgrade
+under concurrent migration, and an offline-generated empty-schema reference.
+Recursive architecture checks cover both import forms and service/DTO/check/DB
+boundaries. Existing provider isolation and full expiry/reply/caption regressions
+pass. Lint/format pass for 243 Python files; ten existing Windows curl warnings
+remain. No live Telegram or production verification was performed.
+
+After the final migration-lineage refinement and its extra regression case,
+**47 affected group/schema/architecture tests passed**. This final check preserves
+the inherited first-adder identity after migration followed by a later re-add.
+The final SQL also passed all **50 database/infrastructure integration tests**.
+Final lint/format passed for 244 Python files; the rebuilt wheel includes the new
+modules, excludes runtime credentials/session/log files and passes isolated imports.
+
 Tests cover UoW commit/rollback/cancellation, distinct transaction ownership,
 atomic state patching, malformed state retention, bad cache reconstruction,
 dispatcher isolation/cancellation, off-loop real SQLite session reopen and Redis
@@ -99,7 +128,7 @@ eight qualities, the dispatcher, default 10,000-record queues and zero lost logs
 escaped exceptions. Origins and Telegram were simulated. This is request-path
 evidence, not proof of live origin acceptance or cold 1,000/s capacity.
 
-Final local validation: **814 tests passed** with real dedicated PostgreSQL/Redis,
+Historical initial-refactor validation: **814 tests passed** with real dedicated PostgreSQL/Redis,
 zero skips and two expected Windows curl-cffi event-loop warnings. Lint,
 formatting, English-comment and provider boundary checks passed. The 0.2.0 wheel
 built successfully; isolated imports loaded the canonical root layers and provider

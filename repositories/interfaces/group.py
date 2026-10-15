@@ -1,10 +1,10 @@
 from typing import Protocol
 
-from schemas.group import GroupChange
+from schemas.group import GroupChange, GroupSnapshot
 
 
 class GroupRepository(Protocol):
-    async def get(self, chat_id: int): ...
+    async def get(self, chat_id: int) -> GroupSnapshot | None: ...
 
     async def record(self, change: GroupChange): ...
 

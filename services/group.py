@@ -3,7 +3,7 @@
 import logging
 
 from repositories.interfaces.group import GroupRepository
-from schemas.group import GroupChange
+from schemas.group import GroupChange, GroupSnapshot
 from schemas.media import DownloadError
 
 from .base import TransactionalService
@@ -19,7 +19,9 @@ class GroupService(TransactionalService):
         self.repository = repository
         self.links_per_minute = links_per_minute
 
-    async def get(self, chat_id):
+    async def get(self, chat_id: int) -> GroupSnapshot | None:
+        if type(chat_id) is not int or chat_id >= 0:
+            raise ValueError("A group must have a negative Telegram chat ID")
         return await self.repository.get(chat_id)
 
     async def record(self, change: GroupChange):
@@ -65,7 +67,13 @@ class GroupService(TransactionalService):
         )
 
     async def migrate(self, old_id, new_id, occurred_at):
-        if old_id >= 0 or new_id >= 0 or old_id == new_id:
+        if (
+            type(old_id) is not int
+            or type(new_id) is not int
+            or old_id >= 0
+            or new_id >= 0
+            or old_id == new_id
+        ):
             raise ValueError("Invalid group migration identities")
         async with self._uow_factory() as uow:
             result = await uow.groups.migrate(old_id, new_id, occurred_at)

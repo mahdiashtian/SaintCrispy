@@ -3,6 +3,8 @@
 import ast
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -66,3 +68,42 @@ def test_core_does_not_import_provider_or_application_implementations():
                 assert not (node.module or "").startswith(
                     ("downloader_bot.downloaders", "services", "bot")
                 )
+
+
+def imports(path):
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            yield from (alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                parent = path.relative_to(ROOT).parent.parts
+                parent = parent[: len(parent) - node.level + 1]
+                yield ".".join((*parent, node.module or ""))
+            else:
+                yield node.module or ""
+
+
+@pytest.mark.parametrize(
+    "folder,forbidden",
+    [
+        ("schemas", ("bot", "services", "repositories", "db", "telethon", "asyncpg", "redis")),
+        ("db", ("bot", "services", "repositories", "downloader_bot", "telethon")),
+        ("repositories/interfaces", ("repositories.postgres", "repositories.redis", "db", "bot")),
+        ("services", ("bot", "telethon", "db", "repositories.postgres", "repositories.redis")),
+        ("bot/checks", ("db", "repositories", "services")),
+    ],
+)
+def test_recursive_layer_contract_covers_all_import_forms(folder, forbidden):
+    for path in (ROOT / folder).rglob("*.py"):
+        for module in imports(path):
+            assert not any(module == name or module.startswith(name + ".") for name in forbidden), (
+                path,
+                module,
+            )
+
+
+def test_review_schema_reference_tracks_the_canonical_migration_chain():
+    from db.postgres.schema import reference_schema
+
+    snapshot = ROOT / "docs/reference/POSTGRES_SCHEMA.sql"
+    assert snapshot.read_text(encoding="utf-8") == reference_schema()

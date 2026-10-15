@@ -1,6 +1,7 @@
 """Ordered additive migrations; preserve the existing version ledger."""
 
 from .models import FILE_EXPIRY, GROUP_SCHEMA, SCHEMA, WORKFLOW_SCHEMA
+from .models.group import INVARIANTS_SCHEMA
 
 MIGRATIONS = (
     (1, "existing_media_schema", SCHEMA),
@@ -33,4 +34,5 @@ MIGRATIONS = (
         FILE_EXPIRY.schema + "\nCREATE INDEX IF NOT EXISTS media_files_origin ON media_files "
         "(telegram_account_id,origin_peer,message_id);",
     ),
+    (9, "group_lifecycle_invariants", INVARIANTS_SCHEMA),
 )

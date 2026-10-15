@@ -33,6 +33,49 @@ from upstream conversion time; a fresh cold workstation metadata lookup failed
 in that later connection state. See the dated access sections for successes,
 failures, byte counts and the untested production/Telegram boundary.
 
+## October 15 updated architecture reference
+
+The operator supplied the corrected `docss` Couplyo architecture/porting/database
+reference dated October 15 (source runtime `0264f9126f727707a04b188c6dfdbca0faccd146`).
+Its architectural contracts are applied to the downloader domain; product-specific
+couple/crush/profile/roster/broadcast tables are not downloader features. The
+existing native asyncpg, frozen DTOs and additive migration history are retained.
+See the updated [reference mapping](REFERENCE_MAPPING.md) and the new
+[database dictionary](DATABASE.md) for the full implementation and ownership map.
+
+The follow-up separates five container composition stages, adds immutable group
+read snapshots and a bounded side-effect-free self-permission probe, reconciles
+explicit stale exits with current membership, and debounces lazy non-admin checks.
+Partial responses, inaccessible channels and transient errors remain UNKNOWN.
+Input-user lookup recovery uses valid channel hashes/self participant or a complete
+matching basic-chat roster, with the original deadline and concurrency bound.
+
+Migration 9 preserves first known add attribution from applied audit records,
+repairs invalid admin dates and enforces their standing constraint. The old
+migration chain is unchanged; all demotion/removal/migration paths clear the date.
+The downloaded-file expiry service now owns deadlines/retry/persistence through
+framework-independent ports; the Telegram adapter owns serialization/RPC/FloodWait
+translation and polling. The existing 30-second file-only behavior is preserved.
+
+Full workstation validation passed **1,325 tests with zero skips**, using dedicated
+real PostgreSQL 16 and Redis services. Tests include concurrent upgrade from
+revision 8, constraint enforcement, audit retention, private UoW rollback,
+startup failure/cancellation cleanup, probe fallbacks/UNKNOWN and every existing
+provider/quality/reply/expiry regression. Lint and formatting pass for 243 Python
+files. The ten existing Windows curl selector warnings remain. The offline schema
+reference also builds a matching disposable PostgreSQL schema. Telegram calls are
+simulated; no production host, real chat or origin acceptance was tested here.
+
+Final migration review also covers inherited attribution through retired group
+identities, with cycle-safe lineage traversal. After that SQL refinement and its
+regression test, **47 affected group/schema/architecture tests passed** against
+the same dedicated PostgreSQL instance. The initial unisolated wheel command
+could not import local setuptools; the normal isolated pip build succeeded.
+All **50 database/infrastructure integration tests** then passed with the final
+migration SQL. Final lint/format passed for 244 Python files. The wheel contains
+the new service/DTO/port/probe modules, excludes environment/session/log files,
+and imports successfully in an isolated Python process.
+
 ## Downloaded file expiry (October 15)
 
 The operator clarified that automatic deletion applies only to downloaded files

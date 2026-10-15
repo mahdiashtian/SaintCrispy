@@ -1,6 +1,6 @@
 # Application architecture
 
-The reference is Couplyo's `docs/PROJECT_REFERENCE_FA.md`, with its composition
+The reference is Couplyo's October 15 `docss/PROJECT_REFERENCE_FA.md`, with its composition
 root, transaction, FSM, dispatcher, cache and async lifecycle contracts. Application
 layers now live at the repository root: `core`, `db`, `schemas`, `repositories`,
 `services` and `bot`, beside `main.py` and `container.py`. Only the independent
@@ -30,8 +30,9 @@ Handlers do not execute SQL or Redis commands. Business services do not import T
 ## Deliberate backend choices
 
 The database driver remains native asyncpg. `db/postgres/models` owns executable
-table/constraint definitions; `migrations.py` retains the existing revisions and
-adds version 7 for group lifecycle/audit/quota storage.
+table/constraint definitions; `migrations.py` retains the existing revisions through
+version 9. The [database dictionary](DATABASE.md) records every table, real foreign
+key, query index, migration and cache/state owner.
 `Database` owns the asynchronous pool. `PostgresUnitOfWork` acquires one private
 connection, binds its repositories to that connection and commits or rolls back
 on context exit, including cancellation. The container injects a factory into
@@ -93,6 +94,34 @@ Telegram publication and SQL commit are different systems. A forced crash betwee
 ## Load and observability
 
 The existing 1,000-request task cap, separate metadata/remux limits, bounded upload part window, per-user admission and cancellation isolation are retained. Pure transfer state is a DTO; formatting and RPCs stay in `bot/`. Queue-backed system, Telegram and activity logs follow the reference's stream separation. Performance events retain byte counters, per-stage durations, batch summaries and host network measurements. See the operations guide for destinations and interpretation.
+
+## October 15 reference alignment
+
+`Container.startup` now coordinates five explicit composition stages: logging,
+storage, authenticated Telegram, independent downloaders and application wiring.
+One `AsyncExitStack` still owns their resources. A container has one lifetime;
+recovery constructs a fresh container. Early failure and cancellation close every
+acquired resource in reverse order.
+
+Group reads return immutable `GroupSnapshot` DTOs instead of driver records.
+`bot/checks/probe.py` owns bounded current-self permission queries without storage
+side effects. It distinguishes ADMIN/MEMBER/GONE/UNKNOWN, validates entity identity,
+keeps sending capability independent and uses a valid-hash/self-participant fallback
+when the bot's input user is unavailable. Partial responses and inaccessible
+channels remain UNKNOWN. A complete basic-chat roster can prove absence; a missing
+or forbidden roster cannot. Explicit stale exits are reconciled with fresh membership.
+Known non-admin groups have a bounded five-minute lazy probe cadence.
+
+`services/file_expiry.py` owns deletion deadlines, persistence, batching, origin
+invalidation and retry via framework-independent ports. `bot/file_expiry.py` owns
+only the Telegram deletion adapter and managed polling lifecycle. The 30-second
+rule has one constant shared by services and presentation. Existing downloaded-file
+behavior is preserved across every provider.
+
+The native asyncpg/additive-migration and frozen-dataclass stack remains intentional:
+the reference's transaction, type, ownership and recovery contracts do not require
+a second ORM or a replacement migration ledger. Product-specific couples, profiles,
+member crawling, broadcasts and admin panels are not downloader requirements.
 
 Link handlers have their own `MAX_CONCURRENT_REQUESTS` cap, reserved before SQL
 admission. Excess requests do not consume the user's quota. Rejection replies have

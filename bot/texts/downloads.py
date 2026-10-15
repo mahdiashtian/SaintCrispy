@@ -3,9 +3,9 @@
 from dataclasses import dataclass
 
 from bot.deeplinks import bot_handle
+from core.constants import FILE_DELETE_SECONDS as FILE_DELETE_SECONDS
 from schemas.media import Media, Quality
 
-FILE_DELETE_SECONDS = 30
 FILE_EXPIRY_NOTICE = (
     "⏳ این فایل تا ۳۰ ثانیهٔ دیگر از چت حذف می‌شود؛ "
     "همین حالا ذخیره یا به Saved Messages فورواردش کن."

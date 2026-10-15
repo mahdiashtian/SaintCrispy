@@ -10,8 +10,8 @@ from datetime import UTC, datetime
 from telethon import errors, types, utils
 
 from bot.checks.group import entity_can_send, group_kind, human_id, participant_standing
-from core.diagnostics import error_fields
-from schemas.group import GroupChange
+from bot.checks.probe import GroupProbe
+from schemas.group import GroupChange, Standing
 
 log = logging.getLogger("activity")
 GROUP_UPDATES = (
@@ -32,9 +32,11 @@ def event_time(value):
 
 
 class GroupTracker:
-    def __init__(self, client, service, bot_id):
+    def __init__(self, client, service, bot_id, *, probe=None):
         self.client, self.service, self.bot_id = client, service, bot_id
+        self.probe = probe or GroupProbe(client, bot_id)
         self._seen = OrderedDict()
+        self._checked = OrderedDict()
         self._locks = tuple(asyncio.Lock() for _ in range(32))
         self._slots = asyncio.Semaphore(8)
 
@@ -65,10 +67,15 @@ class GroupTracker:
                 known = await self.service.get(chat_id)
                 if (
                     known is not None
-                    and known["is_active"] is False
-                    and not known["migrated_to"]
-                    and event_time(getattr(event, "date", None)) > known["last_event_at"]
+                    and not known.migrated_to
+                    and known.is_admin is not True
+                    and self._checked.get(chat_id, 0) <= time.monotonic()
+                    and event_time(getattr(event, "date", None)) > known.last_event_at
                 ):
+                    self._checked[chat_id] = time.monotonic() + 300
+                    self._checked.move_to_end(chat_id)
+                    if len(self._checked) > 2048:
+                        self._checked.popitem(last=False)
                     await self._refresh_entity(entity, chat_id)
                 admin = None
                 if not getattr(entity, "min", False) and isinstance(
@@ -167,7 +174,7 @@ class GroupTracker:
         kind = group_kind(entity)
         if kind is None:
             known = await self.service.get(chat_id)
-            kind = known["chat_kind"] if known else None
+            kind = known.chat_kind if known else None
             if isinstance(
                 getattr(getattr(update, "message", None), "peer_id", None), types.PeerChat
             ):
@@ -184,6 +191,13 @@ class GroupTracker:
         if kind is None:
             log.warning({"event": "group_lifecycle_unverified_peer", "chat_id": chat_id})
             return
+        if active is False and entity is not None:
+            # Replayed explicit exits cannot override current, confirmed membership.
+            verdict = await self.probe.check(entity, chat_id)
+            if verdict.active is True:
+                await self._refresh_entity(entity, chat_id, verdict=verdict)
+                log.info({"event": "group_stale_exit_ignored", "chat_id": chat_id})
+                return
         key = hashlib.sha256(bytes(update)).hexdigest()
         await self.service.record(
             GroupChange(
@@ -213,28 +227,18 @@ class GroupTracker:
                 entity = await self._entity(chat_id, update)
                 await self._refresh_entity(entity, chat_id)
 
-    async def _refresh_entity(self, entity, chat_id):
+    async def _refresh_entity(self, entity, chat_id, *, verdict=None):
         started = datetime.now(UTC)
-        when = started.replace(microsecond=0)
+        when = started
         kind = group_kind(entity)
         if not kind:
             return
-        try:
-            async with asyncio.timeout(3), self._slots:
-                permission = await self.client.get_permissions(entity, self.bot_id)
-        except errors.UserNotParticipantError:
-            active, admin, can_send = False, False, False
-        except (errors.RPCError, ValueError, OSError, TimeoutError) as error:
+        verdict = verdict or await self.probe.check(entity, chat_id)
+        if verdict.standing is Standing.UNKNOWN:
             log.warning(
-                {"event": "group_standing_unknown", "chat_id": chat_id, **error_fields(error)}
+                {"event": "group_standing_unknown", "chat_id": chat_id, "reason": verdict.reason}
             )
             return
-        else:
-            active, admin, can_send = participant_standing(permission.participant)
-            if active is None:
-                return
-            if can_send is None:
-                can_send = entity_can_send(entity, admin)
         await self.service.record(
             GroupChange(
                 chat_id,
@@ -242,9 +246,9 @@ class GroupTracker:
                 f"probe:{started.isoformat()}",
                 when,
                 kind,
-                active=active,
-                admin=admin,
-                can_send=can_send,
+                active=verdict.active,
+                admin=verdict.admin,
+                can_send=verdict.can_send,
                 title=entity.title,
                 username=getattr(entity, "username", None),
                 priority=0,

@@ -70,16 +70,16 @@ async def test_lifecycle_replay_and_out_of_order_evidence_preserve_current_stand
     await service.record(change("promoted", sequence=3, admin=True))
     await service.record(change("removed", sequence=2, active=False, admin=False))
     row = await service.get(-10)
-    assert row["is_active"] and row["is_admin"] and row["added_by_user_id"] == 50
+    assert row.is_active and row.is_admin and row.added_by_user_id == 50
     assert not await pool.fetchval("SELECT applied FROM group_events WHERE kind='removed'")
     await service.record(change("demoted", sequence=4))
     row = await service.get(-10)
-    assert row["is_active"] and not row["is_admin"] and row["admin_since"] is None
+    assert row.is_active and not row.is_admin and row.admin_since is None
     await service.record(change("removed", sequence=5, active=False))
     await service.record(change("added", sequence=6, admin=None, actor_id=51))
     row = await service.get(-10)
-    assert row["is_active"] and row["is_admin"] is False and row["can_send"] is None
-    assert row["readded_at"] and row["removed_at"] and row["added_by_user_id"] == 51
+    assert row.is_active and row.is_admin is False and row.can_send is None
+    assert row.readded_at and row.removed_at and row.added_by_user_id == 50
     assert await pool.fetchval("SELECT count(*) FROM group_events") == 6
     assert await pool.fetchval("SELECT count(*) FROM bot_groups") == 1
 
@@ -99,7 +99,7 @@ async def test_same_second_weaker_service_and_unknown_observation_do_not_demote(
             admin=None,
         )
     )
-    assert (await service.get(-10))["is_admin"] is True
+    assert (await service.get(-10)).is_admin is True
     await service.record(change("removed", sequence=8, active=False))
     await service.record(
         replace(
@@ -112,7 +112,7 @@ async def test_same_second_weaker_service_and_unknown_observation_do_not_demote(
             sequence=0,
         )
     )
-    assert (await service.get(-10))["is_active"] is False
+    assert (await service.get(-10)).is_active is False
     assert await pool.fetchval("SELECT count(*) FROM group_events") == 4
 
 
@@ -126,11 +126,11 @@ async def test_basic_version_orders_updates_without_server_dates(database):
             change("demoted", sequence=11), occurred_at=first.occurred_at - timedelta(seconds=3)
         )
     )
-    assert (await service.get(-10))["is_admin"] is False
+    assert (await service.get(-10)).is_admin is False
     await service.record(
         replace(first, event_key="replayed-old", occurred_at=NOW + timedelta(days=1))
     )
-    assert (await service.get(-10))["is_admin"] is False
+    assert (await service.get(-10)).is_admin is False
 
 
 async def test_atomic_thousand_group_arrivals_admit_exactly_five_and_survive_restart(database):
@@ -202,18 +202,18 @@ async def test_removed_group_cannot_admit_and_migration_preserves_quota(database
     await service.migrate(-10, -1000000000020, when)
     await service.migrate(-10, -1000000000020, when)
     old, new = await service.get(-10), await service.get(-1000000000020)
-    assert not old["is_active"] and old["migrated_to"] == new["chat_id"]
-    assert new["is_active"] and new["chat_kind"] == "supergroup"
-    assert new["title"] == "Old title" and new["added_by_user_id"] == 70
+    assert not old.is_active and old.migrated_to == new.chat_id
+    assert new.is_active and new.chat_kind == "supergroup"
+    assert new.title == "Old title" and new.added_by_user_id == 70
     assert (
         await pool.fetchval(
             "SELECT cardinality(accepted_at) FROM group_request_limits WHERE chat_id=$1",
-            new["chat_id"],
+            new.chat_id,
         )
         == 5
     )
     assert await pool.fetchval("SELECT count(*) FROM group_events WHERE kind='migrated'") == 2
-    for chat, reason in ((-10, "group_unavailable"), (new["chat_id"], "group_rate_limited")):
+    for chat, reason in ((-10, "group_unavailable"), (new.chat_id, "group_rate_limited")):
         with pytest.raises(DownloadError) as error:
             await service.claim_link(20, chat, "after-migration", 60)
         assert error.value.code == reason
@@ -252,7 +252,7 @@ async def test_permission_recovery_logs_real_transition_and_old_migrated_chat_st
     await service.migrate(-10, -1000000000020, NOW + timedelta(seconds=4))
     await service.record(change(sequence=5))
     row = await service.get(-10)
-    assert row["is_active"] is False and row["migrated_to"] == -1000000000020
+    assert row.is_active is False and row.migrated_to == -1000000000020
 
 
 async def test_group_event_audit_and_snapshot_roll_back_together(database):
@@ -280,8 +280,8 @@ async def test_ordinary_activity_does_not_advance_membership_watermark(database)
     )
     await service.record(change("promoted", sequence=5, admin=True))
     row = await service.get(-10)
-    assert row["is_admin"] is True
-    assert row["last_seen_at"] >= NOW + timedelta(seconds=10)
+    assert row.is_admin is True
+    assert row.last_seen_at >= NOW + timedelta(seconds=10)
 
 
 async def test_older_dated_join_cannot_reverse_a_later_definite_permission_probe(database):
@@ -297,4 +297,56 @@ async def test_older_dated_join_cannot_reverse_a_later_definite_permission_probe
         )
     )
     await service.record(change(sequence=5))
-    assert (await service.get(-10))["is_active"] is False
+    assert (await service.get(-10)).is_active is False
+
+
+async def test_upgrade_repairs_legacy_first_adder_and_admin_date_without_erasing_audit(database):
+    pool, service, _ = database
+    await service.record(change(actor_id=50))
+    await service.record(change("removed", sequence=2, active=False))
+    await service.record(change("added", sequence=3, actor_id=51))
+    # Recreate the two legacy defects and the pre-upgrade version ledger.
+    await pool.execute("ALTER TABLE bot_groups DROP CONSTRAINT bot_groups_admin_since_standing")
+    await pool.execute("DELETE FROM app_schema_migrations WHERE version=9")
+    await pool.execute("UPDATE bot_groups SET added_by_user_id=51,admin_since=now()")
+    await asyncio.gather(migrate(pool), migrate(pool))
+    row = await service.get(-10)
+    assert row.added_by_user_id == 50 and row.admin_since is None
+    assert row.readded_at and row.removed_at
+    assert await pool.fetchval("SELECT count(*) FROM group_events") == 3
+    assert await pool.fetchval("SELECT count(*) FROM app_schema_migrations WHERE version=9") == 1
+    with pytest.raises(asyncpg.CheckViolationError):
+        await pool.execute("UPDATE bot_groups SET admin_since=now()")
+
+
+async def test_migration_retires_old_admin_date_and_returns_immutable_domain_snapshots(database):
+    from dataclasses import FrozenInstanceError
+
+    from schemas.group import GroupSnapshot
+
+    _, service, _ = database
+    await service.record(change("added", admin=True, actor_id=50))
+    assert (await service.get(-10)).admin_since is not None
+    await service.migrate(-10, -1000000000020, NOW + timedelta(seconds=5))
+    old = await service.get(-10)
+    assert isinstance(old, GroupSnapshot) and old.admin_since is None and old.is_admin is False
+    with pytest.raises(FrozenInstanceError):
+        old.is_active = True
+
+
+async def test_upgrade_keeps_original_attribution_across_migration_and_later_readd(database):
+    pool, service, _ = database
+    target = -1000000000020
+    await service.record(change(actor_id=50))
+    await service.migrate(-10, target, NOW + timedelta(seconds=2))
+    await service.record(
+        replace(change("removed", chat=target, sequence=3, active=False), chat_kind="supergroup")
+    )
+    await service.record(
+        replace(change("added", chat=target, sequence=4, actor_id=51), chat_kind="supergroup")
+    )
+    await pool.execute("DELETE FROM app_schema_migrations WHERE version=9")
+    await pool.execute("UPDATE bot_groups SET added_by_user_id=51 WHERE chat_id=$1", target)
+    await migrate(pool)
+    assert (await service.get(target)).added_by_user_id == 50
+    assert (await service.get(-10)).added_by_user_id == 50

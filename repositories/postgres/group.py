@@ -5,19 +5,23 @@ import math
 from datetime import timedelta
 
 from repositories.postgres.workflow import WorkflowRepository
-from schemas.group import GroupChange
+from schemas.group import GroupChange, GroupSnapshot
 
 
 class GroupRepository:
     def __init__(self, connection, bot_id):
         self.connection, self.bot_id = connection, bot_id
 
-    async def get(self, chat_id):
-        return await self.connection.fetchrow(
-            "SELECT * FROM bot_groups WHERE telegram_account_id=$1 AND chat_id=$2",
+    async def get(self, chat_id: int) -> GroupSnapshot | None:
+        row = await self.connection.fetchrow(
+            """SELECT chat_id,chat_kind,title,username,is_active,is_admin,can_send,
+            added_by_user_id,added_at,readded_at,removed_at,admin_since,last_seen_at,
+            last_event_at,migrated_to FROM bot_groups
+            WHERE telegram_account_id=$1 AND chat_id=$2""",
             self.bot_id,
             chat_id,
         )
+        return GroupSnapshot(**dict(row)) if row is not None else None
 
     async def _ensure(self, chat_id, chat_kind):
         await self.connection.execute(
@@ -110,7 +114,8 @@ class GroupRepository:
             await self.connection.execute(
                 """UPDATE bot_groups SET title=COALESCE($3,title),username=COALESCE($4,username),
                 is_active=$5,is_admin=$6,can_send=$7,
-                added_by_user_id=CASE WHEN $8::bigint IS NOT NULL AND $9 IN ('added','readded')
+                added_by_user_id=CASE WHEN added_by_user_id IS NULL
+                    AND $8::bigint IS NOT NULL AND $9 IN ('added','readded')
                     THEN $8 ELSE added_by_user_id END,
                 added_at=$10,readded_at=$11,removed_at=$12,admin_since=$13,
                 last_seen_at=GREATEST(last_seen_at,$14),
@@ -216,7 +221,8 @@ class GroupRepository:
             # already supplied the more recent membership snapshot.
             await self.connection.execute(
                 """UPDATE bot_groups SET migrated_to=$3,is_active=FALSE,is_admin=FALSE,
-                can_send=FALSE,updated_at=now() WHERE telegram_account_id=$1 AND chat_id=$2""",
+                can_send=FALSE,admin_since=NULL,updated_at=now()
+                WHERE telegram_account_id=$1 AND chat_id=$2""",
                 self.bot_id,
                 old_id,
                 new_id,

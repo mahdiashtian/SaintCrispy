@@ -121,6 +121,45 @@ async def test_model_registry_matches_migrated_schema(database):
     }
 
 
+async def test_generated_reference_builds_the_same_empty_database_schema(database):
+    from db.postgres.schema import reference_schema
+
+    # A private temporary schema, never a production installation or its data.
+    async with database.acquire() as connection, connection.transaction():
+        before = await connection.fetch(
+            """SELECT table_name,column_name,data_type,is_nullable,column_default
+            FROM information_schema.columns WHERE table_schema=current_schema()
+            ORDER BY table_name,ordinal_position"""
+        )
+        schema = "reference_test_" + uuid.uuid4().hex
+        await connection.execute(f'CREATE SCHEMA "{schema}"')
+        await connection.execute(f'SET LOCAL search_path="{schema}"')
+        await connection.execute(reference_schema())
+        after = await connection.fetch(
+            """SELECT table_name,column_name,data_type,is_nullable,column_default
+            FROM information_schema.columns WHERE table_schema=current_schema()
+            ORDER BY table_name,ordinal_position"""
+        )
+
+        # serial defaults embed the search-path schema; compare their structure.
+        def normalize(rows):
+            return [
+                (
+                    r["table_name"],
+                    r["column_name"],
+                    r["data_type"],
+                    r["is_nullable"],
+                    "sequence"
+                    if "nextval(" in (r["column_default"] or "")
+                    else r["column_default"],
+                )
+                for r in rows
+            ]
+
+        assert normalize(before) == normalize(after)
+        await connection.execute(f'DROP SCHEMA "{schema}" CASCADE')
+
+
 async def test_memory_fsm_scopes_chats_and_does_not_expose_mutable_storage():
     storage = MemoryStateStorage()
     manager = ConversationManager(storage)

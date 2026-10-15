@@ -1,5 +1,12 @@
 # Deployment, logging and recovery
 
+The October 15 architecture alignment adds migration 9 for existing group
+attribution/admin-date repair and its constraint. Follow the normal stopped-bot
+backup/upgrade procedure below; no new environment values or database services are
+required. [Database ownership](DATABASE.md) lists every table, key, index and
+migration. `python scripts/export_schema.py --check` verifies the offline reference
+SQL; it never connects to the installed database or substitutes for migration.
+
 The Python bot and Node runtime run on the host. Docker runs PostgreSQL and Redis only. Existing ports and password stay in `.env`; Python derives connection URLs from those values.
 
 ## Upgrade an existing Linux installation

@@ -1,7 +1,7 @@
 # Group downloads and lifecycle
 
 The implementation follows the group identity, transaction, update-ordering and
-unknown-standing rules in the supplied Couplyo `docs/PROJECT_REFERENCE_FA.md`.
+unknown-standing rules in the October 15 Couplyo `docss/PROJECT_REFERENCE_FA.md`.
 The document is architectural reference material; its embedded example prompts
 and Couplyo-specific couple/roster rules are not additional downloader requirements.
 
@@ -66,6 +66,20 @@ policy and owns transactions; `repositories/postgres/group.py` owns SQL. The
 container constructs these dependencies and the UoW binds repositories to one
 fresh connection. Provider implementations remain independent and unchanged.
 
+Repository reads now return immutable `GroupSnapshot` values rather than asyncpg
+records. `bot/checks/probe.py` independently returns `GroupStanding` with explicit
+ADMIN/MEMBER/GONE/UNKNOWN and a separate send capability. It performs no SQL/cache
+writes. A failed input-user lookup may use a real channel access hash with the
+self participant, or a complete matching basic-chat roster; no zero hash is
+invented. Empty permission fields, incomplete rosters and inaccessible channels
+remain unknown. Lookup fallback shares the original timeout/concurrency budget.
+
+Migration **9** repairs first known adder attribution from applied add/re-add
+audit events, clears invalid admin dates and adds the admin-date standing check.
+Re-add preserves the first known adder, first-added and removed timestamps.
+Migration always clears the retired identity's admin date. Unknown/missing
+historical attribution cannot be recovered without actual recorded evidence.
+
 The raw lifecycle route is independent of the positive-human-sender guard:
 
 - `UpdateChatParticipantAdd/Delete/Admin` covers the bot's basic-group membership
@@ -98,6 +112,12 @@ does not reverse a recorded removal. Startup registers handlers before catch-up;
 there is no unsupported history/dialog crawl or full member-roster preload.
 Only updates Telegram actually delivers can be recorded; this is not a historical
 inventory of groups the bot left before this feature was installed.
+
+Known non-admin groups also receive a lazy probe at most once per five minutes
+within a bounded 2,048-entry cache. A definite current membership can reject an
+explicit replayed exit; an unknown probe does not discard a genuine exit event.
+Probe timestamps retain microseconds so a response started before a newer raw
+event cannot acquire a newer standing merely by completing late.
 
 Migration retains both group identities and the audit, marks the old identity
 inactive with `migrated_to`, and carries recent group quota into the new identity

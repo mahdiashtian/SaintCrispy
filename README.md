@@ -7,6 +7,12 @@ YouTube is temporarily restricted to the configured main administrator. Availabl
 media, qualities and account requirements depend on the source website. The bot
 interface is currently Persian; developer documentation and code comments are English.
 
+See [application architecture](docs/ARCHITECTURE.md), the [reference mapping](docs/REFERENCE_MAPPING.md)
+and the [database dictionary](docs/DATABASE.md) for layer ownership, all fourteen
+domain tables, migrations and Redis/state separation. An offline schema reference
+is reproducible with `python scripts/export_schema.py`; use
+`python scripts/migrate.py` for an existing database upgrade.
+
 ## How it works
 
 1. A user sends a supported media URL and receives a quality menu. Short choices share rows of three; longer labels use pairs. Audio, video and image choices start separate rows, preserving the provider's preferred order and each selection's identity. `/start` is optional, including after a server restart.

@@ -70,8 +70,12 @@ class Container:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._stack = AsyncExitStack()
+        self._entered = False
 
     async def __aenter__(self):
+        if self._entered:
+            raise RuntimeError("Create a new container for each runtime lifecycle")
+        self._entered = True
         try:
             await self.startup()
         except BaseException:
@@ -83,11 +87,21 @@ class Container:
         await self._stack.aclose()
 
     async def startup(self) -> None:
-        settings, stack = self.settings, self._stack
         if aes.cryptg is None:
             raise RuntimeError(
                 "Install cryptg to avoid slow pure-Python encryption in the event loop"
             )
+        telemetry = await self._configure_logging()
+        bot_id = int(self.settings.bot_token.split(":", 1)[0])
+        pool, http, repository, coordinator = await self._connect_storage(telemetry, bot_id)
+        client, bot = await self._connect_telegram(telemetry, bot_id, coordinator)
+        downloader = await self._create_downloaders(repository)
+        await self._configure_application(
+            telemetry, pool, http, repository, client, bot, downloader
+        )
+
+    async def _configure_logging(self):
+        settings, stack = self.settings, self._stack
         application_logging = await stack.enter_async_context(ApplicationLogging(settings))
         telemetry = await stack.enter_async_context(
             Telemetry(
@@ -124,6 +138,10 @@ class Container:
             max_file_bytes=settings.max_file_bytes,
             transfer_timeout_seconds=settings.transfer_timeout,
         )
+        return telemetry
+
+    async def _connect_storage(self, telemetry, bot_id):
+        settings, stack = self.settings, self._stack
         telemetry.emit("startup_progress", stage="database_connecting")
         database = await stack.enter_async_context(
             Database(settings.database_url, settings.postgres_pool_size)
@@ -143,13 +161,16 @@ class Container:
         if settings.redis_cache_url or settings.redis_url:
             redis = create_redis(settings.redis_cache_url or settings.redis_url)
             stack.push_async_callback(redis.aclose)
-        bot_id = int(settings.bot_token.split(":", 1)[0])
         coordinator = await stack.enter_async_context(pool.acquire())
         if not await coordinator.fetchval("SELECT pg_try_advisory_lock($1)", bot_id):
             raise RuntimeError("Another coordinator is already running for this Telegram bot")
         repository = FileRepository(pool, redis, bot_id)
         telemetry.emit("startup_progress", stage="database_initializing")
         await repository.initialize()
+        return pool, http, repository, coordinator
+
+    async def _connect_telegram(self, telemetry, bot_id, coordinator):
+        settings, stack = self.settings, self._stack
         session_path = Path(f"{settings.session_name}-{settings.bot_token.split(':', 1)[0]}")
         session = await stack.enter_async_context(create_session(session_path))
         client = TelegramClient(
@@ -172,6 +193,10 @@ class Container:
             raise RuntimeError("Telegram session does not match the configured bot")
         # Enforce one coordinator per bot; conversion workers do not own database/cache writes.
         coordinator.add_termination_listener(lambda _: asyncio.ensure_future(client.disconnect()))
+        return client, bot
+
+    async def _create_downloaders(self, repository):
+        stack = self._stack
         provider_http = {
             site: await create_provider_session(stack)
             for site in ("soundcloud", "xnxx", "xvideos", "pinterest")
@@ -231,6 +256,12 @@ class Container:
                 "instagram": InstagramDownloader(await instagram_client(), instagram_accounts),
             }
         )
+        return downloader
+
+    async def _configure_application(
+        self, telemetry, pool, http, repository, client, bot, downloader
+    ):
+        settings, stack = self.settings, self._stack
         storage_peer = None
         if settings.storage_chat:
             storage_peer = await client.get_input_entity(settings.storage_chat)

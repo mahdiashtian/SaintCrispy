@@ -60,7 +60,7 @@ class Dispatcher:
                     # A cold callback cache may not know whether this channel is
                     # a supergroup. Trust the persisted group kind, never guess.
                     known = await self.groups.get(event.chat_id) if self.groups else None
-                    if known is None or known["chat_kind"] != "supergroup":
+                    if known is None or known.chat_kind != "supergroup":
                         log.warning({"event": "update_group_context_unknown"})
                         return
                 await callback(event)

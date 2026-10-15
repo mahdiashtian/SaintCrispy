@@ -180,11 +180,12 @@ async def test_thousand_message_observations_coalesce_and_keep_unknown_admin_unk
 
 async def test_inactive_group_recovery_needs_definite_current_self_membership():
     service = group_service()
-    service.get.return_value = {
-        "is_active": False,
-        "migrated_to": None,
-        "last_event_at": datetime(2026, 10, 14, tzinfo=UTC),
-    }
+    service.get.return_value = SimpleNamespace(
+        is_active=False,
+        is_admin=False,
+        migrated_to=None,
+        last_event_at=datetime(2026, 10, 14, tzinfo=UTC),
+    )
     client = SimpleNamespace(
         get_permissions=AsyncMock(
             return_value=SimpleNamespace(participant=types.ChatParticipant(BOT_ID, 50, NOW))
@@ -325,7 +326,7 @@ async def test_group_rate_warnings_coalesce_across_different_users_and_reply_to_
     assert len(replies) == 1 and replies[0]["reply_to"] == 1
 
 
-@pytest.mark.parametrize("known", [None, {"chat_kind": "supergroup"}])
+@pytest.mark.parametrize("known", [None, SimpleNamespace(chat_kind="supergroup")])
 async def test_cold_callback_entity_cache_uses_persisted_group_kind(known):
     callbacks = []
     groups = group_service()
