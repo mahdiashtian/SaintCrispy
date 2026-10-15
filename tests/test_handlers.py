@@ -98,6 +98,56 @@ async def test_pinterest_menu_uses_its_own_callback_prefix():
 
 
 @pytest.mark.parametrize(
+    "site,handler,url,prefix",
+    [
+        ("pinterest", handle_pinterest_link, "https://www.pinterest.com/pin/123456789/", "pin"),
+        ("soundcloud", handle_soundcloud_link, "https://soundcloud.com/gdaal/mojezeh", "sc"),
+        ("xvideos", handle_xvideos_link, "https://www.xvideos.com/video.demo/example", "xv"),
+        ("xnxx", handle_xnxx_link, "https://www.xnxx.com/video-demo/example", "xnxx"),
+    ],
+)
+async def test_quality_buttons_do_not_wait_for_an_external_thumbnail(
+    site, handler, url, prefix, caplog
+):
+    import logging
+
+    caplog.set_level(logging.INFO, logger="activity")
+    calls = []
+    media = Media(
+        site, "id", "Title", "Author", 30, url, "https://cdn.example/slow.jpg", (QUALITY,)
+    )
+
+    async def inspect(actual):
+        assert actual == url
+        return media
+
+    async def respond(text, **options):
+        assert "file" not in options
+        assert options["link_preview"] is False
+        assert options["reply_to"] == 42
+        calls.append(options)
+
+    menus = MenuStore()
+    event = SimpleNamespace(raw_text=url, sender_id=1, chat_id=2, id=42, respond=respond)
+    await handler(event, SimpleNamespace(inspect=inspect), menus)
+    assert len(calls) == 1
+    callback = calls[0]["buttons"][0][0].type.data.decode().split(":")
+    assert callback[0] == prefix and callback[2] == "0"
+    assert menus.get(callback[1], 1, 2).media.qualities == media.qualities
+    shown = [
+        record.msg for record in caplog.records if record.msg.get("event") == "quality_menu_shown"
+    ]
+    assert len(shown) == 1 and shown[0]["site"] == site
+    for field in (
+        "inspection_seconds",
+        "menu_storage_seconds",
+        "telegram_seconds",
+        "elapsed_seconds",
+    ):
+        assert shown[0][field] >= 0
+
+
+@pytest.mark.parametrize(
     ("site", "callback_prefix", "handler", "path"),
     [
         ("xnxx", "xnxx", handle_xnxx_link, "video-demo"),

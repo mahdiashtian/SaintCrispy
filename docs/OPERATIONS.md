@@ -453,6 +453,26 @@ python tools/summarize_logs.py 'logs/performance.jsonl*'
 
 `metrics_interval` and `runtime_stopped` report queue drops/write failures; `application_log_streams` reports the same counters separately for the other three streams. Host network counters include traffic from other host processes. Payload download/upload counters belong to the bot. Telegram's direct URL fetch occurs on Telegram's network, so its download duration/bytes cannot be measured as local payload traffic. A forced kill can lose queued logs; graceful SIGTERM/Ctrl+C drains them.
 
+## Quality-menu timing
+
+Quality menus are text replies with link previews disabled. They do not wait for
+Telegram to fetch a remote thumbnail before showing the selection buttons;
+artwork/preview processing remains part of final-file delivery where appropriate.
+
+Pinterest, SoundCloud, XVideos and XNXX emit `quality_menu_shown` only after the
+menu response succeeds. The activity record includes `site`, `qualities`,
+`inspection_seconds`, `menu_storage_seconds`, `telegram_seconds` and total
+`elapsed_seconds`. Inspection includes application cache/provider discovery;
+menu storage includes durable menu creation and button/text building; Telegram
+time measures the menu response RPC. Dispatcher admission happens before these
+handler timings and is covered by the existing admission/performance logs.
+
+Use these stages to distinguish a slow origin from SQL latency or a slow Telegram
+response. The Pinterest discovery memo only reuses identical playlists within
+that request; the selected rendition is still refreshed and validated separately.
+See [the live workstation comparison](PROVIDER_VERIFICATION.md#october-15-2026-quality-menu-latency)
+for measured changes and the boundary between origin and simulated Telegram tests.
+
 ## Transfer status messages
 
 All providers use the same progress reporter. Successful publication ends with

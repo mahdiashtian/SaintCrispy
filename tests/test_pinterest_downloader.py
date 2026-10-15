@@ -543,3 +543,137 @@ async def test_leaf_hls_retains_its_duration_for_transfer_completeness_checks():
         media = await downloader.inspect(PAGE)
         source = await downloader.resolve(media, media.qualities[0])
     assert source.duration == 12
+
+
+async def test_shared_hls_audio_is_fetched_once_per_discovery_and_selection_starts_fresh():
+    visits = []
+
+    async def respond(request):
+        visits.append(request.url.path)
+        await asyncio.sleep(0)
+        if request.url.path.startswith("/resource/"):
+            data = pin_data()
+            data["videos"]["video_list"].pop("V_720P")
+            return api(data)
+        if request.url.host == "www.pinterest.com":
+            return httpx.Response(200, text="")
+        return httpx.Response(
+            200, text=MASTER if request.url.path.endswith("master.m3u8") else PLAYLIST
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        provider = PinterestDownloader(PinterestClient(http))
+        media = await provider.inspect(PAGE)
+        assert len(media.qualities) == 2
+        assert visits.count("/videos/demo/audio.m3u8") == 1
+        visits.clear()
+        source = await provider.resolve(media, media.qualities[0])
+        assert source.audio_url == CDN + "audio.m3u8" and source.duration == 12
+        assert visits.count("/videos/demo/audio.m3u8") == 1
+        assert "/videos/demo/360.m3u8" not in visits
+
+
+@pytest.mark.parametrize("status", [404, 429, "timeout"])
+async def test_duplicate_failed_playlists_are_not_retried_within_a_discovery(status):
+    calls = []
+
+    async def respond(request):
+        calls.append(request.url.path)
+        await asyncio.sleep(0)
+        if status == "timeout":
+            raise httpx.ConnectTimeout("temporary failure")
+        return httpx.Response(status)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        client = PinterestClient(http)
+        with client.discovery_batch():
+            results = await asyncio.gather(
+                *(client.manifest(CDN + "audio.m3u8") for _ in range(8)), return_exceptions=True
+            )
+        assert len(calls) == 1 and all(isinstance(result, DownloadError) for result in results)
+        if status == "timeout":
+            assert all(result.code == "pinterest_transport_failure" for result in results)
+
+
+async def test_manifest_batches_are_bounded_and_do_not_cross_clients_or_discoveries():
+    calls = []
+
+    def respond(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, text=PLAYLIST)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        client, other = PinterestClient(http), PinterestClient(http)
+        with client.discovery_batch():
+            for index in range(130):
+                await client.manifest(CDN + f"{index}.m3u8")
+            batch = client._manifest_batch.get()
+            assert len(batch["results"]) == 128 and batch["locks"].count == 0
+            await other.manifest(CDN + "0.m3u8")
+            await client.manifest(CDN + "0.m3u8")
+        assert not batch["results"] and client._manifest_batch.get() is None
+        await client.manifest(CDN + "0.m3u8")
+    assert calls.count("/videos/demo/0.m3u8") == 3
+
+
+async def test_mp4_prefix_probe_stops_after_metadata_without_reading_payload():
+    class Body(httpx.AsyncByteStream):
+        consumed = 0
+        closed = False
+
+        async def __aiter__(self):
+            content = mp4() + box(b"mdat", b"x" * (1024 * 1024))
+            for offset in range(0, len(content), 1024):
+                self.consumed += 1024
+                yield content[offset : offset + 1024]
+
+        async def aclose(self):
+            self.closed = True
+
+    body = Body()
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                206, stream=body, headers={"content-range": "bytes 0-65535/1049000"}
+            )
+        )
+    ) as http:
+        probe = await PinterestClient(http).probe_media(CDN + "video.mp4", "video/mp4")
+    assert probe.valid and probe.width == 720 and probe.duration == 12
+    assert probe.size_bytes == 1049000
+    assert body.consumed == 1024 and body.closed
+
+
+@pytest.mark.parametrize("large_metadata", [False, True])
+async def test_mp4_tail_probe_avoids_payload_and_expands_only_for_larger_metadata(large_metadata):
+    prefix = mp4()[:16]
+    moov = mp4()[16:]
+    if large_metadata:
+        moov = box(b"moov", moov[8:] + box(b"free", b"x" * 100_000))
+    content = prefix + box(b"mdat", b"x" * 400_000) + moov
+    ranges = []
+
+    class Body(httpx.AsyncByteStream):
+        def __init__(self, data):
+            self.data = data
+
+        async def __aiter__(self):
+            for offset in range(0, len(self.data), 1024):
+                yield self.data[offset : offset + 1024]
+
+    def respond(request):
+        start, _, stop = request.headers["range"].removeprefix("bytes=").partition("-")
+        start, stop = int(start), int(stop) if stop else len(content) - 1
+        ranges.append((start, stop))
+        return httpx.Response(
+            206,
+            stream=Body(content[start : stop + 1]),
+            headers={"content-range": f"bytes {start}-{stop}/{len(content)}"},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        probe = await PinterestClient(http).probe_media(CDN + "tail.mp4", "video/mp4")
+    assert probe.valid and (probe.width, probe.height, probe.duration) == (720, 1280, 12)
+    assert probe.size_bytes == len(content)
+    assert len(ranges) == (3 if large_metadata else 2)
+    assert ranges[1][0] == len(content) - 64 * 1024

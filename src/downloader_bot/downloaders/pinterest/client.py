@@ -2,17 +2,21 @@ import asyncio
 import json
 import re
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import replace
 from urllib.parse import urljoin, urlsplit
 
 import httpx
 
+from core.locks import KeyedLocks
 from schemas.media import DownloadError, SiteHTTPError
 
 from .parser import (
     MediaProbe,
     cdn_url,
     mp4_metadata,
+    mp4_probe_ready,
     pin_id,
     read_api_pin,
     read_page_pin,
@@ -33,6 +37,21 @@ class PinterestClient:
         self.http = http
         self._slots = asyncio.Semaphore(4)
         self._cooldown_until = 0.0
+        self._manifest_batch = ContextVar("pinterest_manifest_batch", default=None)
+
+    @contextmanager
+    def discovery_batch(self):
+        """Reuse identical playlists inside one discovery, never across selections."""
+        if self._manifest_batch.get() is not None:
+            yield
+            return
+        batch = {"results": {}, "bytes": 0, "locks": KeyedLocks()}
+        token = self._manifest_batch.set(batch)
+        try:
+            yield
+        finally:
+            self._manifest_batch.reset(token)
+            batch["results"].clear()
 
     def _check_cooldown(self) -> None:
         if time.monotonic() < self._cooldown_until:
@@ -140,6 +159,34 @@ class PinterestClient:
                 stack.extend(item)
 
     async def manifest(self, url: str) -> tuple[str, str]:
+        batch = self._manifest_batch.get()
+        if batch is None:
+            return await self._manifest(url)
+        async with batch["locks"].hold(url):
+            if cached := batch["results"].get(url):
+                result, failure = cached
+                if failure is not None:
+                    message, code, status = failure
+                    if status is not None:
+                        raise SiteHTTPError(status, message)
+                    raise DownloadError(message, code=code)
+                return result
+            try:
+                result = await self._manifest(url)
+            except DownloadError as error:
+                if len(batch["results"]) < 128:
+                    batch["results"][url] = (
+                        None,
+                        (str(error), error.code, getattr(error, "status", None)),
+                    )
+                raise
+            size = len(result[0].encode("utf-8"))
+            if len(batch["results"]) < 128 and batch["bytes"] + size <= 4 * 1024 * 1024:
+                batch["results"][url] = (result, None)
+                batch["bytes"] += size
+            return result
+
+    async def _manifest(self, url: str) -> tuple[str, str]:
         body, final_url, _ = await self._read(url, HEADERS, 256 * 1024)
         return body.decode("utf-8-sig", errors="replace"), final_url
 
@@ -150,6 +197,7 @@ class PinterestClient:
             {**HEADERS, "Range": f"bytes=0-{limit - 1}"},
             limit,
             sample=True,
+            mp4_sample=mime == "video/mp4",
         )
         total = headers.get("content-range", "").rpartition("/")[2]
         if not total.isdigit():
@@ -158,16 +206,19 @@ class PinterestClient:
         if mime == "video/mp4":
             probe = mp4_metadata(body)
             if probe.valid and not probe.width and total.isdigit() and int(total) > limit:
-                limit = min(int(total), 256 * 1024)
-                tail, _, _ = await self._read(
-                    url,
-                    {**HEADERS, "Range": f"bytes={int(total) - limit}-"},
-                    limit,
-                    sample=True,
-                )
-                metadata = mp4_metadata(tail, tail=True)
-                if metadata.width:
-                    return replace(metadata, size_bytes=size)
+                for tail_limit in (64 * 1024, 256 * 1024):
+                    limit = min(int(total), tail_limit)
+                    tail, _, _ = await self._read(
+                        url,
+                        {**HEADERS, "Range": f"bytes={int(total) - limit}-"},
+                        limit,
+                        sample=True,
+                    )
+                    metadata = mp4_metadata(tail, tail=True)
+                    if metadata.width:
+                        return replace(metadata, size_bytes=size)
+                    if limit == int(total):
+                        break
             return replace(probe, size_bytes=size)
         signatures = {
             "image/jpeg": body.startswith(b"\xff\xd8\xff"),
@@ -197,6 +248,7 @@ class PinterestClient:
         kind: str = "cdn",
         params: dict | None = None,
         sample: bool = False,
+        mp4_sample: bool = False,
     ) -> tuple[bytes, str, httpx.Headers]:
         try:
             async with self._slots, asyncio.timeout(20):
@@ -225,11 +277,15 @@ class PinterestClient:
                         body = bytearray()
                         async for chunk in response.aiter_bytes(1024 if sample else 64 * 1024):
                             body.extend(chunk)
+                            if mp4_sample and mp4_probe_ready(body):
+                                return bytes(body[:limit]), str(response.url), response.headers
                             if sample and len(body) >= limit:
                                 return bytes(body[:limit]), str(response.url), response.headers
                             if len(body) > limit:
                                 raise DownloadError("حجم پاسخ اطلاعات Pinterest بیش از حد است.")
                         return bytes(body), str(response.url), response.headers
         except (httpx.HTTPError, TimeoutError) as error:
-            raise DownloadError("ارتباط با Pinterest قطع شد؛ دوباره امتحان کن.") from error
+            raise DownloadError(
+                "ارتباط با Pinterest قطع شد؛ دوباره امتحان کن.", code="pinterest_transport_failure"
+            ) from error
         raise DownloadError("تعداد تغییر مسیر لینک Pinterest بیش از حد است.")

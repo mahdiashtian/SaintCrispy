@@ -2,6 +2,83 @@
 
 Verification separates parser/unit behavior, database/concurrency behavior, full origin streams, and Telegram registration. A green unit suite cannot establish unrestricted access from every server IP.
 
+## October 15, 2026 quality-menu latency
+
+Compared baseline `85bfefa` with the updated Pinterest provider on the Windows
+workstation using Python 3.13.14 and HTTPX's existing HTTP/1.1 transport. Each
+inspection used a new client and no cookies, proxy, metadata cache or Telegram
+connection. Runs were baseline/current/current/baseline for each pin, one second
+apart. Both API and page enrichment remained enabled; no metadata checks were
+removed and the four-request provider limit was unchanged.
+
+| Pin | Verified choices in every run | Baseline seconds | Updated seconds | Mean before / after |
+| --- | ---: | --- | --- | --- |
+| `2885187256207927` | 23 | 5.678297, 4.320697 | 4.085713, 3.623387 | 4.999497 / 3.854550 |
+| `664281013778109217` | 6 | 2.400065, 2.308456 | 2.239741, 2.207492 | 2.354261 / 2.223617 |
+
+Every quality key, dimension, duration, codec and protocol matched within each
+four-run comparison. The first pin's mean inspection time fell about 23% (1.30x);
+the second difference was about 6% and is small relative to possible network
+variation. These are two live origin observations, not a production SLA or a
+universal speed factor. An initial separate baseline saw only six choices for
+the first pin, demonstrating Pinterest's changing Relay responses; that result
+was excluded from the like-for-like comparison rather than counted as a speedup.
+
+For the 23-choice pin, requests fell from 31 to 27 by reusing the exact shared
+audio playlist inside one discovery. MP4 samples returned 162,816 bytes instead
+of 1,179,648, about 86% less, by closing the response after complete `moov`
+metadata. These counts describe bytes returned by the bounded reader, not host
+network counters. The six-choice pin had no duplicate shared audio playlist;
+both versions needed nine requests and samples were 65,536 versus 64,512 bytes.
+The remaining API/page/rendition round trips still contribute substantial time.
+
+The independent batch memo is bounded to 128 results / 4 MiB of encoded playlist
+text and ends with discovery. A selected quality starts a new batch, refreshes
+the original pin and revalidates the selected source. Transport failures retain
+a safe category when coalesced; identical failures are not retried inside the
+same batch. Rate limits still stop fallback. MP4 probes stop before payload when
+metadata is at EOF, try a 64 KiB suffix, and expand once to the previous 256 KiB
+bound if needed. No format is accepted simply from the origin's claimed size.
+
+A fresh updated inspection subsequently returned 23 choices. Selected MP4 and
+HLS 720x1280 resolved in 1.437878 and 1.523118 seconds with seven-second duration.
+The MP4 was read to EOF: 971,092 bytes, exactly the source size, in 0.979528 seconds;
+SHA-256 `e30b07189acea18806093c71da740438e02e5a2d5792526995daa31e6303388d`.
+This confirms source resolution and a full origin MP4 read. It does not establish
+fresh HLS segment consumption, full decoding or Telegram publication.
+
+Pinterest, SoundCloud, XVideos and XNXX menus previously waited for Telegram's
+external photo fetch before presenting quality buttons. They now reply with text
+and the same quality buttons, with link previews disabled. Final-file artwork
+and previews remain separate. Instagram and YouTube already used this approach.
+A controlled handler replay (50 ms mock inspection, in-memory menus, 300 ms mock
+photo send, 5 ms mock text send) measured baseline / updated seconds:
+
+| Handler | Baseline | Updated |
+| --- | ---: | ---: |
+| Pinterest | 0.363386 | 0.072360 |
+| SoundCloud | 0.358960 | 0.068582 |
+| XVideos | 0.358697 | 0.066431 |
+| XNXX | 0.353923 | 0.059963 |
+
+Those handler numbers isolate a removed dependency using simulated Telegram and
+origin delays; they are not live Telegram or production measurements. No messages
+were sent to users during these checks. `quality_menu_shown` now records inspection,
+menu-storage and Telegram durations separately in those four handlers. Regressions
+cover callback ownership/indices, replies, retained formats, metadata bounds,
+large EOF metadata, batch lifetime/isolation, and failed/rate-limited playlists.
+
+The first measurement script requested HTTP/2 before any origin call and failed
+because optional `h2` is not installed. The script was corrected to the project's
+existing HTTP/1.1 profile. No new HTTP/2 runtime dependency or unproven transport
+change was added. Private scripts/reports remain ignored under `.runtime/`.
+
+Final validation passed 1,176 tests with zero skips against isolated real
+PostgreSQL 17 and Redis 7.4, including provider boundaries and the prior transfer
+status regressions. Ruff lint/formatting passed for 239 Python files. Ten known
+curl-cffi Windows selector warnings were unrelated to these changes. The test
+services were disposable; no production process or database was updated.
+
 ## October 10, 2026 completeness regression checks
 
 The upstream streaming-playback change `54b8350` was fetched and integrated before

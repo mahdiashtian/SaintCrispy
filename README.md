@@ -291,6 +291,16 @@ replay preserved all quality identities while reducing sampled bytes by over 98%
 Live CDN checks on the workstation still timed out, so this is not a measured
 production speed guarantee. See the [Instagram performance evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md#october-15-instagram-quality-menu-latency).
 
+All provider menus now show text and quality buttons without waiting for a remote
+thumbnail or link preview. Pinterest also reuses identical HLS playlists within
+one discovery and stops MP4 sampling after its metadata. Quality selection still
+refreshes and validates the requested source. A live workstation comparison kept
+the same 23 qualities while reducing average inspection time from 5.00 to 3.85
+seconds; another six-quality pin changed from 2.35 to 2.22 seconds. These are
+connection-specific observations, not server guarantees. Per-stage menu logs and
+[the dated measurements](docs/PROVIDER_VERIFICATION.md#october-15-2026-quality-menu-latency)
+help distinguish origin, menu-storage and Telegram latency.
+
 ## Group downloads
 
 Supported links also work in basic groups and supergroups without `/start` or a

@@ -1,10 +1,10 @@
 import logging
+import time
 from functools import partial
 
 import httpx
-from telethon import events, types
+from telethon import events
 
-from bot.delivery import EXTERNAL_FAILURES
 from bot.keyboards.inline import quality_buttons
 from bot.texts.downloads import quality_menu_text
 from core.diagnostics import error_fields
@@ -21,27 +21,34 @@ async def handle_xvideos_link(event, service, menus) -> None:
     url = extract_url(event.raw_text)
     if url is None:
         return
+    started = time.monotonic()
     try:
         media = await service.inspect(url)
+        inspected = time.monotonic()
         token = await menus.create(
             event.sender_id, event.chat_id, media, message_id=getattr(event, "id", None)
         )
         buttons = quality_buttons(media.qualities, "xv", token)
         text = quality_menu_text(media)
-        if media.thumbnail:
-            try:
-                await event.respond(
-                    text,
-                    file=types.InputMediaPhotoExternal(media.thumbnail),
-                    buttons=buttons,
-                    parse_mode=None,
-                    reply_to=getattr(event, "id", None),
-                )
-                return
-            except EXTERNAL_FAILURES:
-                pass
+        stored = time.monotonic()
         await event.respond(
-            text, buttons=buttons, parse_mode=None, reply_to=getattr(event, "id", None)
+            text,
+            buttons=buttons,
+            parse_mode=None,
+            reply_to=getattr(event, "id", None),
+            link_preview=False,
+        )
+        shown = time.monotonic()
+        log.info(
+            {
+                "event": "quality_menu_shown",
+                "site": "xvideos",
+                "qualities": len(media.qualities),
+                "inspection_seconds": round(inspected - started, 4),
+                "menu_storage_seconds": round(stored - inspected, 4),
+                "telegram_seconds": round(shown - stored, 4),
+                "elapsed_seconds": round(shown - started, 4),
+            }
         )
     except DownloadError as error:
         log.warning(

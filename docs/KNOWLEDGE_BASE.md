@@ -403,6 +403,36 @@ Use the numeric track ID; mutable slugs require fresh discovery.
 
 ## Pinterest
 
+October 15 menu-latency follow-up: the four-request provider bound was retained.
+Exact shared HLS audio playlists are now coalesced only inside one discovery;
+selections refresh pin/source metadata in a fresh batch. The memo is bounded to
+128 results and 4 MiB of encoded playlist text, including safe failed-result
+identities, with no cross-client or cross-discovery reuse. A transport failure
+keeps `pinterest_transport_failure` when reconstructed for followers. Do not
+repeat an already failed shared playlist for every rendition in the same batch.
+
+MP4 prefix probes close after a complete `moov` or before media payload. EOF
+metadata uses a 64 KiB suffix with one expansion to the former 256 KiB limit.
+Keep preview-duration, actual dimensions/codec, CDN allowlist, complete HLS/audio
+and selection-refresh checks. Skipping the public page would lose published
+modern encodes; both API metadata and page enrichment remain on the cold path.
+
+Workstation live ABBA comparisons preserved identical 23- and six-quality catalogs
+on the two known pins. The 23-choice pin averaged 4.999497 seconds before and
+3.854550 afterward; request count fell 31 to 27, MP4 returned sample bytes
+1,179,648 to 162,816. The six-choice pin averaged 2.354261 to 2.223617 seconds;
+that small difference may include network variation. A subsequent selection
+refreshed both MP4/HLS and consumed the MP4 to EOF (971,092 bytes). No live Telegram
+or production test was performed. See [dated evidence](PROVIDER_VERIFICATION.md#october-15-2026-quality-menu-latency)
+for individual times, source scope, payload accounting and preserved failures.
+
+The same investigation removed external-thumbnail waits from Pinterest,
+SoundCloud, XVideos and XNXX menus; Instagram/YouTube already avoid them. Quality
+buttons now arrive in a text reply without an external photo or link-preview
+fetch. Final-file artwork is independent. Separate inspection/storage/Telegram
+durations are logged to identify remaining production latency. Controlled mock
+handler timings must not be presented as native Telegram speed measurements.
+
 October 10 independent checks completed all 29 qualities of two pins. Pin
 `2885187256207927` also completed full progressive/HLS streams and Telegram
 registration in an earlier check without publishing messages.

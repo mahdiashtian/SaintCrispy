@@ -75,9 +75,10 @@ class PinterestDownloader(Downloader):
         qualities: tuple[Quality, ...],
         selected: str | None = None,
     ) -> list[tuple[Quality, Source]]:
-        results = await asyncio.gather(
-            *(self._format(quality, selected) for quality in qualities), return_exceptions=True
-        )
+        with self.client.discovery_batch():
+            results = await asyncio.gather(
+                *(self._format(quality, selected) for quality in qualities), return_exceptions=True
+            )
         formats = {}
         errors = []
         for result in results:
@@ -199,7 +200,7 @@ class PinterestDownloader(Downloader):
             if error.status not in {401, 403, 404, 410, 416}:
                 raise
         except DownloadError as error:
-            if error.__cause__ is not None:
+            if error.__cause__ is not None or error.code == "pinterest_transport_failure":
                 raise
         return []
 
@@ -239,7 +240,7 @@ class PinterestDownloader(Downloader):
             if error.status not in {401, 403, 404, 410}:
                 raise
         except DownloadError as error:
-            if error.__cause__ is not None:
+            if error.__cause__ is not None or error.code == "pinterest_transport_failure":
                 raise
         return None
 

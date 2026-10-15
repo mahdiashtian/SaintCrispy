@@ -41,6 +41,31 @@ def _boxes(data: bytes):
         offset += size
 
 
+def mp4_probe_ready(body: bytes) -> bool:
+    """Stop a prefix probe at complete metadata or before reading media payload."""
+    if len(body) < 12:
+        return False
+    if body[4:8] != b"ftyp":
+        return True
+    offset = 0
+    while offset + 8 <= len(body):
+        size, kind = struct.unpack_from(">I4s", body, offset)
+        header = 8
+        if size == 1:
+            if offset + 16 > len(body):
+                return False
+            size = struct.unpack_from(">Q", body, offset + 8)[0]
+            header = 16
+        if size < header:
+            return False
+        if kind == b"mdat":
+            return True
+        if kind == b"moov" and offset + size <= len(body):
+            return True
+        offset += size
+    return False
+
+
 def mp4_metadata(body: bytes, *, tail: bool = False) -> MediaProbe:
     """Read bounded MP4 box metadata; Pinterest's format dimensions may describe the source."""
     if tail:
