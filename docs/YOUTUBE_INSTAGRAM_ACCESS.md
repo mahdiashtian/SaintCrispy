@@ -714,3 +714,109 @@ known-size header parsing and public-route failure checks. The final video and
 telemetry regression set passed **68 tests** after applying the frame-prefix budget
 to ready sources as well as prepared ones. Ruff lint/format and whitespace checks
 passed. No new dependencies or database migrations are required.
+
+## October 15 complete-file performance comparison
+
+Scope: Windows workstation, guest access only, exact YouTube identity
+`l6zflbTGNFQ`, 720p H264 with audio. No production access or actual Telegram calls.
+Fresh native extraction remained challenged; complete live transfers used the
+existing public converter. No fresh Googlevideo success follows from these tests.
+
+Reviewed current author implementations in
+[YTP](https://github.com/diorhc/YTP/blob/main/src/download.js),
+[YouTube Direct Downloader](https://greasyfork.org/en/scripts/527945-youtube-direct-downloader/code),
+and [yt.loader-to](https://github.com/ernestoyoofi/yt.loader-to).
+YTP and Direct Downloader use the same cnv.cx backend already implemented here.
+Changing wrappers would not remove that backend's bottleneck. No research
+repository was installed or vendored into the application.
+
+| Workstation experiment | Verified result / decision |
+| --- | --- |
+| Same 8 MiB prefix: HTTPX / browser curl HTTP/2 / HTTP/3 | 6.982 / 5.694 / 5.767 s; equal hashes. Screening only. |
+| Complete response, fresh source per run | HTTPX 34.101 and 36.189 s; curl HTTP/2 32.698 and 34.862 s; HTTP/3 31.912 s. External variance prevents a causal speed claim. |
+| Same signed source, order reversed in pair two | HTTPX then curl HTTP/2: 36.265 / 34.565 s. Curl HTTP/2 then HTTPX: 34.636 / 33.608 s. No consistent HTTP/2 advantage; no default protocol change. |
+| HTTPX Chrome versus default UA, 4 MiB | 4.309 versus 3.684 s. UA-only change did not improve this sample. |
+| rue-cobalt.xenon.zone, ordinary tunnel | API 200/tunnel, media 200 with zero bytes. Refused. |
+| Same instance, forced local-processing mode | Two media tunnels, both 200 with zero bytes. Different processing mode did not repair access. |
+| cobaltapi.cjs.nz | `error.api.youtube.login`; no retry loop. |
+| api.cobalt.liubquanti.click | Ten-second timeout; no fallback registration. |
+| loader.to documented job/progress flow | Exact video ID confirmed, progress reached success/1000. The savenow media link redirected to an advertising endpoint and another ad host. No ad navigation or integration. Anonymous session cookies did not establish media; later Range check returned 410. API success alone is insufficient. |
+| Local disk writes, 56,705,073 bytes | 64 KiB: 866 calls, 0.274 s; 256 KiB: 217 calls, 0.086 s; 1 MiB: 55 calls, 0.046 s. Adopt bounded 256 KiB batching; this saving cannot explain a 30+ s network transfer. |
+| Alternative AV1 source, same 1280x720/30 fps video | Complete 83,952,811-byte WebM, 47.455 s. Local codec-copy validation confirmed 1300.500 s video and 1300.521 s Opus audio. Larger/slower than H264 here; do not assume a newer codec makes this resolver faster. Not integrated. |
+| Alternative VP9 source, requested 720p | Reading exceeded the explicit 128 MiB safety cap after 76.526 s and was aborted. This was not a complete-file success and was not integrated. |
+
+All complete relay comparisons consumed **56,705,073 bytes** to EOF and matched
+SHA-256 `6a6c81de91b5c52ea663548688539e5438078f47f3249f51510c268e42cc7c44`.
+The relay ignores Range and supplies fragmented MP4. Preserve one capped GET:
+parallel pseudo-ranges would fetch duplicate bytes. One favorable HTTP/3 sample
+does not justify a default UDP-only dependency. Reconsider failed services after
+verified instance/connection/upstream recovery, not unchanged retries.
+
+### Native transfer correction
+
+The old DASH selection contained two progressive origin tracks, but FFmpeg fetched
+them with unrestricted HTTP requests. The provider's 2 MiB policy applied only to
+single progressive files. That FFmpeg produced a fragmented intermediate requiring
+a second local mux. The corrected path downloads both progressive inputs with the
+provider's range policy and performs **one local codec-copy mux** into indexed MP4.
+FFmpeg starts after both inputs finish. Its process semaphore covers local muxing
+and releases before upload; it is not occupied by these HTTP downloads.
+
+The provider selects 8 MiB requests (8,388,608 bytes), below a conservative
+10,000,000-byte interpretation of the threshold in
+[yt-dlp's maintainer FAQ](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#i-extracted-a-video-url-but-it-does-not-play-on-another-machine--in-my-web-browser).
+The 32 MiB plus four-byte single-progressive regression uses 5 instead of 17
+requests, preserves the full hash and yields network chunks no larger than 64 KiB.
+Disk staging/read batches are bounded at 256 KiB: an 8 MiB request is not an
+8 MiB Python buffer. Configured concurrency was not increased.
+
+Known video sizes, exact ranges, combined input byte cap, final output cap,
+complete video/audio durations, faststart index and thumbnail checks remain.
+A short audio track fails before publication. Cancellation during the second
+input closes it, waits for disk workers and removes the workspace. Tests also
+verify that both inputs finish while the mux semaphore is unavailable.
+
+### Reproducible timings and their limits
+
+`tools/benchmark_video_pipeline.py` extracts separate tracks with codec copy from
+a complete local MP4, then compares the previous two-process network pipeline
+against bounded downloads/local mux in ABBA order. Telegram acknowledgments are
+simulated. Per-request delay is configurable. Large-request rate limiting is
+**disabled by default** and explicitly enabled for the separate throttling replay.
+
+Input: the fresh complete 720p file of the reported video, 57,470,469 prepared bytes,
+1300.500 seconds. Both replay pipelines retained full duration/audio and faststart.
+At 40 ms request delay without rate limiting, old/new averages were 1.166 / 1.364 s:
+extra range round trips cost time on an unthrottled origin. Under an explicit
+4 MiB/s cap for requests exceeding 10 MB, the first replay averaged 9.209 / 1.456 s,
+about **6.3x faster**. Both transferred 56,751,579 input bytes; the new maximum
+request was 8,388,608 bytes instead of 35,717,513. This reproduces the algorithm's
+benefit under the stated condition, not a sixfold live YouTube guarantee.
+
+A separate repeat after the full test suite finished averaged 9.225 / 1.760 s,
+about **5.24x** under the same explicit throttle. Keep both samples rather than
+reporting only the most favorable run. Combined source bytes are recorded after
+both tracks finish, instead of leaving telemetry's source size equal to only the
+last audio input.
+
+With both simulated delay and throttling disabled, a final ABBA replay averaged
+0.981 s versus 0.840 s (1.167x throughput, about 14% less elapsed time). This isolates
+local pipeline work; it is not an internet download-bandwidth result. The explicit
+source-byte assertion passed for both optimized runs.
+
+The latest real guest provider inspection/resolution/full delivery-path check
+completed with 57,470,469 prepared/upload-acknowledged bytes, 1300.500 s, faststart
+and a generated preview. Transfer time was **38.695 s**, versus a same-session
+pre-change sample of 38.476 s: no demonstrated live relay improvement. Menu time
+was 13.755 s including native fallback, with all four qualities. Telegram calls
+were simulated. The relay remains the measured bottleneck on this connection;
+wrapper changes, HTTP versions and more concurrency did not establish a several-fold
+increase for that route. Keep this limitation explicit in deployment reports.
+
+Workstation validation: **914 tests passed, 18 skipped**. Dedicated service and
+opt-in external tests were not configured. Provider boundaries, architecture,
+staging cancellation/limits, complete split-track delivery and truncated-audio
+refusal passed. No new dependency, login, database migration or concurrency increase.
+After the final combined-source telemetry correction, all 138 affected provider,
+video, telemetry, architecture and nonblocking tests passed. Ruff lint/format
+checks passed for 223 Python files; diff whitespace checks passed.

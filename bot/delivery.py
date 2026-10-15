@@ -463,8 +463,27 @@ class TelegramDelivery:
                 upload_slots=self._upload_slots,
             )
 
-        async def prepare(chunks, *, input_slots=None):
+        async def upload_prepared(prepared):
             nonlocal preview_limit
+            async with inspect_mp4(
+                prepared,
+                self.max_file_bytes,
+                max_header_bytes=MAX_PREPARED_HEADER_BYTES,
+            ) as (stream, info):
+                info = require_video_info(info)
+                if not info.faststart:
+                    raise DownloadError("فهرست پخش ویدیو کامل نیست؛ فایل ارسال نشد.")
+                preview_limit = MAX_PREVIEW_INPUT + info.prefix_size
+                checked = validated_mp4(
+                    stream,
+                    progress,
+                    source.duration,
+                    source.require_audio,
+                    max_metadata_bytes=MAX_PREPARED_HEADER_BYTES,
+                )
+                return await upload(checked), info
+
+        async def prepare(chunks, *, input_slots=None):
             checked = validated_mp4(
                 chunks,
                 progress,
@@ -480,25 +499,34 @@ class TelegramDelivery:
                 input_slots=input_slots,
                 remux_slots=self._remux_slots,
             ) as prepared:
-                async with inspect_mp4(
-                    prepared,
-                    self.max_file_bytes,
-                    max_header_bytes=MAX_PREPARED_HEADER_BYTES,
-                ) as (stream, info):
-                    info = require_video_info(info)
-                    if not info.faststart:
-                        raise DownloadError("فهرست پخش ویدیو کامل نیست؛ فایل ارسال نشد.")
-                    preview_limit = MAX_PREVIEW_INPUT + info.prefix_size
-                    checked = validated_mp4(
-                        stream,
-                        progress,
-                        source.duration,
-                        source.require_audio,
-                        max_metadata_bytes=MAX_PREPARED_HEADER_BYTES,
-                    )
-                    return await upload(checked), info
+                return await upload_prepared(prepared)
 
         video = streamable_video(quality)
+        if (
+            video
+            and source.protocol == "dash"
+            and source.audio_url
+            and source.input_protocol == source.audio_protocol == "progressive"
+            and source.chunk_size
+        ):
+            # Fetch bounded HTTP ranges before one local codec-copy mux. FFmpeg
+            # must not turn provider range hints into unrestricted network reads.
+            video_source = replace(source, protocol="progressive", audio_url=None)
+            audio_source = replace(
+                video_source,
+                url=source.audio_url,
+                headers=source.audio_headers or source.headers,
+                size_bytes=None,
+            )
+            async with prepared_video(
+                media_chunks(self.http, video_source, quality, self.ffmpeg),
+                self.ffmpeg,
+                progress,
+                self.max_file_bytes,
+                audio_chunks=media_chunks(self.http, audio_source, quality, self.ffmpeg),
+                remux_slots=self._remux_slots,
+            ) as prepared:
+                return await upload_prepared(prepared)
         if quality.mime_type == "audio/mp4" and source.protocol == "progressive":
             chunks = media_chunks(self.http, source, quality, self.ffmpeg, progress)
             checked = validated_mp4(chunks, progress, source.duration, audio_only=True)

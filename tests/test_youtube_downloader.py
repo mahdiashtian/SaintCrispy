@@ -17,6 +17,7 @@ from downloader_bot.downloaders.youtube.client import YouTubeClient, extraction_
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
 from downloader_bot.downloaders.youtube.handler import handle_youtube_link
 from downloader_bot.downloaders.youtube.parser import (
+    HTTP_CHUNK_SIZE,
     read_media,
     selections,
     source_headers,
@@ -446,6 +447,38 @@ async def test_small_cdn_ranges_deliver_the_whole_file():
         result = b"".join([chunk async for chunk in media_chunks(http, source, None, "", progress)])
     assert result == payload and progress.download_done and progress.total == 16
     assert ranges == ["bytes=0-4", "bytes=5-9", "bytes=10-14", "bytes=15-15"]
+
+
+async def test_native_range_plan_removes_round_trips_without_buffering_whole_requests():
+    import hashlib
+
+    payload = bytes(range(256)) * (32 * 1024 * 1024 // 256) + b"tail"
+    choice = next(item for item in selections(info()) if item.quality.protocol == "progressive")
+    source = replace(choice.source(""), proxy=None, size_bytes=len(payload))
+    assert source.chunk_size == HTTP_CHUNK_SIZE < 10_000_000
+    counts = []
+    for source in (replace(source, chunk_size=2 * 1024 * 1024), source):
+        calls = []
+
+        def response(request):
+            start, stop = map(int, request.headers["range"].removeprefix("bytes=").split("-"))
+            calls.append((start, stop))
+            return httpx.Response(
+                206,
+                content=payload[start : stop + 1],
+                headers={"Content-Range": f"bytes {start}-{stop}/{len(payload)}"},
+            )
+
+        digest = hashlib.sha256()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as http:
+            async for chunk in media_chunks(http, source, choice.quality, "unused"):
+                assert len(chunk) <= 64 * 1024
+                digest.update(chunk)
+        assert digest.digest() == hashlib.sha256(payload).digest()
+        counts.append(len(calls))
+    assert counts == [17, 5]
+    combined = next(item for item in selections(info()) if item.audio is not None)
+    assert combined.source("").chunk_size == HTTP_CHUNK_SIZE
 
 
 @pytest.mark.parametrize(

@@ -58,6 +58,22 @@ concrete extractor in violation of `AGENTS.md`.
 
 ## YouTube
 
+October 15 performance follow-up: complete-file and reversed-order comparisons
+did not establish a repeatable HTTP/2 improvement on the guest relay. Do not
+promote a short prefix timing to a full-file speed claim. Newly reviewed Cobalt
+instances returned empty tunnels or failed; loader.to completed an exact-ID job
+but returned advertising redirects instead of media. Neither was integrated.
+See [the dated performance evidence](YOUTUBE_INSTAGRAM_ACCESS.md#october-15-complete-file-performance-comparison).
+
+Native split progressive tracks now use provider-owned 8 MiB ranges below the
+documented 10 MB throttling threshold, followed by one local codec-copy mux. The
+old DASH path bypassed the range policy inside network FFmpeg, then needed a
+second mux. Bounded 256 KiB staging reduces disk opens and worker dispatches.
+Loopback replay verifies an improvement under **explicit simulated large-request
+throttling**; unthrottled replay is slower because of extra request round trips.
+The real anonymous relay transfer still took about 39 seconds. No several-fold
+live relay/CDN or Telegram speed increase has been demonstrated.
+
 Compared the maintained Python implementations yt-dlp and pytubefix, including
 their Innertube clients, JavaScript solvers and PO-token integration. Legacy pytube
 or youtube-dl is not evidence of a working alternative for a modern challenge.

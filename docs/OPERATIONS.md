@@ -33,6 +33,29 @@ use `--live` once after a meaningful setup change to verify full origin streams.
 See the dated [access investigation](YOUTUBE_INSTAGRAM_ACCESS.md) for safe report
 interpretation and the unresolved session/route conditions.
 
+## Replaying download performance locally
+
+Native split progressive YouTube tracks use 8 MiB HTTP requests and one local
+codec-copy mux. Disk staging/read batches are 256 KiB. The guest converter ignores
+ranges and keeps one capped GET. No concurrency setting needs to increase.
+
+To compare the old and new split-track pipelines using an authorized complete
+local MP4 (at most 128 MiB), without origin requests or Telegram access:
+
+```bash
+python tools/benchmark_video_pipeline.py /path/to/complete.mp4 --report .runtime/video-replay.json
+python tools/benchmark_video_pipeline.py /path/to/complete.mp4 --large-request-mib-per-second 4 --report .runtime/video-throttled-replay.json
+```
+
+FFmpeg and ffprobe must be on PATH, or specified with `--ffmpeg` and `--ffprobe`.
+The first command has no rate cap; the second explicitly simulates throttling of
+requests larger than 10 MB. Request latency defaults to 40 ms and is adjustable
+through `--request-delay-ms`. Reports include full duration, bytes, range size,
+HTTP request count and stage times. These are loopback replays with simulated
+Telegram acknowledgments, not production bandwidth tests. A favorable replay does
+not prove a live relay speedup. See [dated evidence](YOUTUBE_INSTAGRAM_ACCESS.md#october-15-complete-file-performance-comparison)
+for positive and negative results, including the still limited live guest relay.
+
 ## Optional guest network profiles
 
 YouTube's anonymous converter fallback is enabled by default through

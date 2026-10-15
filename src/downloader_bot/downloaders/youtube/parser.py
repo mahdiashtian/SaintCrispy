@@ -9,6 +9,8 @@ from schemas.media import DownloadError, Media, Quality, Source
 from .urls import PAGE_HOSTS as HOSTS
 
 VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}\Z")
+# Stay below YouTube's documented 10 MB HTTP-request throttling threshold.
+HTTP_CHUNK_SIZE = 8 * 1024 * 1024
 
 
 def video_id(url: str) -> str:
@@ -179,7 +181,7 @@ class Selection:
             audio_headers=source_headers(self.audio) if self.audio else {},
             proxy=proxy,
             size_bytes=int(number(self.video.get("filesize"))) or None,
-            chunk_size=2 * 1024 * 1024 if self.quality.protocol == "progressive" else None,
+            chunk_size=HTTP_CHUNK_SIZE if not is_hls(self.video) else None,
             require_audio=self.quality.mime_type.startswith("video/"),
             duration=duration or None,
             input_protocol="hls" if is_hls(self.video) else "progressive",

@@ -241,6 +241,13 @@ Conversation states and owned quality menus are stored in PostgreSQL without exp
 
 The account-scoped Telegram session lives under `SESSION_NAME` (default `.runtime/sessions/saintcrispy-<bot-id>.session`). Keep this private file between restarts. Startup takes a PostgreSQL coordinator lock before opening the session, preventing two coordinators for the same bot from owning it. Additive schema migrations run transactionally at startup and are recorded in `app_schema_migrations`; upgrading keeps existing file references, accounts and histories.
 
+Native YouTube selections with separate progressive tracks use bounded 8 MiB HTTP
+ranges and one local codec-copy mux. Staging and prepared-file reads use 256 KiB
+batches. The anonymous converter relay ignores ranges and retains a single capped
+GET. See [local performance replay](docs/OPERATIONS.md#replaying-download-performance-locally)
+for a reproducible benchmark and its limits; simulated throttling results are not
+live CDN or Telegram throughput guarantees.
+
 ## Performance logging on a server
 
 Performance logging is enabled by default. Events are JSON Lines: one JSON object per line, with UTC timestamps, a process `session_id`, and a unique `transfer_id`. Output goes to stdout and `logs/performance.jsonl`. Serialization, writes and rotation run in a worker thread behind a bounded queue; transfers never wait for the log disk. Original URLs, signed CDN URLs, credentials, titles, user/chat IDs and raw exception messages are excluded. Content is correlated through a hash of its provider ID and selected quality.

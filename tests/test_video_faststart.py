@@ -375,3 +375,209 @@ async def test_slow_disk_write_does_not_block_loop_and_cancel_waits_before_clean
     with pytest.raises(asyncio.CancelledError):
         await task
     assert not directory.exists()
+
+
+async def test_staging_batches_irregular_chunks_and_preserves_the_final_tail(tmp_path, monkeypatch):
+    from bot.transfers import faststart
+
+    payload = bytes(range(256)) * 4801 + b"final tail"
+    writes = []
+    original_append = faststart.append
+
+    def append(path, data):
+        writes.append(len(data))
+        original_append(path, data)
+
+    async def copy(ffmpeg, original, ready, limit):
+        await faststart.disk_call(faststart.shutil.copyfile, original, ready)
+
+    monkeypatch.setattr(faststart, "append", append)
+    monkeypatch.setattr(faststart, "remux", copy)
+
+    async def chunks():
+        for offset in range(0, len(payload), 65521):
+            yield payload[offset : offset + 65521]
+
+    async with prepared_video(chunks(), "unused", TransferProgress(), len(payload)) as stream:
+        received = b"".join([chunk async for chunk in stream])
+    assert received == payload
+    assert sum(writes) == len(payload) and max(writes) <= faststart.STAGING_BLOCK_SIZE
+    assert len(writes) == 5  # Previously 19 separate opens/writes for these input chunks.
+
+
+@pytest.mark.parametrize("short_audio", [False, True])
+async def test_native_split_tracks_use_bounded_http_then_one_local_mux(
+    neutral_video, monkeypatch, short_audio
+):
+    ffmpeg, files = neutral_video
+    requests, muxes = [], []
+    spawn = asyncio.create_subprocess_exec
+
+    async def extract(kind, seconds):
+        process = await spawn(
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            "pipe:0",
+            "-map",
+            f"0:{kind}:0",
+            "-t",
+            str(seconds),
+            "-c",
+            "copy",
+            "-movflags",
+            "frag_keyframe+default_base_moof",
+            "-f",
+            "mp4",
+            "pipe:1",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        data, error = await process.communicate(files["/fast.mp4"])
+        assert process.returncode == 0, error.decode(errors="replace")
+        return data
+
+    tracks = {
+        "/video": await extract("v", 30),
+        "/audio": await extract("a", 1 if short_audio else 30),
+    }
+
+    async def create(*arguments, **options):
+        assert not any(str(value).startswith("https://") for value in arguments)
+        if "+faststart" in arguments:
+            muxes.append(arguments)
+        return await spawn(*arguments, **options)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+
+    def response(request):
+        requests.append(request)
+        data = tracks[request.url.path]
+        assert request.headers["x-track"] == request.url.path[1:]
+        start, stop = map(int, request.headers["range"].removeprefix("bytes=").split("-"))
+        stop = min(stop, len(data) - 1)
+        return httpx.Response(
+            206,
+            content=data[start : stop + 1],
+            headers={"Content-Range": f"bytes {start}-{stop}/{len(data)}"},
+        )
+
+    source = Source(
+        "https://cdn.example/video",
+        "dash",
+        headers={"X-Track": "video"},
+        audio_url="https://cdn.example/audio",
+        audio_headers={"X-Track": "audio"},
+        chunk_size=512 * 1024,
+        require_audio=True,
+        duration=30,
+        input_protocol="progressive",
+        audio_protocol="progressive",
+    )
+    client, progress = TelegramMock(), TransferProgress()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as http:
+        delivery = TelegramDelivery(client, http, ffmpeg)
+        if short_audio:
+            with pytest.raises(DownloadError):
+                await delivery.new_file(
+                    PEER, replace(MEDIA, duration=30), QUALITY, source, progress
+                )
+            assert not client.messages and not client.uploaded
+        else:
+            result = await delivery.new_file(
+                PEER, replace(MEDIA, duration=30), QUALITY, source, progress
+            )
+            assert result.verified_complete and result.video_faststart and result.video_preview
+            assert 29 < progress.seconds < 31 and progress.upload_done
+    assert len(muxes) == 1 and muxes[0].count("-i") == 2
+    assert {request.url.path for request in requests} == {"/video", "/audio"}
+    assert all("range" in request.headers for request in requests)
+
+
+async def test_split_input_size_cap_counts_both_tracks_and_cleans_workspace(tmp_path, monkeypatch):
+    directory = tmp_path / "work"
+    directory.mkdir()
+    monkeypatch.setattr("bot.transfers.faststart.tempfile.mkdtemp", lambda **kw: str(directory))
+
+    async def chunks():
+        yield b"x" * 100
+
+    with pytest.raises(DownloadError):
+        async with prepared_video(
+            chunks(), "unused", TransferProgress(), 150, audio_chunks=chunks()
+        ):
+            pytest.fail("The combined input cap must reject before launching FFmpeg")
+    assert not directory.exists()
+
+
+async def test_split_inputs_finish_before_waiting_for_a_mux_process(tmp_path, monkeypatch):
+    from bot.transfers import faststart
+
+    downloaded = asyncio.Event()
+    slots, progress, calls = asyncio.Semaphore(0), TransferProgress(), []
+
+    async def chunks():
+        yield b"video"
+
+    async def audio():
+        yield b"audio"
+        downloaded.set()
+
+    async def mux(ffmpeg, original, ready, limit, audio):
+        calls.append(True)
+        data = await faststart.disk_call(original.read_bytes)
+        data += await faststart.disk_call(audio.read_bytes)
+        await faststart.disk_call(ready.write_bytes, data)
+
+    monkeypatch.setattr(faststart, "remux", mux)
+
+    async def transfer():
+        async with prepared_video(
+            chunks(), "unused", progress, 1024, audio_chunks=audio(), remux_slots=slots
+        ) as stream:
+            assert b"".join([chunk async for chunk in stream]) == b"videoaudio"
+
+    task = asyncio.create_task(transfer())
+    try:
+        await asyncio.wait_for(downloaded.wait(), 2)
+        assert progress.downloaded == 10 and not calls
+    finally:
+        slots.release()
+        await asyncio.wait_for(task, 2)
+    assert calls == [True] and not slots.locked()
+
+
+async def test_cancel_during_second_input_closes_source_before_workspace_cleanup(
+    tmp_path, monkeypatch
+):
+    directory = tmp_path / "work"
+    directory.mkdir()
+    monkeypatch.setattr("bot.transfers.faststart.tempfile.mkdtemp", lambda **kw: str(directory))
+    entered, closed = asyncio.Event(), asyncio.Event()
+
+    async def video():
+        yield b"video"
+
+    async def audio():
+        try:
+            yield b"audio"
+            entered.set()
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    async def transfer():
+        async with prepared_video(
+            video(), "unused", TransferProgress(), 1024, audio_chunks=audio()
+        ):
+            pytest.fail("A cancelled source must not be muxed or uploaded")
+
+    task = asyncio.create_task(transfer())
+    await asyncio.wait_for(entered.wait(), 2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert closed.is_set() and not directory.exists()

@@ -9,7 +9,9 @@ from pathlib import Path
 from bot.transfers.streaming import PART_SIZE, READ_SIZE
 from schemas.media import DownloadError
 from services.limits import check_file_size
-from services.observability import acquired, timed
+from services.observability import acquired, current_transfer, timed
+
+STAGING_BLOCK_SIZE = 256 * 1024
 
 
 async def disk_call(function, *args):
@@ -45,7 +47,7 @@ def append(path, data):
 def read_at(path, offset):
     with path.open("rb") as file:
         file.seek(offset)
-        return file.read(READ_SIZE)
+        return file.read(STAGING_BLOCK_SIZE)
 
 
 async def file_chunks(path):
@@ -55,7 +57,7 @@ async def file_chunks(path):
         yield chunk
 
 
-async def remux(ffmpeg, original, ready, limit):
+async def remux(ffmpeg, original, ready, limit, audio=None):
     try:
         process = await asyncio.create_subprocess_exec(
             ffmpeg,
@@ -65,10 +67,11 @@ async def remux(ffmpeg, original, ready, limit):
             "error",
             "-i",
             str(original),
+            *(["-i", str(audio)] if audio is not None else []),
             "-map",
             "0:v:0",
             "-map",
-            "0:a:0?",
+            "1:a:0" if audio is not None else "0:a:0?",
             "-c",
             "copy",
             "-movflags",
@@ -104,36 +107,74 @@ async def remux(ffmpeg, original, ready, limit):
 
 @asynccontextmanager
 async def prepared_video(
-    chunks, ffmpeg, progress, max_file_bytes, *, input_slots=None, remux_slots=None
+    chunks,
+    ffmpeg,
+    progress,
+    max_file_bytes,
+    *,
+    input_slots=None,
+    remux_slots=None,
+    audio_chunks=None,
 ):
     # Even with the configurable cap disabled, respect the Telegram part limit.
     limit = max_file_bytes or 4000 * PART_SIZE
     async with workspace() as directory:
         original, ready = directory / "source.mp4", directory / "ready.mp4"
         size = 0
+        audio = directory / "audio.mp4" if audio_chunks is not None else None
+
+        async def stage(stream, path):
+            nonlocal size
+            buffer = bytearray()
+            async with aclosing(stream):
+                before = size
+                async for chunk in stream:
+                    size += len(chunk)
+                    check_file_size(size, limit)
+                    if audio_chunks is not None:
+                        progress.downloaded = size
+                    offset = 0
+                    while offset < len(chunk):
+                        take = min(STAGING_BLOCK_SIZE - len(buffer), len(chunk) - offset)
+                        buffer.extend(memoryview(chunk)[offset : offset + take])
+                        offset += take
+                        if len(buffer) == STAGING_BLOCK_SIZE:
+                            await disk_call(append, path, buffer)
+                            buffer.clear()
+                if buffer:
+                    await disk_call(append, path, buffer)
+                if size == before:
+                    raise DownloadError("فایل دریافت‌شده خالی است.")
+
         if input_slots is not None:
             progress.phase = "waiting_process"
         async with (
             acquired(input_slots, "remux_wait") if input_slots is not None else nullcontext(),
             aclosing(chunks),
+            aclosing(audio_chunks) if audio_chunks is not None else nullcontext(),
         ):
             progress.phase = "streaming"
-            async for chunk in chunks:
-                size += len(chunk)
-                check_file_size(size, limit)
-                await disk_call(append, original, chunk)
-        if not size:
-            raise DownloadError("فایل دریافت‌شده خالی است.")
+            await stage(chunks, original)
+            if audio_chunks is not None:
+                progress.total = None
+                await stage(audio_chunks, audio)
+                if (trace := current_transfer.get()) is not None:
+                    trace.source_size = size
         progress.phase = "waiting_process"
         async with (
             acquired(remux_slots, "remux_wait") if remux_slots is not None else nullcontext()
         ):
             progress.phase = "preparing_video"
             with timed("faststart_prepare"):
-                await remux(ffmpeg, original, ready, limit)
+                if audio is None:
+                    await remux(ffmpeg, original, ready, limit)
+                else:
+                    await remux(ffmpeg, original, ready, limit, audio)
         size = (await disk_call(ready.stat)).st_size
         check_file_size(size, limit)
         await disk_call(original.unlink)
+        if audio is not None:
+            await disk_call(audio.unlink)
         progress.downloaded = progress.total = size
         progress.download_done = True
         progress.phase = "streaming"
