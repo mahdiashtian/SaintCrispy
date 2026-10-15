@@ -23,6 +23,16 @@ python main.py
 
 Startup applies additive migrations, authenticates or reuses the account-scoped session, recovers abandoned conversation states, builds independent provider sessions and registers handlers. Wait for `bot_ready` before testing a link. A link can be the user's first message; `/start` is optional.
 
+For YouTube/Instagram failures, run `python tools/diagnose_video_access.py --network`
+in the same virtual environment as the bot. `deployment_issues` reports stale pinned
+packages or an unavailable selected JavaScript runtime. Git pulls do not reinstall
+Python packages; use `python -m pip install --upgrade -e .`. A version-manager Node
+installation must be on the supervisor's PATH, or `YOUTUBE_JS_RUNTIME` must specify
+its absolute executable path. Header-only connectivity does not prove extraction;
+use `--live` once after a meaningful setup change to verify full origin streams.
+See the dated [access investigation](YOUTUBE_INSTAGRAM_ACCESS.md) for safe report
+interpretation and the unresolved session/route conditions.
+
 The reference-layout upgrade moves application imports to root packages. Reinstall
 the editable project after pulling so `core`, `db`, `schemas`, `repositories`,
 `services`, `bot` and `container` are registered together with the provider package.

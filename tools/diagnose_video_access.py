@@ -11,6 +11,8 @@ import os
 import re
 import shutil
 import sys
+import time
+import tomllib
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -99,14 +101,24 @@ async def configuration():
         runtime_status(os.environ.get("YOUTUBE_JS_RUNTIME") or "node"),
         helper_status(os.environ.get("YOUTUBE_POT_BASE_URL")),
     )
+    packages = {
+        name: package_version(name)
+        for name in ("yt-dlp", "yt-dlp-ejs", "bgutil-ytdlp-pot-provider", "curl-cffi")
+    }
+    pins = dependency_pins()
+    issues = [
+        {"code": "package_pin_mismatch", "package": name, "expected": expected}
+        for name, expected in pins.items()
+        if packages.get(name) != expected
+    ]
+    if not runtime["available"]:
+        issues.append({"code": "youtube_js_runtime_unavailable"})
     return {
         "account_scope": "environment_defaults",
         "database_accounts_checked": False,
         "python": ".".join(map(str, sys.version_info[:3])),
-        "packages": {
-            name: package_version(name)
-            for name in ("yt-dlp", "yt-dlp-ejs", "bgutil-ytdlp-pot-provider", "curl-cffi")
-        },
+        "packages": packages,
+        "deployment_issues": issues,
         "youtube": {
             "js_runtime": runtime,
             "cookies": cookie_status(os.environ.get("YOUTUBE_COOKIES_FILE")),
@@ -121,15 +133,113 @@ async def configuration():
     }
 
 
+def dependency_pins():
+    with (ROOT / "pyproject.toml").open("rb") as stream:
+        dependencies = tomllib.load(stream)["project"]["dependencies"]
+    pins = {}
+    for dependency in dependencies:
+        match = re.fullmatch(
+            r"(yt-dlp|curl-cffi|bgutil-ytdlp-pot-provider)(?:\[[^]]+\])?==(.+)", dependency
+        )
+        if match:
+            pins[match[1]] = match[2]
+    return pins
+
+
+def network_failure(error):
+    """Keep bounded exception identities/errno, never exception text or request data."""
+    chain, seen = [], set()
+    while error is not None and id(error) not in seen and len(chain) < 6:
+        seen.add(id(error))
+        row = {"type": type(error).__name__}
+        for field in ("errno", "code"):
+            value = getattr(error, field, None)
+            if type(value) is int:
+                row[field] = value
+        chain.append(row)
+        error = error.__cause__ or error.__context__
+    return chain
+
+
+async def connection_probe(http, url):
+    started = time.monotonic()
+    phase = "request"
+
+    async def trace(event, details):
+        nonlocal phase
+        for marker, label in (
+            ("connect_tcp.started", "tcp_connect"),
+            ("connect_tcp.complete", "http_headers"),
+            ("start_tls.started", "tls"),
+            ("start_tls.complete", "http_headers"),
+        ):
+            if event.endswith(marker):
+                phase = label
+
+    try:
+        async with asyncio.timeout(15):
+            async with http.stream(
+                "GET", url, follow_redirects=False, extensions={"trace": trace}
+            ) as response:
+                # Headers are enough: do not consume media/page bodies or follow login redirects.
+                return {
+                    "http_response_received": True,
+                    "http_status": response.status_code,
+                    "elapsed_seconds": round(time.monotonic() - started, 3),
+                }
+    except (httpx.HTTPError, TimeoutError) as error:
+        return {
+            "http_response_received": False,
+            "failed_phase": phase,
+            "failure_chain": network_failure(error),
+            "elapsed_seconds": round(time.monotonic() - started, 3),
+        }
+
+
+async def network_status():
+    from downloader_bot.downloaders.instagram.client import instagram_session
+
+    # Separate owning transports and routes. No account cookies are needed for connectivity.
+    async def probe(site):
+        try:
+            if site == "youtube":
+                async with httpx.AsyncClient(
+                    proxy=os.environ.get("YOUTUBE_PROXY") or None, trust_env=False, timeout=12
+                ) as http:
+                    return await connection_probe(
+                        http, "https://www.youtube.com/watch?v=l6zflbTGNFQ"
+                    )
+            async with instagram_session(os.environ.get("INSTAGRAM_PROXY", "")) as http:
+                return await connection_probe(http, "https://www.instagram.com/reel/DeR9eU8idi0/")
+        except Exception as error:
+            # Invalid configuration in one provider must not suppress the other's report.
+            return {
+                "http_response_received": False,
+                "failed_phase": "transport_setup",
+                "failure_chain": network_failure(error),
+            }
+
+    yt, ig = await asyncio.gather(probe("youtube"), probe("instagram"))
+    return {"scope": "unauthenticated_connectivity_only", "youtube": yt, "instagram": ig}
+
+
 async def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true", help="Verify full origin streams to EOF")
+    parser.add_argument(
+        "--network",
+        action="store_true",
+        help="Probe provider connections without downloading media",
+    )
     parser.add_argument("--output", default=".runtime/video-access.json")
     parser.add_argument("--youtube-url", default="https://www.youtube.com/watch?v=l6zflbTGNFQ")
     parser.add_argument("--instagram-url", default="https://www.instagram.com/reel/DeR9eU8idi0/")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
-    print(json.dumps(await configuration(), indent=2), flush=True)
+    report = await configuration()
+    if args.network:
+        report["network"] = await network_status()
+    print(json.dumps(report, indent=2), flush=True)
     if args.live:
         process = await asyncio.create_subprocess_exec(
             sys.executable,

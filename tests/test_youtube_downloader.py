@@ -339,6 +339,32 @@ def test_extractor_errors_never_expose_tokens_or_raw_urls(diagnostic):
     assert "SECRET" not in str(error) and "https://" not in str(error)
 
 
+@pytest.mark.parametrize(
+    "diagnostic,code",
+    [
+        (
+            b"WARNING: Sign in may be required\nERROR: HTTP Error 429: Too Many Requests SECRET",
+            "youtube_rate_limited",
+        ),
+        (
+            b"WARNING: JavaScript skipped\nERROR: Unable to download: [Errno 101] Network is unreachable SECRET",
+            "youtube_connection_failed",
+        ),
+        (
+            b"WARNING: Sign in with cookies\nERROR: Unable to download: The read operation timed out SECRET",
+            "youtube_connection_failed",
+        ),
+        (
+            b"WARNING: connection timed out\nERROR: Sign in to confirm you're not a bot SECRET",
+            "youtube_login_required",
+        ),
+    ],
+)
+def test_fatal_cause_wins_over_unrelated_extractor_warnings(diagnostic, code):
+    error = extraction_error(diagnostic)
+    assert error.code == code and "SECRET" not in str(error)
+
+
 async def test_extractor_process_does_not_block_and_is_reaped_on_cancellation(monkeypatch):
     original = asyncio.create_subprocess_exec
     processes = []

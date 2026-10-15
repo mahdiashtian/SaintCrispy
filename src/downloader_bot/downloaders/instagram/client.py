@@ -286,6 +286,8 @@ class InstagramClient:
         except SiteHTTPError as error:
             if error.status == 401 and failures is not None:
                 failures.append(login_error())
+            if error.status == 403 and failures is not None:
+                failures.append(forbidden_error())
             if error.status not in {401, 403, 404, 410, 500, 502, 503, 504}:
                 raise
         except DownloadError as error:
@@ -366,6 +368,8 @@ class InstagramClient:
             if error.status == 401 and failures is not None:
                 failures.append(login_error())
                 return {}
+            if error.status == 403 and failures is not None:
+                failures.append(forbidden_error())
             if error.status not in {403, 404, 405, 410, 500, 502, 503, 504}:
                 raise
             return {}
@@ -399,13 +403,18 @@ class InstagramClient:
                 if failures is not None:
                     failures.append(
                         DownloadError(
-                            "اینستاگرام درخواست اطلاعات این پست را روی اتصال ربات رد کرد. "
-                            "مدیر ربات باید نشست یا اتصال اینستاگرام را بررسی کند.",
+                            "پاسخ اینستاگرام برای استخراج اطلاعات این پست قابل استفاده نبود. "
+                            "مدیر ربات باید گزارش خطای استخراج را بررسی کند.",
                             code="instagram_graphql_unavailable",
                         )
                     )
                 log.warning(
-                    {"event": "instagram_query_failed", "error_code": "instagram_graphql_error"}
+                    {
+                        "event": "instagram_query_failed",
+                        "error_code": "instagram_graphql_error",
+                        "query": query_kind(url, kwargs.get("data"), self),
+                        "failure_category": graphql_failure(result["errors"]),
+                    }
                 )
             elif (
                 isinstance(result.get("data"), dict)
@@ -462,6 +471,8 @@ class InstagramClient:
         sample_limit: int = 0,
     ) -> tuple[bytes, str]:
         request_headers = {**({} if cdn else HEADERS), **(headers or {})}
+        operation = "cdn" if cdn else query_kind(url, data, self)
+        started = time.monotonic()
         try:
             async with self._slots, asyncio.timeout(15):
                 for _ in range(6):
@@ -483,6 +494,15 @@ class InstagramClient:
                         follow_redirects=False,
                         timeout=10,
                     ) as response:
+                        log.log(
+                            logging.WARNING if response.status_code >= 400 else logging.DEBUG,
+                            {
+                                "event": "instagram_origin_response",
+                                "operation": operation,
+                                "http_status": response.status_code,
+                                "elapsed_seconds": round(time.monotonic() - started, 3),
+                            },
+                        )
                         if response.is_redirect and "location" in response.headers:
                             url = urljoin(str(response.url), response.headers["location"])
                             params = None
@@ -510,11 +530,62 @@ class InstagramClient:
                                 raise DownloadError("حجم پاسخ اطلاعات اینستاگرام بیش از حد است.")
                         return bytes(buffer), str(response.url)
         except (httpx.HTTPError, TimeoutError) as error:
+            log.warning(
+                {
+                    "event": "instagram_origin_connection_failed",
+                    "operation": operation,
+                    "error_type": type(error).__name__,
+                    "elapsed_seconds": round(time.monotonic() - started, 3),
+                }
+            )
             raise DownloadError(
                 "ارتباط با اینستاگرام قطع شد؛ دوباره امتحان کن.",
                 code="instagram_connection_failed",
             ) from error
         raise DownloadError("تعداد تغییر مسیر لینک اینستاگرام بیش از حد است.")
+
+
+def query_kind(url, data, client) -> str:
+    """Fixed operation names only; never log URLs, document IDs or request tokens."""
+    if isinstance(data, dict):
+        for identity, name in (
+            (client.root_doc_id, "root_graphql"),
+            (client.web_doc_id, "web_graphql"),
+            (client.shortcode_doc_id, "shortcode_graphql"),
+        ):
+            if data.get("doc_id") == identity:
+                return name
+    path = urlsplit(url).path
+    if path.endswith("/info/"):
+        return "media_info"
+    if path.endswith("get_ruling_for_content/"):
+        return "content_ruling"
+    if "/embed/" in path:
+        return "embed_page"
+    return "bootstrap" if path == "/" else "page"
+
+
+def graphql_failure(errors) -> str:
+    """Classify upstream messages without retaining their potentially private text."""
+    if not isinstance(errors, list):
+        return "unknown"
+    messages = " ".join(
+        str(error.get("message", "")).lower() for error in errors if isinstance(error, dict)
+    )
+    if any(word in messages for word in ("cannot query", "unknown field", "invalid variable")):
+        return "query_schema"
+    if any(word in messages for word in ("login", "checkpoint", "challenge_required")):
+        return "session_required"
+    if "execution error" in messages:
+        return "execution_error"
+    return "rejected"
+
+
+def forbidden_error() -> DownloadError:
+    return DownloadError(
+        "اینستاگرام دسترسی این اتصال به اطلاعات پست را رد کرد (HTTP 403).",
+        code="instagram_http_forbidden",
+    )
 
 
 def login_error() -> DownloadError:

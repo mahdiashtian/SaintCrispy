@@ -261,6 +261,35 @@ def extraction_error(diagnostic: bytes) -> DownloadError:
     text = diagnostic.lower()
     if b"no module named yt_dlp" in text:
         return DownloadError("وابستگی yt-dlp روی سرور نصب نشده است.", code="youtube_missing_yt_dlp")
+    # HTTP throttling must win over incidental sign-in/challenge warnings.
+    if b"429" in text and (b"http error 429" in text or b"too many requests" in text):
+        return DownloadError(
+            "یوتیوب درخواست‌های سرور را موقتاً محدود کرده؛ کمی بعد امتحان کن.",
+            code="youtube_rate_limited",
+        )
+    # Classify the fatal error rather than a warning from an earlier player.
+    fatal = [line for line in text.splitlines() if line.startswith(b"error:")]
+    if fatal:
+        text = fatal[-1]
+    if any(
+        marker in text
+        for marker in (
+            b"timed out",
+            b"timeout",
+            b"network is unreachable",
+            b"no route to host",
+            b"connection refused",
+            b"connection reset",
+            b"unable to resolve",
+            b"name or service not known",
+            b"getaddrinfo failed",
+            b"temporary failure in name resolution",
+        )
+    ):
+        return DownloadError(
+            "ارتباط سرور با یوتیوب برقرار نشد؛ مدیر ربات باید مسیر شبکه را بررسی کند.",
+            code="youtube_connection_failed",
+        )
     if b"private video" in text or b"members-only" in text:
         return DownloadError(
             "این ویدیو به حساب دارای دسترسی نیاز دارد.", code="youtube_private_video"

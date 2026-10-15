@@ -214,3 +214,66 @@ structural update; the failed-access and cold-throughput findings remain open. S
 [the request throughput report](REQUEST_THROUGHPUT.md) for separate successful
 cached-path measurements and failed distinct-cold runs. No remote server was
 accessed or updated during those local tests.
+
+## October 15 deployment evidence and diagnostic corrections
+
+The operator supplied a fresh report from the Linux production virtual environment:
+Python 3.14.4, yt-dlp 2026.8.19, EJS 0.8.0, plugin 2.0.2 and curl-cffi 0.16.3.
+The selected Node command was unavailable to that process. Default environment
+cookies, provider proxies and a PO-token helper were absent. Database accounts
+were not inspected. This establishes deployment drift from the repository's
+2026.10.10.233141.dev0 extractor pin and an unavailable JavaScript runtime; it does
+not prove that installing them alone will clear YouTube's login challenge.
+
+The current official nightly release and Instagrapi media document were checked
+again: the reviewed release and document already match this repository. Another
+unverified document ID or client name was not added as a speculative cure.
+
+The workstation's fresh full-stream check failed before either inspection completed:
+`youtube_extraction_timeout` and `instagram_extraction_timeout`, with zero full
+streams. A separate bounded HTTP check received GitHub HTTP 200 in 1.094 seconds
+but no YouTube/Instagram HTTP response. The new network diagnostic localized the
+YouTube failure to TCP connect (12.035 seconds); Instagram's browser transport
+reported libcurl timeout code 28 (10.019 seconds), without identifying its inner
+TCP/TLS stage. These are workstation results, distinct from production's login
+and GraphQL responses. Node 22.23.2 and the pinned packages work on the workstation;
+there were no default sessions, proxies or helper. No Telegram messages were sent.
+
+Corrected two misleading diagnostic paths. A fatal YouTube network error now wins
+over an unrelated earlier sign-in/JavaScript warning, and explicit HTTP 429 wins
+over incidental sign-in text. Instagram retains HTTP 403 instead of discarding it
+as empty media, logs the fixed operation name/status, and distinguishes schema,
+session and execution GraphQL categories without storing upstream text. An unknown
+GraphQL error no longer tells users that network rejection is proven. Optional
+paths can still recover, and throttling stops alternatives as before.
+
+`python tools/diagnose_video_access.py` now compares installed package versions to
+the checkout's pins and reports an unavailable runtime under `deployment_issues`.
+Add `--network` to probe headers only, independently per provider, using their
+configured routes. This sends no account cookies, follows no login redirects,
+consumes no media body, and does not establish successful extraction. Exception
+identities and integer errno/libcurl codes are retained; messages, IPs, signed URLs,
+proxy credentials and cookie values are not emitted. These explicit probes never
+run per user request.
+
+On the production host, stop the old Python coordinator before the upgrade:
+
+```bash
+cd ~/SaintCrispy
+git pull --ff-only
+. .venv/bin/activate
+python -m pip install --upgrade -e .
+command -v node
+node --version
+python tools/diagnose_video_access.py --network
+```
+
+If Node was installed through a version manager, activate it in the same shell or
+supervisor environment as Python; configure `YOUTUBE_JS_RUNTIME=node:/absolute/path/to/node`
+when that supervisor has a different PATH. Verify the reported runtime is available.
+After deployment checks, use `--live` once to establish full origin access, then
+restart with `python main.py`. If a current installation still receives a login
+challenge, test an authorized session and accepted provider route. Installing Node
+or reinstalling packages does not create those credentials. Instagram has no Node
+requirement; its current session/query/route rejection needs its own evidence.
+Do not retry the same rejected guest route in a loop or publish secrets.

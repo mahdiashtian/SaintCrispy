@@ -1,6 +1,6 @@
 # Downloader knowledge base
 
-Last updated: October 14, 2026. This is the shared record of verified findings,
+Last updated: October 15, 2026. This is the shared record of verified findings,
 failed approaches and decisions for all providers. Read it before investigating a
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
@@ -398,3 +398,39 @@ they do not establish live metadata/rendering success. Tests use simulated Teleg
 documents and RPCs. No real account was authenticated or messaged during this
 update. Read [the catalog guide](PREMIUM_EMOJI.md) for registration, selection,
 configuration and retry conditions.
+
+## October 15 production deployment drift
+
+The operator's safe production report shows yt-dlp 2026.8.19 rather than the
+checkout's pinned nightly and an unavailable selected Node runtime. Default
+YouTube/Instagram cookies, proxies and a token helper are absent; database accounts
+were not checked. Upgrade the actual running virtual environment and fix its
+runtime PATH before attributing the remaining result to the latest extractor.
+These missing pieces do not prove that a challenged guest route will then work.
+
+Fresh workstation checks still received no complete stream from either reported
+identity. GitHub answered HTTP 200, YouTube timed out at TCP connect, and the
+Instagram browser transport returned timeout code 28. This differs from production's
+reported login/GraphQL errors. No production host was contacted by the agent.
+The current official nightly/document remain the versions already implemented;
+no speculative extraction alternative was added.
+
+Fatal extraction errors must take precedence over incidental earlier warnings.
+HTTP 429 must stop YouTube failover even when stderr also mentions sign-in.
+Do not suppress Instagram HTTP 403 into an empty-media result, or claim that an
+unknown GraphQL error proves network denial. Preserve safe operation/status and
+schema/session/execution categories, with no response text or credential values.
+Successful-request detail stays at DEBUG to avoid routine per-sample INFO traffic.
+
+The diagnostic now flags package-pin/runtime drift; optional `--network` performs
+bounded header-only probes, reports safe exception chains and separates transport
+failure from received HTTP rejection. It uses separate provider transports and
+does not send account cookies or run per user request. A failed transport setup
+for one provider must not conceal the other's result. See the dated
+[access report](YOUTUBE_INSTAGRAM_ACCESS.md#october-15-deployment-evidence-and-diagnostic-corrections)
+for exact scope, observations and production upgrade commands.
+
+Validation: 188 affected provider, diagnostic, architecture, nonblocking and
+code-language tests passed, with two expected Windows curl-cffi selector warnings.
+Ruff lint/formatting passed. These are code checks; both new local full-stream
+attempts remain failed, and production download recovery remains unverified.

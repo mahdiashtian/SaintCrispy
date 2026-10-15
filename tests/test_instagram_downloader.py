@@ -909,6 +909,34 @@ async def test_all_connection_failures_report_network_error_without_raw_details(
     assert "SECRET" not in str(failure.value)
 
 
+async def test_http_forbidden_is_preserved_when_all_optional_endpoints_are_blocked(caplog):
+    def respond(request):
+        return httpx.Response(403, text="SECRET cookie=PRIVATE")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        with pytest.raises(DownloadError) as failure:
+            await InstagramClient(http).content(PAGE)
+    assert failure.value.code == "instagram_http_forbidden"
+    assert "SECRET" not in caplog.text and "PRIVATE" not in caplog.text
+    rows = [record.msg for record in caplog.records if isinstance(record.msg, dict)]
+    assert any(row.get("http_status") == 403 for row in rows)
+
+
+async def test_graphql_schema_failure_is_logged_without_claiming_network_rejection(caplog):
+    def respond(request):
+        if request.url.path.startswith("/p/"):
+            return httpx.Response(200, text="<html></html>")
+        return httpx.Response(200, json={"errors": [{"message": "Cannot query SECRET field"}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        with pytest.raises(DownloadError) as failure:
+            await InstagramClient(http).content(PAGE)
+    rows = [record.msg for record in caplog.records if isinstance(record.msg, dict)]
+    assert failure.value.code == "instagram_graphql_unavailable"
+    assert any(row.get("failure_category") == "query_schema" for row in rows)
+    assert "SECRET" not in caplog.text
+
+
 async def test_content_deadline_is_a_recoverable_provider_error(monkeypatch):
     async def expired(self, url):
         raise TimeoutError
