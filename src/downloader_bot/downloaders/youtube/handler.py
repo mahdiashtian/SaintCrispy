@@ -6,6 +6,7 @@ from telethon import events, types
 
 from bot.delivery import EXTERNAL_FAILURES
 from bot.keyboards.inline import quality_buttons
+from bot.texts.downloads import quality_menu_text
 from core.diagnostics import error_fields
 from schemas.media import DownloadError
 
@@ -29,7 +30,7 @@ async def handle_youtube_link(event, service, menus) -> None:
         log.info(
             {"event": "quality_menu_shown", "site": "youtube", "qualities": len(media.qualities)}
         )
-        text = f"▶️ YouTube\n\n🎧 {media.title}\n👤 {media.artist}\n\nکدوم کیفیت رو می‌خوای؟"
+        text = quality_menu_text(media)
         if media.thumbnail:
             try:
                 await event.respond(

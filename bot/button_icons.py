@@ -24,6 +24,6 @@ INFORMATION_PACKS = ("NewsEmoji", "ApplicationEmoji", "EmoticonEmoji", "IconsEmo
 EMOJI_PACK_PREFERENCES = {
     **dict.fromkeys(("📥", "📤", "🔗", "💾", "📋", "⏹", "⚙️", "📎"), APPLICATION_PACKS),
     **dict.fromkeys(("✅", "❌", "⚠️", "⏳", "⏱", "♻️", "⚡"), STATUS_PACKS),
-    **dict.fromkeys(("🎵", "🎧", "🎬", "▶️", "📸", "📌"), MEDIA_PACKS),
+    **dict.fromkeys(("🎵", "🎧", "🎬", "▶️", "📸", "📌", "📽️", "🎞️"), MEDIA_PACKS),
     **dict.fromkeys(("📬", "📨", "💬", "👤", "ℹ️", "🌐", "📖"), INFORMATION_PACKS),
 }

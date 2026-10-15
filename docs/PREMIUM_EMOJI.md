@@ -26,7 +26,7 @@ the deployment account.
 | --- | --- | --- |
 | Download, upload, links, storage and controls | 📥 📤 🔗 💾 📋 ⏹ ⚙️ 📎 | ApplicationEmoji, EmojiStatus, NewsEmoji |
 | Success, failure, warning, waiting and reuse | ✅ ❌ ⚠️ ⏳ ⏱ ♻️ ⚡ | EmojiStatus, ApplicationEmoji, EmoticonEmoji |
-| Music, video, photos and provider menus | 🎵 🎧 🎬 ▶️ 📸 📌 | ApplicationEmoji, GameEmoji, NewsEmoji |
+| Music, video, photos and provider menus | 🎵 🎧 🎬 ▶️ 📸 📌 📽️ 🎞️ | ApplicationEmoji, GameEmoji, NewsEmoji |
 | Help, information, replies and identity | 📬 📨 💬 👤 ℹ️ 🌐 📖 | NewsEmoji, ApplicationEmoji, EmoticonEmoji |
 
 Selection compares documents with the same Unicode meaning and is independent
@@ -46,7 +46,9 @@ isolated; FloodWait pauses remaining catalog requests without sleeping the recei
 Shutdown cancels and awaits the loader. Replies and progress edits use in-memory
 selection and cached regexes, with no per-message pack queries.
 
-Start/help/provider replies, home-menu edits and progress updates use the adapter.
+Start/help/provider replies, home-menu edits, progress updates and delivered-file
+captions use the same adapter and loaded catalog. New external/streamed files and
+cached resends receive custom entities through the common publication path.
 Inline button labels and callback alerts use ordinary Unicode. Existing callback
 identities and transfer behavior are preserved.
 
@@ -57,7 +59,7 @@ UTF-16 entity offsets. Unsupported joined/skin-tone emoji components are not
 replaced. Caller-supplied entities remain untouched. Generation is capped at 50
 custom entities per message.
 
-If Telegram rejects custom entities or account permission, the reply/edit falls
+If Telegram rejects custom entities or account permission, the reply/edit/caption falls
 back to Unicode and custom sends are disabled for that runtime. Other RPC errors
 retain existing rate/error handling. Membership in a pack does not grant account
 permission.
@@ -67,3 +69,29 @@ permission fallback using safe names/counts. Tests simulate metadata/responses;
 they verify registration, semantic selection, concurrency, cancellation, exact-alt
 offsets, progress edits and fallback, not live rendering of every pack.
 Restart the bot after upgrading to load the catalog.
+
+## Site-specific file captions
+
+`bot/texts/downloads.py` owns the six presentation profiles, including each site's
+icon, download tagline, creator label and quality-menu prompt. Provider handlers
+retain their routing and extraction ownership. Instagram does not repeat the
+source post's advertising/caption text; it shows the page and selected quality.
+Other sites retain a labeled title and artist/channel/publisher. File captions
+include the authenticated bot's actual username, not a hardcoded promotion handle.
+
+The composition root injects the same caption builder for cached resends and uses
+the same presentation instance for menus, progress and delivered files. Business
+services do not import the Telegram/presentation layer. Caption fields are bounded
+by UTF-16 units, whitespace is normalized, and text is sent with parsing disabled
+so titles remain literal. Existing file references get the current caption on the
+next resend without downloading the file again. Previously published messages are
+not edited retroactively.
+
+October 15 workstation tests simulate both fresh publication and cached resend for
+all six sites, checking matching captions/custom entities, correct UTF-16 offsets,
+caption size bounds and permission rejection with one Unicode retry. They do not
+claim live Telegram artwork rendering or account permission.
+
+Validation for this caption batch: **898 passed, 18 skipped** across the complete
+workstation suite; Ruff lint/format and whitespace checks passed. Skipped cases
+require external services or dedicated opt-in configuration.

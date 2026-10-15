@@ -6,6 +6,7 @@ from telethon import events, types
 
 from bot.delivery import EXTERNAL_FAILURES
 from bot.keyboards.inline import quality_buttons
+from bot.texts.downloads import quality_menu_text
 from core.diagnostics import error_fields
 from schemas.media import DownloadError
 
@@ -25,7 +26,7 @@ async def handle_instagram_link(event, service, menus) -> None:
         token = await menus.create(
             event.sender_id, event.chat_id, media, message_id=getattr(event, "id", None)
         )
-        text = f"📸 Instagram\n\n🎧 {media.title}\n👤 {media.artist}\n\nکدوم کیفیت رو می‌خوای؟"
+        text = quality_menu_text(media)
         log.info(
             {"event": "quality_menu_shown", "site": "instagram", "qualities": len(media.qualities)}
         )

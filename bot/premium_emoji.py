@@ -211,6 +211,15 @@ class BotPresentation:
         options.setdefault("parse_mode", None)
         return await self._send(message.edit, text, options)
 
+    async def send_file(self, client, peer, file, **options):
+        caption = options.pop("caption", "")
+        options.setdefault("parse_mode", None)
+
+        async def send(text, **prepared):
+            return await client.send_file(peer, file, caption=text, **prepared)
+
+        return await self._send(send, caption, options)
+
 
 class PresentedMessage:
     def __init__(self, message, presentation):

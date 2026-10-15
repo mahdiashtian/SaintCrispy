@@ -2,6 +2,7 @@ import asyncio
 import os
 from contextlib import AsyncExitStack
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 
 import httpx
@@ -16,6 +17,7 @@ from bot.session import catch_up_bot, connect_bot, create_session, sign_in_bot
 from bot.state.manager import ConversationManager
 from bot.state.menus import PersistentMenuStore
 from bot.state.storage import PostgresStateStorage
+from bot.texts.downloads import download_caption
 from core.config import Settings
 from core.dns_tunnel import configured_proxy
 from core.log_writer import JsonLogWriter
@@ -227,6 +229,8 @@ class Container:
         storage_peer = None
         if settings.storage_chat:
             storage_peer = await client.get_input_entity(settings.storage_chat)
+        presentation = BotPresentation()
+        await stack.enter_async_context(presentation.loading(client, settings.custom_emoji_set))
         service = DownloadService(
             downloader,
             repository,
@@ -239,6 +243,8 @@ class Container:
                 remux_concurrency=settings.remux_concurrency,
                 sends_per_second=settings.sends_per_second,
                 max_file_bytes=settings.max_file_bytes,
+                presentation=presentation,
+                bot_username=bot.username,
             ),
             storage_peer=storage_peer,
             concurrency=settings.concurrency,
@@ -247,6 +253,7 @@ class Container:
             metadata_capacity=settings.max_requests,
             transfer_timeout=settings.transfer_timeout,
             telemetry=telemetry,
+            caption_builder=partial(download_caption, bot_username=bot.username),
         )
         jobs = await stack.enter_async_context(
             TransferJobs(capacity=settings.max_requests, telemetry=telemetry)
@@ -273,8 +280,6 @@ class Container:
         self.service = service
         self.jobs = jobs
         self.telemetry = telemetry
-        presentation = BotPresentation()
-        await stack.enter_async_context(presentation.loading(client, settings.custom_emoji_set))
         register_handlers(
             client,
             service,

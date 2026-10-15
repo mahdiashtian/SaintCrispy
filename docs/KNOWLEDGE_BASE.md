@@ -33,6 +33,14 @@ for byte counts, durations, hashes, dependencies and the untested Telegram bound
 
 ## Provider identity and isolation
 
+October 15 presentation update: site-specific menu/file copy now lives in
+`bot/texts/downloads.py`. Instagram's source caption is deliberately omitted from
+bot captions to avoid repeating source advertising. New files and cached resends
+use the same profile and loaded premium catalog; file publication previously did
+not apply the premium adapter. Mocked workstation tests verify all six sites,
+UTF-16 bounds/entities and permission fallback. See [presentation evidence](PREMIUM_EMOJI.md#site-specific-file-captions).
+No fresh origin or live Telegram rendering claim follows from these UI tests.
+
 | Provider | Stable identity | Do not use as the durable file identity |
 | --- | --- | --- |
 | YouTube | Validated 11-character video ID, with the selected codec/resolution/frame-rate quality key | `pp`, tracking parameters, temporary Googlevideo URLs or playlist position |

@@ -6,6 +6,7 @@ from telethon import events, types
 
 from bot.delivery import EXTERNAL_FAILURES
 from bot.keyboards.inline import quality_buttons
+from bot.texts.downloads import quality_menu_text
 from core.diagnostics import error_fields
 from schemas.media import DownloadError
 
@@ -26,7 +27,7 @@ async def handle_pinterest_link(event, service, menus) -> None:
             event.sender_id, event.chat_id, media, message_id=getattr(event, "id", None)
         )
         buttons = quality_buttons(media.qualities, "pin", token)
-        text = f"📌 Pinterest\n\n🎧 {media.title}\n👤 {media.artist}\n\nکدوم کیفیت رو می‌خوای؟"
+        text = quality_menu_text(media)
         if media.thumbnail:
             try:
                 await event.respond(

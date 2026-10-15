@@ -10,7 +10,9 @@ from telethon import TelegramClient, errors, functions, helpers, types, utils
 from telethon.extensions import BinaryReader
 
 from bot.cards.preview import MAX_PREVIEW_INPUT, video_thumbnail
+from bot.premium_emoji import BotPresentation
 from bot.progress import TransferProgress
+from bot.texts.downloads import download_caption
 from bot.transfers.faststart import prepared_video
 from bot.transfers.integrity import require_duration, validated_mp4
 from bot.transfers.streaming import media_chunks, source_size, upload_stream
@@ -68,6 +70,8 @@ class TelegramDelivery:
         max_file_bytes: int = 0,
         upload_inflight_parts: int = 64,
         external_timeout: float = 30,
+        presentation: BotPresentation | None = None,
+        bot_username: str | None = None,
     ):
         self.client = client
         self.http = http
@@ -75,6 +79,8 @@ class TelegramDelivery:
         self.upload_parallelism = upload_parallelism
         self.max_file_bytes = max_file_bytes
         self.external_timeout = external_timeout
+        self.presentation = presentation if presentation is not None else BotPresentation()
+        self.bot_username = bot_username
         self._remux_slots = asyncio.Semaphore(remux_concurrency)
         if upload_inflight_parts < 1:
             raise ValueError("Global upload window must be positive")
@@ -125,7 +131,7 @@ class TelegramDelivery:
             progress.phase = "waiting_telegram"
         with timed("publish"):
             result = await self._request(
-                lambda: self.client.send_file(peer, media, **options),
+                lambda: self.presentation.send_file(self.client, peer, media, **options),
                 publish=True,
                 progress=progress,
             )
@@ -169,7 +175,7 @@ class TelegramDelivery:
             media = replace(media, duration=quality.duration)
         if quality.mime_type.startswith(("audio/", "video/")):
             source = replace(source, duration=source.duration or media.duration or None)
-        caption = f"{media.title}\n{media.artist}\n{quality.label}"
+        caption = download_caption(media, quality, self.bot_username)
         if (trace := current_transfer.get()) is not None:
             trace.protocol = source.protocol
             trace.source_size = source.size_bytes

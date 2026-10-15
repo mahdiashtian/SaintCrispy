@@ -1,6 +1,7 @@
 import asyncio
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from contextlib import nullcontext
 
 from core.locks import KeyedLocks
@@ -38,6 +39,7 @@ class DownloadService:
         cached_concurrency: int = 4,
         transfer_timeout: float = 3600,
         telemetry: Telemetry | None = None,
+        caption_builder: Callable[[Media, Quality], str] | None = None,
     ):
         self.downloader = downloader
         self.repository = repository
@@ -52,6 +54,7 @@ class DownloadService:
         self._metadata_ttl = metadata_ttl
         self._transfer_timeout = transfer_timeout
         self.telemetry = telemetry
+        self.caption_builder = caption_builder
         self._metadata: OrderedDict[str, tuple[float, Media]] = OrderedDict()
         self._failures: OrderedDict[tuple[str, str], tuple[float, str, str | None]] = OrderedDict()
 
@@ -202,7 +205,11 @@ class DownloadService:
             if progress is not None:
                 progress.method = "reused"
                 progress.phase = "reused"
-            caption = f"{media.title}\n{media.artist}\n{quality.label}"
+            caption = (
+                self.caption_builder(media, quality)
+                if self.caption_builder is not None
+                else f"{media.title}\n{media.artist}\n{quality.label}"
+            )
             with timed("cached_send"):
                 fresh = await self.delivery.resend(peer, stored, caption, progress)
             if trace is not None:

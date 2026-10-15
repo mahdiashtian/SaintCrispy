@@ -365,6 +365,12 @@ the background; replies and progress edits fall back to Unicode on permission or
 pack failures. `CUSTOM_EMOJI_SET` supports a primary name or comma-separated
 names/addemoji URLs; empty disables custom emojis.
 
+Each site's quality menu and delivered-file caption has its own copy and media
+icon in `bot/texts/downloads.py`. Fresh files and cached resends share that template
+and the premium emoji catalog, including safe Unicode fallback. Captions include
+the bot's actual username; Instagram shows the source page and quality instead of
+repeating post advertising. Edit the presentation profiles there to change copy.
+
 ```bash
 python -m pip install -e '.[dev]'
 python -m ruff check main.py container.py core db schemas repositories services bot src scripts tests tools
