@@ -55,6 +55,7 @@ class YouTubeClient:
     pot_base_url: str | None = None
     timeout: float = 80
     native_timeout: float = 8
+    catalog_ttl: int = 300
     _cookies_lock: asyncio.Lock = field(
         default_factory=asyncio.Lock, init=False, repr=False, compare=False
     )
@@ -62,6 +63,9 @@ class YouTubeClient:
         default_factory=dict, init=False, repr=False, compare=False
     )
     _public_cache: OrderedDict = field(
+        default_factory=OrderedDict, init=False, repr=False, compare=False
+    )
+    _public_catalog: OrderedDict = field(
         default_factory=OrderedDict, init=False, repr=False, compare=False
     )
     _public_cooldown: dict = field(default_factory=dict, init=False, repr=False, compare=False)
@@ -88,6 +92,8 @@ class YouTubeClient:
     )
 
     def __post_init__(self):
+        if not 0 <= self.catalog_ttl <= 900:
+            raise ValueError("YouTube catalog TTL must be between 0 and 900 seconds")
         if not 1 <= self.native_timeout <= 45:
             raise ValueError("YouTube native timeout must be between 1 and 45 seconds")
         if self.proxy and urlsplit(self.proxy).scheme != "http":
@@ -125,6 +131,7 @@ class YouTubeClient:
             player_clients=player_clients,
             pot_base_url=pot_base_url,
             native_timeout=float(os.environ.get("YOUTUBE_NATIVE_TIMEOUT_SECONDS") or "8"),
+            catalog_ttl=int(os.environ.get("YOUTUBE_CATALOG_TTL_SECONDS") or "300"),
         )
 
     async def origin_metadata(self, identity):
@@ -429,10 +436,15 @@ class YouTubeClient:
             ) from error
 
     async def _public_inspect(self, identity):
-        cached = self._public_cache.get(identity)
-        if cached and cached[0] > time.monotonic():
-            self._public_cache.move_to_end(identity)
-            return cached[1]
+        self._check_origin_rate()
+        if self._public_cooldown.get("until", 0) > time.monotonic():
+            raise SiteHTTPError(429, "مسیر عمومی یوتیوب موقتاً محدود شده؛ کمی بعد امتحان کن.")
+        catalog = self._public_catalog.get(identity)
+        if catalog and catalog[0] > time.monotonic():
+            self._public_catalog.move_to_end(identity)
+            log.info({"event": "youtube_catalog_reused", "qualities": len(catalog[1].qualities)})
+            return catalog[1]
+        self._public_catalog.pop(identity, None)
         try:
             async with asyncio.timeout(35):
                 async with self._public_session() as api:
@@ -495,6 +507,14 @@ class YouTubeClient:
                 self._public_cache.move_to_end(identity)
                 while len(self._public_cache) > 128:
                     self._public_cache.popitem(last=False)
+                # Only a complete discovery can seed the longer-lived menu.
+                # Callback refreshes and failed probes must never shrink its catalog.
+                complete = all(not isinstance(row, BaseException) for row in results)
+                lifetime = self.catalog_ttl if complete and self.catalog_ttl else 15
+                self._public_catalog[identity] = (time.monotonic() + lifetime, media)
+                self._public_catalog.move_to_end(identity)
+                while len(self._public_catalog) > 128:
+                    self._public_catalog.popitem(last=False)
                 log.info({"event": "youtube_public_extracted", "qualities": len(rows)})
                 return media
         except SiteHTTPError:
@@ -516,10 +536,16 @@ class YouTubeClient:
                 async with self._public_locks[hash(media.content_id) % len(self._public_locks)]:
                     return await self._public_resolve(media, quality)
         except TimeoutError as error:
+            self._public_catalog.pop(media.content_id, None)
+            self._public_cache.pop(media.content_id, None)
             raise DownloadError(
                 "دریافت لینک تازه یوتیوب طولانی شد؛ کمی بعد امتحان کن.",
                 code="youtube_public_unavailable",
             ) from error
+        except DownloadError:
+            self._public_catalog.pop(media.content_id, None)
+            self._public_cache.pop(media.content_id, None)
+            raise
 
     async def _public_resolve(self, media, quality):
         cached = self._public_cache.get(media.content_id)

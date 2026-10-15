@@ -25,11 +25,13 @@ Detailed dated evidence is in [provider verification](PROVIDER_VERIFICATION.md),
 [operations](OPERATIONS.md). Sanitized Actions reports provide independent evidence;
 private workstation reports remain in ignored `.runtime/`.
 
-Latest October 15 result: both reported identities passed fresh anonymous native
-provider inspection/resolution and complete project transfer validation. Instagram
-used its public resolver and original CDN; YouTube used a separately implemented
-public converter fallback. See the final dated section of the access investigation
-for byte counts, durations, hashes, dependencies and the untested Telegram boundary.
+Earlier October 15 checks passed fresh anonymous project inspection/resolution and
+complete transfer validation for both reported identities. Instagram used its
+public resolver/original CDN; YouTube used its independent public converter.
+The latest YouTube follow-up separates first-response and repeat-catalog speed
+from upstream conversion time; a fresh cold workstation metadata lookup failed
+in that later connection state. See the dated access sections for successes,
+failures, byte counts and the untested production/Telegram boundary.
 
 ## Provider identity and isolation
 
@@ -89,6 +91,34 @@ Final current-tree validation passed **998 tests, zero skips**, with dedicated
 PostgreSQL/Redis; lint/format and architecture checks passed for 235 Python files.
 
 ## YouTube
+
+October 15 initial-response follow-up: PyTubeFix 11.2.0 `AsyncYouTube` did not
+return formats within a separate 12-second subprocess deadline. Its async facade
+also calls synchronous Innertube methods. It was not added as a dependency.
+Sharing Chrome's pool for rendition probes gave small variable results, not an
+established speedup, and was not integrated. A direct cold workstation inspection
+also failed metadata access in this connection state; do not turn that into a
+successful cold-download claim.
+
+The actual correction acknowledges slow YouTube work after 150 ms and edits the
+reply into a text menu, avoiding the external-thumbnail RPC before buttons can be
+used. Full verified catalogs now outlive their short signed-source snapshots:
+default 300 seconds, bounded at 128 entries, only complete discovery eligible for
+the extended TTL. Callback-only or incomplete discovery cannot overwrite a full
+catalog with one quality. Selection refreshes/validates the chosen source; refresh
+failure invalidates the snapshots. This fixes repeated four-rendition work after
+the application's 60-second metadata cache expires without extending URL expiry.
+Cold full menus still depend on the external service. Fresh conversion/header
+tests plus mocked Telegram responses measured first acknowledgment at about
+0.15 seconds, full menus at 3.127-4.790 seconds, and local cached menu execution
+under 1 ms with source/origin snapshots cleared. These last timings exclude real
+Telegram and SQL; they are not server latency promises. Short video and MP3 again
+passed full real transfer validation. See [the dated response investigation](YOUTUBE_INSTAGRAM_ACCESS.md#october-15-initial-response-and-complete-catalog-reuse).
+A further full dispatcher/admission/history/menu run used real PostgreSQL: fresh
+conversion menu 3.119256 seconds, then 0.010506 seconds after simulating the user
+interval and source/application-cache expiry. Both durable menus kept four
+qualities. Telegram stayed simulated and origin metadata was preloaded; this
+establishes SQL-path repeat-request savings, not a cold-origin/server guarantee.
 
 October 15 unindexed-video fix: the newly reported `-YVIEsTEZCw` was absent from
 the public search index even though its own watch page returned exact playable

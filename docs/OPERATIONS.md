@@ -73,12 +73,33 @@ MP4 renditions with actual dimensions and audio, or a verified MP3 header, enter
 the menu. Converted MP3 is labeled separately from native original audio.
 
 The service's signed links last approximately one minute. The provider retains a
-validated snapshot for at most 15 seconds and regenerates expired selections
+validated source snapshot for at most 15 seconds and regenerates expired selections
 before transfer. Concurrent inspection/refresh for the same identity coalesces
 under bounded locks; conversion concurrency is two. Native HTTP 429 stops public
 fallback, and public 429 starts a 60-second cooldown. No retry loop attempts to
 turn application concurrency into unlimited public-service throughput. Disabled
 or authenticated clients never send their URLs through this public path.
+
+Complete verified guest quality catalogs have a separate bounded 128-entry cache.
+`YOUTUBE_CATALOG_TTL_SECONDS` defaults to 300, accepts 0-900 and does not extend
+signed URL validity. Zero retains only the existing 15-second menu snapshot. A
+partial/failed discovery uses 15 seconds regardless of the longer setting. Source
+refresh for one quality cannot create or replace a complete catalog. After source
+expiry, inspection can return all verified choices without four new conversions;
+selection obtains and validates only the requested source. Failed selection
+refresh clears both caches so the next inspection rediscovers available choices.
+Catalog expiry is fixed from discovery, not extended on every cache hit. Restart
+clears this provider-local cache. Native/authenticated extraction is unchanged.
+
+The YouTube handler starts inspection immediately. If it is still pending after
+150 ms, it sends a bounded acknowledgment and later edits that reply into a text
+menu or safe error. Fast cache hits send one menu directly. Menus no longer wait
+for an external thumbnail fetch; final-file thumbnail handling is unchanged.
+Inspection tasks are canceled/awaited on handler failure or shutdown. Activity
+events `youtube_link_acknowledged` and `quality_menu_shown` include separate
+`elapsed_seconds`; `youtube_catalog_reused` identifies complete-catalog reuse.
+Measure these separately from network download/upload. An acknowledgment is not
+a quality choice, extraction success or a production response-time guarantee.
 
 Guest native extraction has an eight-second budget before public fallback
 (`YOUTUBE_NATIVE_TIMEOUT_SECONDS`, accepted range 1-45). Increase it if healthy

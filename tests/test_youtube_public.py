@@ -210,6 +210,71 @@ async def test_concurrent_inspections_share_one_catalog(public_api):
     assert sum(r.method == "POST" for r in visits) == 4
 
 
+async def test_complete_catalog_outlives_urls_without_rebuilding_all_conversions(public_api):
+    visits, _, _ = public_api
+    client = YouTubeClient(resolver_url="https://cnv.cx")
+    media = await client.public_inspect(IDENTITY)
+    before = len(visits)
+    client._public_cache.clear()  # Signed URLs expired; the complete menu did not.
+    menus = await asyncio.gather(*(client.public_inspect(IDENTITY) for _ in range(1000)))
+    assert all(menu == media for menu in menus)
+    assert len(visits) == before
+    source = await client.public_resolve(media, media.qualities[2])
+    assert source.require_audio and source.duration == media.duration
+    assert sum(request.method == "POST" for request in visits[before:]) == 1
+    assert (await client.public_inspect(IDENTITY)).qualities == media.qualities
+
+
+async def test_source_refresh_cannot_seed_or_replace_the_complete_catalog(public_api):
+    visits, _, _ = public_api
+    client = YouTubeClient(resolver_url="https://cnv.cx")
+    media = await client.public_inspect(IDENTITY)
+    narrowed = replace(media, qualities=media.qualities[:1])
+    client._public_cache.clear()
+    await client.public_resolve(narrowed, narrowed.qualities[0])
+    assert client._public_cache[IDENTITY][1] == narrowed
+    assert (await client.public_inspect(IDENTITY)).qualities == media.qualities
+    client._public_catalog[IDENTITY] = (time.monotonic() - 1, media)
+    before = sum(request.method == "POST" for request in visits)
+    assert (await client.public_inspect(IDENTITY)).qualities == media.qualities
+    assert sum(request.method == "POST" for request in visits) == before + 4
+
+
+async def test_failed_selected_refresh_invalidates_catalog_and_source_snapshots(public_api):
+    _, _, state = public_api
+    client = YouTubeClient(resolver_url="https://cnv.cx")
+    media = await client.public_inspect(IDENTITY)
+    client._public_cache.clear()
+    state["status"] = 503
+    with pytest.raises(DownloadError):
+        await client.public_resolve(media, media.qualities[0])
+    assert IDENTITY not in client._public_catalog and IDENTITY not in client._public_cache
+
+
+async def test_incomplete_discovery_keeps_only_short_catalog_and_cooldown_blocks_reuse(public_api):
+    _, _, state = public_api
+    state["silent"] = True
+    client = YouTubeClient(resolver_url="https://cnv.cx")
+    media = await client.public_inspect(IDENTITY)
+    assert len(media.qualities) == 1
+    assert 0 < client._public_catalog[IDENTITY][0] - time.monotonic() <= 15
+    client._public_cooldown["until"] = time.monotonic() + 60
+    with pytest.raises(SiteHTTPError):
+        await client.public_inspect(IDENTITY)
+
+
+async def test_catalog_ttl_zero_retains_only_existing_short_snapshot(public_api):
+    client = YouTubeClient(resolver_url="https://cnv.cx", catalog_ttl=0)
+    await client.public_inspect(IDENTITY)
+    assert 0 < client._public_catalog[IDENTITY][0] - time.monotonic() <= 15
+
+
+@pytest.mark.parametrize("ttl", [-1, 901])
+def test_catalog_ttl_range_is_bounded(ttl):
+    with pytest.raises(ValueError, match="catalog TTL"):
+        YouTubeClient(catalog_ttl=ttl)
+
+
 async def test_accepted_public_route_skips_native_workers_for_following_requests(
     monkeypatch, public_api
 ):

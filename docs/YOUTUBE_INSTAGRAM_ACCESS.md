@@ -913,3 +913,112 @@ preflight time accounting and sibling cancellation. Architecture/provider
 isolation and nonblocking checks passed. Ruff lint and formatting passed for
 223 Python files. No new dependencies, database migrations, account cookies or
 concurrency increase are needed.
+
+## October 15 initial response and complete catalog reuse
+
+The reported production delay is five to six seconds before any YouTube reply.
+The default accepted anonymous route already avoids a yt-dlp worker. Replacing
+that library alone cannot remove the converter/header work on this route. Source
+inspection and first user feedback must be measured separately.
+
+### Alternative library and transport findings
+
+- Compared the pinned yt-dlp implementation with current
+  [PyTubeFix](https://github.com/JuanBindez/pytubefix), including its
+  [async implementation](https://github.com/JuanBindez/pytubefix/blob/main/pytubefix/async_youtube.py).
+  The isolated 11.2.0 `AsyncYouTube`/guest `ANDROID_VR` test produced no formats
+  within its 12-second subprocess limit. Inspection of the installed code found
+  synchronous `InnerTube.player`/`next` calls inside async methods and a singleton
+  HTTP session. Do not assume the async class name establishes nonblocking I/O,
+  per-account session isolation or faster accepted streams. The package and its
+  dependencies remain in ignored research storage, outside the bot environment.
+- The archived exact watch response for `-YVIEsTEZCw` contains advertised adaptive
+  formats and SABR configuration, but no direct format URLs or signature ciphers.
+  Fast metadata alone therefore does not provide downloadable progressive URLs.
+- A fresh direct cold inspection on this workstation failed with
+  `youtube_public_metadata_unavailable` after 11.006 seconds: the watch read hit
+  its three-second bound, native recovery used the remaining budget, and exact-ID
+  search failed within its three-second limit. An existing DoH-tunnel watch
+  comparison also returned no metadata (8.206 seconds including cleanup).
+  Neither is a cold extraction success. Revisit only on changed network/origin
+  evidence, not unchanged retries. These connection results do not describe the
+  production host's accepted metadata route.
+- With exact historical origin metadata already cached, compared ordinary
+  per-probe HTTPX against Chrome/Curl pool reuse in ABBA order. All four real
+  renditions passed. Ordinary timings: 3.345/3.505 seconds; pooled Curl:
+  3.401/3.092 seconds. This small variable difference does not establish a causal
+  transport improvement; the probe transport/concurrency was not changed.
+
+### Implementation
+
+YouTube inspection starts immediately in an owned async task. If still pending
+after 150 ms, a text acknowledgment replies to the original link; it becomes the
+quality menu or safe provider error through an edit. Inspection completing before
+that delay sends one menu directly. Acknowledgment has a finite RPC deadline and
+does not cancel an otherwise useful inspection on timeout. Handler cancellation
+or a rejected acknowledgment cancels and awaits the owned inspection. A deleted
+acknowledgment falls back to a new menu reply. No task is left running on its own.
+
+The complete menu uses text and buttons with link previews disabled. It does not
+ask Telegram to fetch an external photo before making buttons available. Media
+artwork remains in the catalog for final files; video preparation/preview and
+integrity checks are unchanged. This removes an extra network dependency from
+menu publication, not proof of faster upstream conversion.
+
+Full verified anonymous catalogs and temporary signed sources have separate
+caches. `YOUTUBE_CATALOG_TTL_SECONDS` defaults to 300, accepts 0-900; zero retains
+the existing 15-second snapshot. The 128-entry catalog cache contains immutable
+media/quality metadata, not signed sources or credentials. Only inspection can
+populate it; callback-only refresh never seeds a one-quality menu. A discovery
+with a failed rendition keeps only 15 seconds rather than hiding a recovered
+quality for five minutes. Cache hits do not extend their original expiry.
+
+The application metadata cache expires after 60 seconds, while a user's default
+request interval is also 60 seconds. Previously a later request commonly reached
+the provider after its 15-second source/menu snapshot had expired, repeating four
+conversions/probes. Now that request can return the entire previously verified
+menu. On selection, an expired source is regenerated and its actual quality and
+identity checked; the full menu remains intact. Refresh failure clears the
+catalog/source snapshots for fresh discovery. Origin/public 429 cooldowns still
+block catalog inspection. No cache grants user/group admission or alters the
+global file identity. Restart clears the provider-local catalog.
+
+### Measurements and verification limits
+
+All timings below are workstation measurements. Telegram RPCs were simulated.
+Initial comparisons used memory menus; the explicitly labeled SQL rows used real
+PostgreSQL admission, history, FSM and durable menus. Real public conversion and
+header requests ran against the exact
+reported ID, with historical exact-ID/duration origin metadata preloaded because
+the fresh workstation origin lookup above failed. This does not prove a complete
+cold first request or real Telegram round-trip time.
+
+| Check | Result |
+| --- | --- |
+| Previous handler, ABBA real conversion comparison | First reply/full-menu completion 3.960 and 3.656 s; external-thumbnail request still required |
+| Updated handler in the same comparison | First reply 0.154/0.156 s; full menu 4.358/4.501 s. The full menus were slower in these samples; no converter speedup is claimed |
+| Final new-ID inspection with fresh conversions | Acknowledgment 0.152684 s; four-choice menu 4.790215 s |
+| Same full catalog, signed-source and origin caches cleared | Complete four-choice menu 0.000251 s; no new origin/conversion/probe work |
+| Short video `jNQXAC9IVRw`, fresh conversions | Acknowledgment 0.152348 s; actual 240p plus MP3 menu 3.127002 s |
+| Same short catalog after source expiry simulation | Complete two-choice menu 0.000212 s; no network work |
+| Full dispatcher/admission/history/menu flow, real PostgreSQL, fresh conversions | First reply 0.164987 s; complete four-quality durable menu 3.119256 s |
+| Same user after quota/source/application-cache expiry simulation, real PostgreSQL | Complete menu 0.010506 s; both durable menus retain all four qualities; no new origin/conversion work |
+| Fresh selected short video after that cache reuse | Full 742,286-byte progressive stream, 18.933 s against expected 19 s, complete validation, 3.466 s transfer |
+| Fresh selected short MP3 | Full 304,598 bytes, 19.032 s, complete validation, 1.459 s transfer |
+
+The improvement is earlier feedback and removal of redundant work on repeat
+links. Full uncached quality discovery still takes several seconds on this
+connection. The mock Telegram sender adds no image-fetch delay to the previous
+handler, so the table does not measure savings from removing real Telegram image
+fetches. No several-fold cold-menu/download-bandwidth improvement is established.
+Private reports remain in ignored `.runtime/`; no signed URLs/nonces are published.
+
+Validation: **1,011 tests passed, zero skips**, with isolated real PostgreSQL 17
+and Redis 7.4; ten existing Windows curl selector warnings. The 206-test affected
+provider/UI/group/architecture set also passed. New tests cover early feedback,
+fast one-message cached menus, error edits, cancellation/ack rejection, deleted
+messages, complete catalogs surviving source expiry, 1,000 cache followers, one
+selected refresh, partial/zero TTL, cooldowns and invalidation. A narrowed callback
+snapshot cannot seed or replace the full quality catalog, even when its source
+cache is newer. Ruff lint/format passed for 236 Python files. No runtime dependency,
+database migration, authentication or concurrency increase was introduced.

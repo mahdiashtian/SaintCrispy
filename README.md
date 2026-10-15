@@ -238,6 +238,23 @@ versus a 14.409 s metadata failure with the preceding revision on this workstati
 Full 360p/720p and MP3 transfers passed completeness checks with simulated Telegram
 calls. See the [dated metadata and transfer evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md#october-15-unindexed-video-metadata-and-menu-latency).
 
+YouTube now acknowledges an inspection lasting over 150 ms and edits that same
+reply into a text quality menu, without blocking on Telegram fetching an external
+thumbnail. Fast cached inspections send the menu directly. Final-file artwork and
+video previews remain independent. `youtube_link_acknowledged` and
+`quality_menu_shown` record separate elapsed times; an early acknowledgment does
+not mean extraction or download has completed.
+
+`YOUTUBE_CATALOG_TTL_SECONDS=300` reuses a complete verified anonymous quality
+catalog for five minutes, separately from the 15-second signed-source snapshot.
+The selected URL is regenerated and checked as needed. Only a completed discovery
+of all requested renditions can use the extended TTL; failed/partial discovery
+keeps a 15-second snapshot, and callback-only refreshes never become a catalog.
+Set the value to `0` to retain only that short snapshot (accepted range 0-900).
+This speeds repeat links after the application's metadata cache expires; a first
+uncached full menu still depends on origin/converter latency. See the
+[response and catalog measurements](docs/YOUTUBE_INSTAGRAM_ACCESS.md#october-15-initial-response-and-complete-catalog-reuse).
+
 ## Group downloads
 
 Supported links also work in basic groups and supergroups without `/start` or a
