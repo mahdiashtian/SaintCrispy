@@ -12,6 +12,19 @@ PAGE_HOSTS = {
 }
 
 
+def network_host(host: str) -> bool:
+    return host in PAGE_HOSTS or any(
+        host == suffix or host.endswith("." + suffix)
+        for suffix in (
+            "youtube.com",
+            "googlevideo.com",
+            "googleapis.com",
+            "ytimg.com",
+            "google.com",
+        )
+    )
+
+
 LINK_PATTERN = re.compile(
     r"(?<![\w.@/:-])(?:https?://)?(?:"
     + "|".join(re.escape(host) for host in sorted(PAGE_HOSTS))

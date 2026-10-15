@@ -30,6 +30,7 @@ class YouTubeClient:
     js_runtime: str = "node"
     cookies_file: str | None = field(default=None, repr=False)
     proxy: str = field(default="", repr=False)
+    dns_resolver: str = field(default="", repr=False)
     player_clients: str | None = None
     pot_base_url: str | None = None
     timeout: float = 80
@@ -55,6 +56,9 @@ class YouTubeClient:
             js_runtime=os.environ.get("YOUTUBE_JS_RUNTIME") or "node",
             cookies_file=os.environ.get("YOUTUBE_COOKIES_FILE") or None,
             proxy=os.environ.get("YOUTUBE_PROXY", ""),
+            dns_resolver=(
+                os.environ.get("YOUTUBE_DOH_URL", "") if not os.environ.get("YOUTUBE_PROXY") else ""
+            ),
             player_clients=player_clients,
             pot_base_url=pot_base_url,
         )
@@ -195,8 +199,13 @@ class YouTubeClient:
             "--extractor-retries",
             "1",
             "--proxy",
-            self.proxy,
+            "" if self.dns_resolver else self.proxy,
         ]
+        if self.dns_resolver:
+            arguments[1:3] = [
+                "-c",
+                "from downloader_bot.downloaders.youtube.client import extractor_main; extractor_main()",
+            ]
         if self.cookies_file:
             arguments.extend(["--cookies", self.cookies_file])
         if player_clients:
@@ -216,6 +225,11 @@ class YouTubeClient:
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                **(
+                    {"env": dict(os.environ, SAINTCRISPY_YOUTUBE_DOH_URL=self.dns_resolver)}
+                    if self.dns_resolver
+                    else {}
+                ),
             )
         except OSError as error:
             raise DownloadError("پردازش استخراج یوتیوب روی سرور اجرا نشد.") from error
@@ -254,6 +268,18 @@ class YouTubeClient:
             for task in (stdout, stderr):
                 task.cancel()
             await asyncio.gather(stdout, stderr, return_exceptions=True)
+
+
+def extractor_main():
+    """CLI worker: isolate synchronous upstream DNS from Telegram's event loop."""
+    import yt_dlp
+
+    from core.dns_tunnel import extractor_dns
+
+    from .urls import network_host
+
+    with extractor_dns(os.environ["SAINTCRISPY_YOUTUBE_DOH_URL"], network_host):
+        yt_dlp.main()
 
 
 def extraction_error(diagnostic: bytes) -> DownloadError:

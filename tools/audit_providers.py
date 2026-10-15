@@ -11,6 +11,7 @@ import json
 import os
 import time
 from contextlib import AsyncExitStack, aclosing
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -23,6 +24,7 @@ from telethon.sessions import MemorySession
 from bot.progress import TransferProgress
 from bot.transfers.integrity import require_duration, validated_mp4
 from bot.transfers.streaming import media_chunks, upload_stream
+from core.dns_tunnel import configured_proxy
 from downloader_bot.downloaders.instagram.client import InstagramClient, instagram_session
 from downloader_bot.downloaders.instagram.downloader import InstagramDownloader
 from downloader_bot.downloaders.pinterest.client import PinterestClient
@@ -35,6 +37,7 @@ from downloader_bot.downloaders.xvideos.client import XVideosClient
 from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.youtube.client import YouTubeClient
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
+from downloader_bot.downloaders.youtube.urls import network_host as youtube_network_host
 from schemas.media import DownloadError
 from services.observability import error_fields
 
@@ -264,6 +267,10 @@ async def audit(args):
             for site in SAMPLES
         }
         youtube = YouTubeClient.from_environment()
+        youtube = replace(
+            youtube,
+            proxy=await configured_proxy(stack, os.environ, "YOUTUBE", youtube_network_host),
+        )
         providers = {
             "soundcloud": SoundCloudDownloader(
                 SoundCloudClient(sessions["soundcloud"], os.environ.get("SOUNDCLOUD_OAUTH_TOKEN"))

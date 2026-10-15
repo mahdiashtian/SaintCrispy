@@ -188,12 +188,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\keep-wsl-alive.ps1
 
 - **SoundCloud:** set `SOUNDCLOUD_OAUTH_TOKEN` for an authorized account. Original/HQ availability depends on the track and that account's permissions. Opus/MP3/AAC options reflect actual complete sources; preview-only media is excluded.
 - **Instagram:** extraction uses an isolated `curl-cffi` browser transport, with session bootstrap, page data, two GraphQL queries and embed data as bounded alternatives. Both current and older embed/DASH response shapes are supported. Set `INSTAGRAM_COOKIE` to a single-line HTTP Cookie header from an authorized session. A specific story requires an authorized account. An empty response does not establish that a post is private; private, removed or restricted media may remain unavailable.
-- **YouTube:** uses the pinned stable `yt-dlp[default,curl-cffi]` release with its matching EJS solver. Guest extraction retries once with `web_embedded` after a recoverable failure. Explicit player-client settings remain authoritative, and authenticated accounts fail over within a bounded inspection deadline. Resolution stays on the account that verified the menu. `YOUTUBE_COOKIES_FILE` is an optional writable Netscape cookie-file path, `YOUTUBE_PROXY` is an optional HTTP proxy, and `YOUTUBE_JS_RUNTIME` selects Node/Deno. Empty proxy means direct egress for extraction and transfer. Cookies/tokens do not guarantee that the current network is accepted by YouTube.
+- **YouTube:** uses the pinned nightly `yt-dlp[default,curl-cffi]` release with its matching EJS solver. Guest extraction retries once with `web_embedded` after a recoverable failure. Explicit player-client settings remain authoritative, and authenticated accounts fail over within a bounded inspection deadline. Resolution stays on the account that verified the menu. `YOUTUBE_COOKIES_FILE` is an optional writable Netscape cookie-file path, `YOUTUBE_PROXY` is an optional HTTP proxy, and `YOUTUBE_JS_RUNTIME` selects Node/Deno. Empty proxy means direct egress for extraction and transfer. Cookies/tokens do not guarantee that the current network is accepted by YouTube.
 - **Multiple accounts:** the `site_accounts` table stores account labels and environment-variable names, not credentials. Add rows for `soundcloud`, `instagram` or `youtube`, then define the referenced credential variables in the bot's environment. Each account has a separate HTTP/cookie session or YouTube cookie-file lock.
 
 Cookie-file paths are host paths. The account running `python main.py` needs read/write access to a YouTube cookie file. Keep cookies outside source control. An optional independently managed PO-token helper can be configured with a host-reachable `YOUTUBE_POT_BASE_URL`, such as `http://127.0.0.1:4416`; it is not started by the database Compose file. Player-client overrides and Instagram GraphQL document IDs are documented in `.env.example`.
 
 For the reported YouTube/Instagram access failures, run `python tools/diagnose_video_access.py --live` on the bot host. It prints sanitized runtime/configuration health and verifies both complete origin streams without sending Telegram messages. The [access investigation and server setup](docs/YOUTUBE_INSTAGRAM_ACCESS.md) describe the compared upstream implementations and remaining network/session requirements. YouTube guest fallback also covers metadata that produces no accessible CDN choices, for inspection and resolution. Instagram accepts cookie/CSRF rotation, continues after optional login failures and reports JSON rate limits separately from GraphQL execution failures.
+
+For guest connections with filtered DNS or blocked TCP, optional `YOUTUBE_DOH_URL`,
+`INSTAGRAM_DOH_URL` and `INSTAGRAM_HTTP_VERSION` profiles are documented in
+[operations](docs/OPERATIONS.md#optional-guest-network-profiles). They preserve
+provider isolation and do not log in. The October 15 workstation test received the
+complete reported YouTube video/audio, but later fresh extraction was challenged;
+the reported Instagram input remains unresolved there. Page connectivity alone is
+not download success. See the [guest comparison evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md#anonymous-github-library-and-transport-comparison-october-15).
 
 ## Data and concurrency model
 

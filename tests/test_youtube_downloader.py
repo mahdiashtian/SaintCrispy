@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import json
 import sys
 from dataclasses import replace
 from types import SimpleNamespace
@@ -402,6 +403,27 @@ async def test_extractor_timeout_kills_worker(monkeypatch):
     assert processes[0].returncode is not None
 
 
+@pytest.mark.parametrize("resolver", ["", "https://resolver.example/resolve"])
+async def test_dns_worker_preserves_default_cli_and_metadata_response(monkeypatch, resolver):
+    original = asyncio.create_subprocess_exec
+
+    async def spawn(*args, **kwargs):
+        if resolver:
+            assert args[1] == "-c" and "extractor_main" in args[2]
+            assert kwargs["env"]["SAINTCRISPY_YOUTUBE_DOH_URL"] == resolver
+            assert args[args.index("--proxy") + 1] == ""
+        else:
+            assert args[1:3] == ("-m", "yt_dlp")
+            assert "env" not in kwargs
+            assert args[args.index("--proxy") + 1] == "http://configured:8080"
+        assert args[-2:] == ("--", PAGE)
+        return await original(sys.executable, "-c", f"print({json.dumps(info())!r})", **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    client = YouTubeClient(proxy="http://configured:8080", dns_resolver=resolver)
+    assert (await client._extract(PAGE))["id"] == IDENTITY
+
+
 async def test_small_cdn_ranges_deliver_the_whole_file():
     payload = b"0123456789abcdef"
     ranges = []
@@ -593,6 +615,14 @@ def test_configured_token_helper_selects_compatible_clients_unless_overridden(
     client = YouTubeClient.from_environment()
     assert client.player_clients == (explicit or "mweb,web_safari")
     assert client.pot_base_url == "http://127.0.0.1:4416"
+
+
+def test_explicit_proxy_takes_precedence_over_public_dns_profile(monkeypatch):
+    monkeypatch.setenv("YOUTUBE_DOH_URL", "https://dns.google/resolve")
+    monkeypatch.setenv("YOUTUBE_PROXY", "http://127.0.0.1:8080")
+    assert YouTubeClient.from_environment().dns_resolver == ""
+    monkeypatch.setenv("YOUTUBE_PROXY", "")
+    assert YouTubeClient.from_environment().dns_resolver == "https://dns.google/resolve"
 
 
 async def test_guest_login_challenge_tries_one_alternate_player(monkeypatch):

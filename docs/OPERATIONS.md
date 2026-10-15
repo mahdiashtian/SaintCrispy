@@ -33,6 +33,56 @@ use `--live` once after a meaningful setup change to verify full origin streams.
 See the dated [access investigation](YOUTUBE_INSTAGRAM_ACCESS.md) for safe report
 interpretation and the unresolved session/route conditions.
 
+## Optional guest network profiles
+
+Leave these settings empty/default on connections that already work. The October
+15 workstation investigation found non-global system DNS answers and a separate
+Instagram TCP/TLS failure. These opt-in settings address those transport conditions
+without account login or changing the operating system's DNS configuration:
+
+```dotenv
+# HTTPS JSON DNS endpoint used by the isolated extractor and async transfer tunnel.
+YOUTUBE_DOH_URL=https://dns.google/resolve
+
+# Native libcurl DoH uses a DNS wire-format endpoint, not the JSON endpoint above.
+INSTAGRAM_DOH_URL=https://dns.google/dns-query
+INSTAGRAM_HTTP_VERSION=3
+```
+
+HTTP/3 requires working UDP/443 and support in the installed `curl-cffi` binary.
+It is explicitly forced only by `INSTAGRAM_HTTP_VERSION=3`; `auto` preserves the
+normal browser transport. HTTP/3 through an HTTP proxy depends on transport support;
+the verified workstation profile used no proxy. Both Instagram options remain
+inside Instagram's independent session. Account credentials are not introduced by
+these options. The current recovery task is anonymous only.
+
+`YOUTUBE_PROXY`, when configured, takes precedence over YouTube DoH. Without an
+explicit proxy, the optional tunnel listens on `127.0.0.1` with an OS-selected port,
+owned and closed by Python. It carries encrypted TLS to permitted YouTube/CDN
+hosts only; it is not a public proxy or an additional Docker service. No fixed
+origin IPs or Node container are required. PostgreSQL/Redis retain their existing
+`.env` ports and passwords. DoH cache TTLs are capped, duplicate lookups coalesce
+and failed lookups have a short cooldown; capacity remains bounded.
+
+After changing the local `.env`, stop the old Python coordinator and run:
+
+```bash
+python tools/diagnose_video_access.py --network
+python tools/diagnose_video_access.py --live
+python main.py
+```
+
+The diagnostic reports profile-presence booleans without printing endpoint values,
+credentials or signed URLs. The network check establishes only receipt of headers;
+the live check attempts complete downloads and may fail at origin access. These
+settings produced complete transfers of the reported YouTube video/audio from
+accepted sources, but subsequent fresh extraction was challenged. Instagram's page
+became reachable while guest extraction still failed. Do not deploy these as a
+claimed universal login/403 fix or repeatedly run live tests under unchanged
+conditions. See the [dated evidence](YOUTUBE_INSTAGRAM_ACCESS.md#anonymous-github-library-and-transport-comparison-october-15).
+
+## Reference-layout and runtime recovery
+
 The reference-layout upgrade moves application imports to root packages. Reinstall
 the editable project after pulling so `core`, `db`, `schemas`, `repositories`,
 `services`, `bot` and `container` are registered together with the provider package.

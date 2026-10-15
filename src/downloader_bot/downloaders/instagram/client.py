@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from contextlib import asynccontextmanager
@@ -8,6 +9,7 @@ from http.cookies import SimpleCookie
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+from curl_cffi import CurlHttpVersion, CurlOpt
 from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import RequestException
 
@@ -89,13 +91,40 @@ def validate_proxy(proxy: str) -> None:
 async def instagram_session(proxy: str = ""):
     # Never reuse this session for another provider or another Instagram account.
     validate_proxy(proxy)
+    options = browser_options(os.environ)
     async with AsyncSession(
-        impersonate="chrome", discard_cookies=True, trust_env=False, proxy=proxy or None
+        impersonate="chrome",
+        discard_cookies=True,
+        trust_env=False,
+        proxy=proxy or None,
+        curl_options=options,
     ) as browser:
         async with httpx.AsyncClient(
             transport=InstagramBrowserTransport(browser), timeout=15, trust_env=False
         ) as http:
             yield http
+
+
+def browser_options(values):
+    """Explicit transport options only; neither option authenticates an account."""
+    options = {}
+    version = values.get("INSTAGRAM_HTTP_VERSION", "auto")
+    if version not in {"auto", "3"}:
+        raise ValueError("INSTAGRAM_HTTP_VERSION must be auto or 3")
+    if version == "3":
+        options[CurlOpt.HTTP_VERSION] = CurlHttpVersion.V3ONLY
+    if resolver := values.get("INSTAGRAM_DOH_URL"):
+        parsed = urlsplit(resolver)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.fragment
+        ):
+            raise ValueError("INSTAGRAM_DOH_URL must be an HTTPS URL without credentials")
+        options[CurlOpt.DOH_URL] = resolver
+    return options
 
 
 def lsd_token(page: str) -> str:

@@ -998,6 +998,24 @@ async def test_authorized_browser_api_does_not_wait_for_a_blocked_homepage():
     assert find_media(node, code) and len(visits) == 1
 
 
+def test_explicit_guest_transport_profile_is_opt_in_and_validated():
+    from curl_cffi import CurlHttpVersion, CurlOpt
+
+    from downloader_bot.downloaders.instagram.client import browser_options
+
+    assert browser_options({}) == {}
+    assert browser_options(
+        {"INSTAGRAM_HTTP_VERSION": "3", "INSTAGRAM_DOH_URL": "https://dns.google/dns-query"}
+    ) == {
+        CurlOpt.HTTP_VERSION: CurlHttpVersion.V3ONLY,
+        CurlOpt.DOH_URL: "https://dns.google/dns-query",
+    }
+    with pytest.raises(ValueError):
+        browser_options({"INSTAGRAM_HTTP_VERSION": "2"})
+    with pytest.raises(ValueError):
+        browser_options({"INSTAGRAM_DOH_URL": "http://SECRET:password@localhost"})
+
+
 async def test_bounded_account_attempts_rotate_so_later_healthy_accounts_are_not_starved(
     monkeypatch,
 ):

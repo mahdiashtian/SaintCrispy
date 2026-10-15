@@ -360,3 +360,119 @@ provider reached transfer/completeness verification. The private sanitized repor
 is `.runtime/workstation-20261015-direct.json`. These fresh failures are workstation
 results; the production host was not used or changed. No alternative was claimed
 successful and no new extraction fallback was added without live evidence.
+
+## Anonymous GitHub library and transport comparison (October 15)
+
+The operator subsequently required **guest access only**. This investigation used
+no account cookies, OAuth, browser profile, Telegram account or production server.
+Older authorized-session instructions above describe a different deployment option;
+they are not the solution requested for this investigation.
+
+Compared the existing pinned yt-dlp with [PyTubeFix](https://github.com/JuanBindez/pytubefix)
+11.2.0 and the Instagram provider with [Instaloader](https://github.com/instaloader/instaloader)
+4.15.4. Alternative libraries were installed under an ignored isolated research
+directory, not into the application's runtime dependencies. Reviewed their current
+[Innertube clients](https://github.com/JuanBindez/pytubefix/blob/main/pytubefix/innertube.py)
+and [shortcode request implementation](https://github.com/instaloader/instaloader/blob/master/instaloader/instaloadercontext.py).
+Also compared protocol envelopes from current gallery-dl, Instagrapi and
+[Cobalt's Instagram implementation](https://github.com/imputnet/cobalt/blob/main/api/src/processing/services/instagram.js).
+No third-party source was vendored or relicensed. Failed alternatives were not
+added as automatic retries or advertised as working replacements.
+
+### Connection findings
+
+On this Windows workstation, system DNS returned non-global addresses for
+`www.instagram.com`, `i.instagram.com` and `youtubei.googleapis.com`. HTTPS JSON DNS
+answers from independent public resolvers contained global addresses. A corrected
+DNS answer changes name resolution, not the workstation's egress IP or account.
+No Windows network setting was edited and no origin IP was hardcoded into source.
+
+Instagram TCP/TLS requests still timed out with public DNS. HTTP/3 with public DNS
+returned HTTP 200 and approximately 590 KB of generic Instagram HTML in about two
+seconds. It did not return the reel's media. A later request to the exact reel URL
+returned the same generic page without an HTTP redirect. Six current JavaScript
+entry assets were retrieved successfully; the loaded entries did not provide a
+replacement post query or media. This does not prove that all dynamically loaded
+Instagram code was inspected, or that the reel is unavailable elsewhere.
+
+### Exact-input results
+
+| Method | YouTube `l6zflbTGNFQ` | Instagram `DeR9eU8idi0` |
+| --- | --- | --- |
+| yt-dlp API with public DNS | Extracted 65 formats, advertised 1,301 s; accepted sources consumed fully below | Not substituted for the provider |
+| PyTubeFix `ANDROID_VR` with public DNS | Extracted 25 streams; native `.download()` returned HTTP 403; HTTP Range header probes returned 206/MP4 | Not applicable |
+| Subsequent fresh yt-dlp and PyTubeFix extraction | Login/bot challenge returned, including in the native worker | Not applicable |
+| PyTubeFix `VISION_OS` / `TV_EMBED` | Bot detection / connection timeout | Not applicable |
+| Native project queries through HTTP/3/public DNS | Not applicable | Root returned no media; current web/shortcode queries failed or were refused |
+| Instaloader native TCP | Not applicable | Read timeout |
+| Instaloader request through isolated HTTP/3 adapter | Not applicable | `BadResponseException`; JSON contained `execution error`, no media |
+| Fresh post LSD; browser-profile-matching User-Agent | Not applicable | Did not recover GraphQL; query failure/403 persisted |
+| Guest mobile REST / web REST | Not applicable | Mobile returned 404; web returned HTML, not media JSON |
+| Public post/reel embeds | Not applicable | HTTP 200, no usable video/media node |
+| Current action Relay envelope with real anonymous bootstrap fields | Not applicable | HTTP 401, no media |
+
+The final Relay comparison used an actual envelope and document from the reviewed
+implementation, including its action name and anonymous page bootstrap, rather
+than blindly substituting document IDs. Its failure is not a reason to repeat it
+under unchanged conditions. Likewise, an anonymous CSRF/bootstrap token is not an
+account login or proof of origin acceptance.
+
+### Complete YouTube transfer evidence
+
+The project selection, byte streaming and MP4 duration validator consumed these
+two accepted sources to EOF. No Telegram registration/publication was attempted
+and no complete media was retained on disk.
+
+| Selection | Received bytes | Measured media duration | Initial corrected-DNS transfer | Production DNS-tunnel transfer |
+| --- | ---: | ---: | ---: | ---: |
+| `video_360p30_h264_mp4` | 58,521,501 | 1,300.50 s | 54.805 s | 53.485 s |
+| `audio_140-2_fa_aac` | 21,048,861 | 1,300.55 s | 23.045 s | 34.960 s |
+
+Both runs produced identical SHA-256 hashes per source and passed the project's
+completeness checks against the advertised duration. The second run reused the
+already accepted metadata and tested the production tunnel separately. **It does
+not establish successful fresh extraction.** Private signed metadata and detailed
+reports remain under ignored `.runtime/`; no signed URLs or credentials are
+included here.
+
+### Changes supported by this evidence
+
+- Added optional provider-owned Instagram HTTP/3/native DoH settings; default
+  transport remains unchanged. This fixes the observed connectivity stage only.
+- Added optional YouTube JSON DoH resolution. Metadata uses a synchronous resolver
+  only inside its existing bounded async subprocess, never in the bot event loop.
+  Sampling and transfer use an async loopback CONNECT tunnel with the same resolver.
+  TLS remains end-to-end with hostname/certificate verification intact.
+- The tunnel accepts only the provider's permitted hosts on port 443, rejects
+  non-global DNS answers, bounds connections/lookups/cache/response bodies, coalesces
+  duplicate DNS lookups, cools down failures and closes with application resources.
+  Its ephemeral loopback port is internal, unrelated to PostgreSQL/Redis ports.
+  An explicit YouTube proxy takes precedence over the optional DNS profile.
+- Preserved the existing independent providers, cooldowns, process cancellation,
+  metadata size limits and transfer validation. No new extractor library, account
+  request, unconditional retry or guessed document fallback was introduced.
+
+A prototype resolver had a Python built-in shadowing error; a regression test
+identified it and the shared DNS-answer parser was corrected before the final
+checks. The subsequent native extraction still received the origin challenge.
+That repaired implementation bug must not be reported as the cause of Instagram's
+refusal or proof that YouTube's player challenge is fixed.
+
+Instagram guest extraction remains unresolved on this workstation. Fresh YouTube
+extraction is intermittent/challenged despite the real complete-transfer success.
+Revisit rejected methods after a documented upstream query/client change, a
+verified connection change, cooldown expiry with origin recovery evidence, or
+another concrete new condition. Do not request account cookies for this guest-only
+task. See [operations](OPERATIONS.md#optional-guest-network-profiles) for opt-in
+configuration and a bounded diagnostic, not a universal access guarantee.
+
+Final relevant workstation checks: **281 passed, 8 skipped**. The skipped reference
+integration cases require dedicated PostgreSQL/Redis test URLs, which were not
+configured for this provider/network change. Provider boundaries, architecture,
+nonblocking rules, diagnostics, startup, audit behavior, worker cancellation and
+DNS transport tests passed. Ruff lint/format checks and `git diff --check` passed.
+The DNS tests cover coalescing/cancelled followers, negative caching, private-address
+and host/port refusal, oversized responses, subprocess resolver restoration and
+opaque tunnel shutdown. No load claim about 1,000 successful origin extractions
+per second follows from these checks; origin throttling remains independent of
+application admission/concurrency limits.

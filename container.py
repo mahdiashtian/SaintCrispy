@@ -17,6 +17,7 @@ from bot.state.manager import ConversationManager
 from bot.state.menus import PersistentMenuStore
 from bot.state.storage import PostgresStateStorage
 from core.config import Settings
+from core.dns_tunnel import configured_proxy
 from core.log_writer import JsonLogWriter
 from core.logging_config import ApplicationLogging
 from db.postgres.engine import Database
@@ -34,6 +35,7 @@ from downloader_bot.downloaders.xvideos.client import XVideosClient
 from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.youtube.client import YouTubeClient
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
+from downloader_bot.downloaders.youtube.urls import network_host as youtube_network_host
 from repositories.postgres.unit_of_work import PostgresUnitOfWork
 from repositories.postgres.workflow import WorkflowRepository
 from repositories.redis.media import FileRepository
@@ -196,6 +198,10 @@ class Container:
         if cookie := os.environ.get("INSTAGRAM_COOKIE"):
             instagram_accounts["environment"] = await instagram_client(cookie)
         youtube_client = YouTubeClient.from_environment()
+        youtube_client = replace(
+            youtube_client,
+            proxy=await configured_proxy(stack, os.environ, "YOUTUBE", youtube_network_host),
+        )
         youtube_accounts = {}
         for row in await repository.accounts("youtube"):
             if path := os.environ.get(row["credential_env"]):

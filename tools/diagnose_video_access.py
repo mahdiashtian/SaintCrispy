@@ -13,6 +13,7 @@ import shutil
 import sys
 import time
 import tomllib
+from contextlib import AsyncExitStack
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -123,12 +124,15 @@ async def configuration():
             "js_runtime": runtime,
             "cookies": cookie_status(os.environ.get("YOUTUBE_COOKIES_FILE")),
             "proxy_configured": bool(os.environ.get("YOUTUBE_PROXY")),
+            "doh_configured": bool(os.environ.get("YOUTUBE_DOH_URL")),
             "player_override_configured": bool(os.environ.get("YOUTUBE_PLAYER_CLIENTS")),
             "pot_helper": helper,
         },
         "instagram": {
             "cookies_configured": bool(os.environ.get("INSTAGRAM_COOKIE")),
             "proxy_configured": bool(os.environ.get("INSTAGRAM_PROXY")),
+            "doh_configured": bool(os.environ.get("INSTAGRAM_DOH_URL")),
+            "http3_requested": os.environ.get("INSTAGRAM_HTTP_VERSION") == "3",
         },
     }
 
@@ -197,15 +201,19 @@ async def connection_probe(http, url):
 
 
 async def network_status():
+    from core.dns_tunnel import configured_proxy
     from downloader_bot.downloaders.instagram.client import instagram_session
+    from downloader_bot.downloaders.youtube.urls import network_host
 
     # Separate owning transports and routes. No account cookies are needed for connectivity.
     async def probe(site):
         try:
             if site == "youtube":
-                async with httpx.AsyncClient(
-                    proxy=os.environ.get("YOUTUBE_PROXY") or None, trust_env=False, timeout=12
-                ) as http:
+                async with AsyncExitStack() as stack:
+                    proxy = await configured_proxy(stack, os.environ, "YOUTUBE", network_host)
+                    http = await stack.enter_async_context(
+                        httpx.AsyncClient(proxy=proxy or None, trust_env=False, timeout=12)
+                    )
                     return await connection_probe(
                         http, "https://www.youtube.com/watch?v=l6zflbTGNFQ"
                     )

@@ -57,6 +57,9 @@ or youtube-dl is not evidence of a working alternative for a modern challenge.
 | October 14 pytubefix `11.2.0`, `WEB` automatic-token and `ANDROID_VR` paths | Both stopped with `URLError` on this workstation; no extraction/download success | A working connection; adding this library alone is not an established fix |
 | October 14 yt-dlp with Chrome impersonation and IPv4 | Timed out here; no complete stream | Changed transport evidence; do not force this as a default without proof |
 | Official nightly `2026.10.10.233141.dev0` | Contains new `tv_samsung`; October 14 independent check still returned `youtube_login_required` for this exact video, with zero full streams | Authorized accepted session/egress or a new evidenced origin fix; the upgrade alone did not resolve this input |
+| October 15 workstation public-DNS comparison, no account | yt-dlp extracted 65 formats; PyTubeFix 11.2.0 `ANDROID_VR` extracted 25 streams. PyTubeFix's native download returned HTTP 403, while small HTTP Range header probes succeeded | Compare extraction and actual CDN transfer separately; library metadata is insufficient |
+| October 15 complete guest YouTube transfer with corrected DNS | Project transfer/MP4 validation consumed 58,521,501 video bytes (1,300.5 s) and 21,048,861 audio bytes (1,300.55 s) to EOF, twice; the second run used the optional production DNS tunnel | This verifies those accepted sources on this workstation, not fresh extraction or Telegram delivery |
+| Fresh extraction after the successful guest capture | Native yt-dlp worker, repeated API extraction and PyTubeFix were subsequently challenged; `VISION_OS` returned bot detection and `TV_EMBED` timed out | Do not claim that DNS alone cures the player challenge; wait for changed origin/connection evidence rather than hammering |
 
 Upstream [PR 17805](https://github.com/yt-dlp/yt-dlp/pull/17805) changed default
 clients on October 10. The [official nightly release](https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/tag/2026.10.10.233141)
@@ -91,6 +94,9 @@ source. Different POST envelopes and document IDs are distinct methods, not alia
 | October 14 independent check at `9a8cd23` | All eight qualities again reached EOF and passed completeness checks; sizes 359,898–2,232,676 bytes | This verifies that connection, not the failing workstation or production host |
 | Later carousel/reel requests in a multi-link audit | HTTP 429; more immediate API attempts would create a retry storm | Cooldown expiry, refreshed authorized access or origin recovery |
 | October 14 direct workstation tests | Transport/extraction timeouts, including after the new query; no local full download | A working connection or authorized session; do not call this a successful fix |
+| October 15 public DNS and HTTP/3, guest only | Corrected DNS over TCP still timed out; HTTP/3 returned HTTP 200 generic HTML, but neither page nor embed exposed media | HTTP 200 is connectivity evidence, not extraction success |
+| Instaloader 4.15.4 and current project queries on the HTTP/3 route | Instaloader's native TCP request timed out; its request through HTTP/3 returned `execution error`/no media. Current root, web and shortcode requests also failed | A documented origin/query/connection change; swapping to Instaloader alone is not a verified fix |
+| Fresh post LSD, matching browser UA, guest mobile REST and Relay action envelope | Post token/UA changes did not recover GraphQL; mobile REST returned 404; web REST returned HTML; action Relay returned 401 | Do not ship guessed query IDs, call HTML a media response, or repeat these unchanged methods |
 
 Authenticated media-info responses may omit the shortcode. Accept only an exact
 numeric identity match, including the known `POLARIS_`/owner-ID wrappers. Reject
@@ -103,6 +109,13 @@ pulling code, install project dependencies; missing `curl_cffi` prevents importi
 the provider. Cookie rotation belongs to the owning domain-scoped jar. Never send
 session cookies, CSRF, LSD or DTSG to CDN hosts. Use the same configured proxy for
 extraction, source sampling and full transfer.
+
+The operator explicitly requires **anonymous access only** for the current recovery
+investigation. Do not ask for or use account cookies as its solution. The October 15
+[guest transport comparison](YOUTUBE_INSTAGRAM_ACCESS.md#anonymous-github-library-and-transport-comparison-october-15)
+records complete YouTube evidence, fresh-extraction failures and the still unresolved
+Instagram input. Provider/account configuration supported by older deployments is
+not evidence that any credentials were used in these tests.
 
 Failed bootstraps are coalesced for ten seconds rather than repeated by every
 concurrent request. Missing LSD is cached briefly, not forever. A timed-out guest
