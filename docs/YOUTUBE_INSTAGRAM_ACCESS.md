@@ -1115,3 +1115,36 @@ and format checks passed for 236 Python files; provider architecture tests passe
 No runtime dependency, database migration or increased concurrency was introduced.
 Ignored research response bodies, cookies, signed links and runtime logs are not
 part of the commit.
+
+## October 15 temporary main administrator access
+
+The user's temporary availability policy disables YouTube for all ordinary users.
+`MAIN_ADMIN_ID` specifies the only authorized Telegram user, as a positive numeric
+user ID. Missing/blank disables YouTube for everyone; malformed, zero, negative or
+out-of-range values fail configuration validation. Group administrator permissions,
+usernames and group IDs cannot grant access. The main administrator still follows
+the existing user/group quotas and downloads into the originating chat.
+
+Authorization runs before link admission/history/state work and extraction. Old
+YouTube callbacks are rejected before menu storage access, even if that database
+is unavailable. A callback with a changed provider prefix is also checked against
+the loaded media's actual site. The service independently rejects unauthorized
+inspection/history/cache access and delivery, including cached Telegram resend.
+Only the configured administrator sees YouTube in start/sites menus. Other
+providers remain available. Existing provider code, catalogs and files are retained;
+there is no destructive data change or migration. The Python coordinator must be
+restarted after configuration changes.
+
+Local tests cover private/group URLs, missing administrator configuration, group
+admin impersonation, no `/start` requirement for the real administrator, all six
+callback prefixes, old menus, cached metadata/delivery, and missing request-user
+context. A 1,000-task unauthorized service test performs no history/cache/provider
+or delivery work. Handler tests verify that blocked requests consume no quota,
+user/state writes or job reservation. These are mocked Telegram/provider tests;
+no live Telegram deployment or download is claimed for this policy change.
+
+Final validation: **1,083 tests passed, zero skips**, with isolated real PostgreSQL
+17 and Redis 7.4. Ten existing Windows curl selector warnings remained. The 50 new
+access-policy cases and existing provider/group/workflow/architecture tests passed.
+Ruff lint/format passed for 238 Python files. No dependencies or database migration
+were added, and local environment values are not included in the commit.

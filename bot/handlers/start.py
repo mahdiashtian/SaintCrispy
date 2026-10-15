@@ -17,6 +17,7 @@ async def handle_start(
     users=None,
     presentation=None,
     group_limit=5,
+    access=None,
 ) -> None:
     in_group = event.chat_id < 0
     with user_request(event.sender_id, event.chat_id):
@@ -28,7 +29,11 @@ async def handle_start(
                 await users.touch_user(event.sender_id, started=not in_group)
         if conversations and not combined:
             await conversations.set(event.sender_id, event.chat_id, ConversationState.MAIN)
-        text = start_text(bot_username, interval)
+        text = start_text(
+            bot_username,
+            interval,
+            youtube_enabled=bool(access and access.allows("youtube", event.sender_id)),
+        )
         if in_group:
             text = group_start_text(bot_username, interval, group_limit)
         buttons = start_buttons(event.sender_id)

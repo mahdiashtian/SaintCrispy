@@ -40,6 +40,7 @@ class DownloadService:
         transfer_timeout: float = 3600,
         telemetry: Telemetry | None = None,
         caption_builder: Callable[[Media, Quality], str] | None = None,
+        access=None,
     ):
         self.downloader = downloader
         self.repository = repository
@@ -55,6 +56,7 @@ class DownloadService:
         self._transfer_timeout = transfer_timeout
         self.telemetry = telemetry
         self.caption_builder = caption_builder
+        self.access = access
         self._metadata: OrderedDict[str, tuple[float, Media]] = OrderedDict()
         self._failures: OrderedDict[tuple[str, str], tuple[float, str, str | None]] = OrderedDict()
 
@@ -98,6 +100,8 @@ class DownloadService:
         return media
 
     async def inspect(self, url: str) -> Media:
+        if self.access is not None and (site_for := getattr(self.downloader, "site_for", None)):
+            self.access.require(site_for(url), request_user.get())
         observation = self.telemetry.inspection(url) if self.telemetry else nullcontext()
         with observation as record:
             media = await self._inspect_with_history(url)
@@ -226,6 +230,8 @@ class DownloadService:
     async def deliver(
         self, peer, media: Media, quality: Quality, progress: TransferProgress | None = None
     ) -> str:
+        if self.access is not None:
+            self.access.require(media.site, request_user.get())
         observation = (
             self.telemetry.transfer(media, quality, progress) if self.telemetry else nullcontext()
         )

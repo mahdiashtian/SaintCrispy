@@ -10,19 +10,22 @@ from core.request_context import user_request
 log = logging.getLogger("activity")
 
 
-async def handle_home(event, jobs=None, bot_username=None, interval=60, presentation=None):
+async def handle_home(
+    event, jobs=None, bot_username=None, interval=60, presentation=None, access=None
+):
     owner_id = int(event.pattern_match[1])
     if owner_id != event.sender_id:
         await event.answer("این منو برای تو نیست. /start رو بزن تا منوی خودت باز بشه.", alert=True)
         return
     action = event.pattern_match[2].decode("ascii")
+    youtube_enabled = bool(access and access.allows("youtube", event.sender_id))
     buttons = [[Button.inline("برگشت", f"home:{owner_id}:main")]]
     with user_request(event.sender_id, event.chat_id):
         log.info({"event": "home_action", "action": action})
         if action == "help":
             text = help_text(interval)
         elif action == "sites":
-            text = sites_text()
+            text = sites_text(youtube_enabled=youtube_enabled)
         elif action == "active":
             active = jobs.for_owner(owner_id, event.chat_id) if jobs else ()
             text = "الان دانلود فعالی نداری. یه لینک بفرست تا شروع کنیم."
@@ -39,7 +42,10 @@ async def handle_home(event, jobs=None, bot_username=None, interval=60, presenta
                     text += f"\n\n{len(active) - 10} درخواست دیگه هم فعاله."
             buttons.insert(0, [Button.inline("تازه‌سازی", f"home:{owner_id}:active")])
         else:
-            text, buttons = start_text(bot_username, interval), start_buttons(owner_id)
+            text, buttons = (
+                start_text(bot_username, interval, youtube_enabled=youtube_enabled),
+                start_buttons(owner_id),
+            )
         await event.answer()
         try:
             if presentation:

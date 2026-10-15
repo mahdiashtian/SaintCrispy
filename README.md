@@ -2,7 +2,10 @@
 
 An asynchronous Telegram media downloader built with Python, Telethon, PostgreSQL and Redis. Each website has an independent implementation with its own client, parser, downloader, handler and URL rules.
 
-Supported providers: **SoundCloud, YouTube, Instagram, Pinterest, XVideos and XNXX**. Available media, qualities and account requirements depend on the source website. The bot interface is currently Persian; developer documentation and code comments are English.
+Supported providers: **SoundCloud, Instagram, Pinterest, XVideos and XNXX**.
+YouTube is temporarily restricted to the configured main administrator. Available
+media, qualities and account requirements depend on the source website. The bot
+interface is currently Persian; developer documentation and code comments are English.
 
 ## How it works
 
@@ -64,12 +67,21 @@ Set your credentials in `.env`. Keep password values single-quoted so dollar sig
 API_ID=your_numeric_api_id
 API_HASH=your_api_hash
 BOT_TOKEN=your_bot_token
+MAIN_ADMIN_ID=your_numeric_telegram_user_id
 DEV_DB_PASSWORD='your_database_password'
 POSTGRES_PORT=
 REDIS_PORT=
 ```
 
 If a database already exists, keep its current password. PostgreSQL applies `POSTGRES_PASSWORD` when initializing a new data directory; editing `.env` does not change a password stored in an existing database.
+
+`MAIN_ADMIN_ID` accepts one positive numeric Telegram user ID, not a username or
+group ID. Only that user can inspect or download YouTube links, in private chats
+or groups. Other users do not see YouTube in their menus; old quality buttons and
+cached Telegram files cannot bypass the restriction. Leave it empty to disable
+YouTube for everyone. Group administrators gain no extra access, and other
+providers keep their existing availability. Restart `python main.py` after changing
+this setting; no database migration is needed.
 
 Configure the ports and start the databases, then launch the bot manually:
 

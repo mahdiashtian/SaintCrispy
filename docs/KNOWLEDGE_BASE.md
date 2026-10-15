@@ -92,6 +92,17 @@ PostgreSQL/Redis; lint/format and architecture checks passed for 235 Python file
 
 ## YouTube
 
+October 15 temporary availability change: YouTube is disabled for ordinary users
+and hidden from their start/sites menus. Only the positive numeric Telegram user
+ID configured as `MAIN_ADMIN_ID` may use it, including in groups. Empty means
+disabled for everyone; usernames, group IDs and group admin roles do not grant
+access. Reject links before quota/history/state/provider work. Check old callback
+prefixes and the loaded media site, then enforce policy again in the application
+service before metadata/history/cache or transfer work. Existing downloaded files
+and durable catalogs remain stored; they do not grant authorization. No migration
+is necessary. Restart the coordinator after changing configuration. See the
+[dated policy evidence](YOUTUBE_INSTAGRAM_ACCESS.md#october-15-temporary-main-administrator-access).
+
 October 15 cold-menu follow-up: the critical path included four independent CDN
 stream openings before any quality choice. Exact playable watch responses already
 contain complete clear H264/audio profiles even when SABR exposes no direct URLs.

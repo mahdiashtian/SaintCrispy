@@ -11,6 +11,7 @@ from bot.premium_emoji import PresentedEvent
 from bot.state.states import ConversationState
 from core.request_context import inspection_work, user_request
 from schemas.media import DownloadError
+from services.access import ProviderAccess
 from services.observability import error_fields
 
 log = logging.getLogger("activity")
@@ -20,7 +21,15 @@ class LimitedHandlers:
     """Wrap provider link handlers without coupling providers to rate-limit storage."""
 
     def __init__(
-        self, client, limits, conversations=None, users=None, presentation=None, *, max_active=1000
+        self,
+        client,
+        limits,
+        conversations=None,
+        users=None,
+        presentation=None,
+        *,
+        max_active=1000,
+        access=None,
     ):
         if max_active < 1:
             raise ValueError("Link handler capacity must be positive")
@@ -30,6 +39,7 @@ class LimitedHandlers:
         self.users = users
         self.presentation = presentation
         self.max_active = max_active
+        self.access = access or ProviderAccess()
         self.active = 0
         self.peak_active = 0
         self._error_replies = 0
@@ -72,7 +82,7 @@ class LimitedHandlers:
                     combined = False
                     if check_link := getattr(self.limits, "check_link", None):
                         combined = await check_link(event.sender_id, event.chat_id, correlation_id)
-                    else:
+                    elif self.limits is not None:
                         await self.limits.check(event.sender_id, "inspect")
                     if self.users and not combined:
                         await self.users.touch_user(event.sender_id)
@@ -118,6 +128,13 @@ class LimitedHandlers:
                 return
             if self.presentation:
                 event = PresentedEvent(event, self.presentation)
+            try:
+                self.access.require(getattr(callback, "provider_site", None), event.sender_id)
+            except DownloadError as error:
+                with user_request(event.sender_id, event.chat_id):
+                    log.info({"event": "provider_access_denied", "site": "youtube"})
+                await self._respond(event, f"⛔️ {error}", reason=error.code)
+                return
             if self.active >= self.max_active:
                 self._count("link_handler_capacity_rejections")
                 await self._respond(
@@ -132,4 +149,5 @@ class LimitedHandlers:
             finally:
                 self.active -= 1
 
+        limited.func = getattr(callback, "func", callback)
         self.client.add_event_handler(limited, builder)

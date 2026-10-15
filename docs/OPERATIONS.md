@@ -58,7 +58,17 @@ for positive and negative results, including the still limited live guest relay.
 
 ## Optional guest network profiles
 
-YouTube's anonymous converter route is enabled by default through
+YouTube is temporarily restricted to the single numeric Telegram user ID in
+`MAIN_ADMIN_ID`. Empty means nobody can use YouTube. This is independent of bot
+API credentials, usernames, chat IDs and group administrator permissions. Restart
+the Python coordinator after setting/changing it. Public start/sites menus omit
+YouTube. Existing messages may still show old buttons, but both the callback's
+prefix and the stored media's actual site are checked before starting a job.
+The download service also checks access before metadata/history, cached resend
+or transfer work. Link rejection precedes quota/state/history writes and uses
+bounded error replies. Other providers and existing user/group limits are unchanged.
+
+For the allowed administrator, YouTube's anonymous converter route is enabled through
 `YOUTUBE_RESOLVER_URL=https://cnv.cx`; set it empty to disable it. With default
 guest settings, exact watch-page metadata reporting guest playability allows this
 verified route before launching native extraction. Explicit player-client/PO-token

@@ -12,6 +12,7 @@ from downloader_bot.downloaders.soundcloud.handler import register_handler as re
 from downloader_bot.downloaders.xnxx.handler import register_handler as register_xnxx
 from downloader_bot.downloaders.xvideos.handler import register_handler as register_xvideos
 from downloader_bot.downloaders.youtube.handler import register_handler as register_youtube
+from services.access import ProviderAccess
 
 from .groups import GROUP_UPDATES, GroupTracker
 from .home import handle_home
@@ -93,7 +94,9 @@ def register_handlers(
     max_link_handlers=1000,
     groups=None,
     bot_id=None,
+    access=None,
 ) -> None:
+    access = access or ProviderAccess()
     tracker = GroupTracker(client, groups, bot_id) if groups is not None else None
     client = Dispatcher(client, groups)
     if tracker:
@@ -111,15 +114,18 @@ def register_handlers(
             users=users,
             presentation=presentation,
             group_limit=getattr(groups, "links_per_minute", 5),
+            access=access,
         ),
         events.NewMessage(incoming=True, pattern=r"^/start(?:@\w+)?(?:\s.*)?$"),
     )
-    provider_client = (
-        LimitedHandlers(
-            client, limits, conversations, users, presentation, max_active=max_link_handlers
-        )
-        if limits is not None
-        else client
+    provider_client = LimitedHandlers(
+        client,
+        limits,
+        conversations,
+        users,
+        presentation,
+        max_active=max_link_handlers,
+        access=access,
     )
     client.add_event_handler(
         partial(
@@ -128,11 +134,15 @@ def register_handlers(
             bot_username=bot_username,
             interval=getattr(limits, "interval", 60),
             presentation=presentation,
+            access=access,
         ),
         events.CallbackQuery(pattern=rb"^home:([0-9]+):(help|sites|active|main)$"),
     )
     for register in PROVIDER_HANDLERS:
-        register(provider_client, service, menus)
+        registration_client = (
+            provider_client if limits is not None or register is register_youtube else client
+        )
+        register(registration_client, service, menus)
     client.add_event_handler(
         partial(
             handle_quality,
@@ -142,6 +152,7 @@ def register_handlers(
             limits=limits,
             conversations=conversations,
             presentation=presentation,
+            access=access,
         ),
         events.CallbackQuery(pattern=rb"^(?:sc|xnxx|xv|yt|ig|pin):([0-9a-f]{16}):([0-9]+)$"),
     )

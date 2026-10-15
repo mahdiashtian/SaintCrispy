@@ -18,6 +18,7 @@ from bot.state.states import ConversationState
 from core.request_context import user_request
 from repositories.postgres.workflow import public_media
 from schemas.media import DownloadError, Media, Quality, Source, TelegramFile
+from services.access import ProviderAccess
 from services.download import DownloadService
 from services.limits import RequestLimiter
 from services.user import UserService
@@ -171,6 +172,7 @@ async def test_first_link_without_start_reaches_quality_and_delivery(site, url):
             users=UserService(repo),
             bot_username="ActualBot",
             presentation=BotPresentation(),
+            access=ProviderAccess(10),
         )
         event = SimpleNamespace(
             raw_text=url,
@@ -340,8 +342,6 @@ async def test_start_uses_actual_username_and_does_not_invent_provider_bots():
     text, options = responses[0]
     assert "@ActualBot" in text and "/start" in text
     assert text.count("@") == 2
-    assert all(
-        name in text
-        for name in ("SoundCloud", "YouTube", "Instagram", "Pinterest", "XVideos", "XNXX")
-    )
+    assert all(name in text for name in ("SoundCloud", "Instagram", "Pinterest", "XVideos", "XNXX"))
+    assert "YouTube" not in text
     assert options["reply_to"] == 77

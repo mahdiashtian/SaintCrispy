@@ -21,6 +21,7 @@ from core.config import ConfigurationError, Settings
 from core.request_context import request_chat, request_message, user_request
 from schemas.group import GroupChange
 from schemas.media import Media, Quality
+from services.access import ProviderAccess
 from services.limits import RequestLimiter
 
 NOW = datetime(2026, 10, 15, 14, tzinfo=UTC)
@@ -238,7 +239,10 @@ async def test_every_provider_replies_with_menu_and_delivers_in_same_group(site,
         inspect=AsyncMock(return_value=media), deliver=AsyncMock(side_effect=deliver)
     )
     limits = RequestLimiter(60, groups=groups)
-    register_handlers(client, service, menus, limits=limits, groups=groups, bot_id=BOT_ID)
+    access = ProviderAccess(7)
+    register_handlers(
+        client, service, menus, limits=limits, groups=groups, bot_id=BOT_ID, access=access
+    )
     event = SimpleNamespace(
         raw_text=url,
         sender_id=7,
@@ -269,7 +273,7 @@ async def test_every_provider_replies_with_menu_and_delivers_in_same_group(site,
         get_input_chat=AsyncMock(return_value=PEER),
         pattern_match=(None, token.encode(), index.encode()),
     )
-    await handle_quality(tapped, service, menus, limits=limits)
+    await handle_quality(tapped, service, menus, limits=limits, access=access)
     service.deliver.assert_awaited_once()
     assert responses[1][1]["reply_to"] == 42
     assert groups.claim_link.await_count == 1  # A quality click is not another submitted link.

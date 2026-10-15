@@ -10,20 +10,36 @@ from bot.progress import ProgressReporter, TransferProgress
 from bot.state.states import ConversationState
 from core.request_context import user_request
 from schemas.media import DownloadError
+from services.access import ProviderAccess
 from services.observability import error_fields
 
 log = logging.getLogger("activity")
 
 
 async def handle_quality(
-    event, service, menus, jobs=None, limits=None, conversations=None, presentation=None
+    event,
+    service,
+    menus,
+    jobs=None,
+    limits=None,
+    conversations=None,
+    presentation=None,
+    access=None,
 ) -> None:
+    access = access or ProviderAccess()
     if presentation:
         event = PresentedEvent(event, presentation)
+    if getattr(event, "data", b"").startswith(b"yt:"):
+        try:
+            access.require("youtube", event.sender_id)
+        except DownloadError as error:
+            await event.answer(f"⛔️ {error}", alert=True)
+            return
     token = event.pattern_match[1].decode("ascii")
     index = int(event.pattern_match[2])
     try:
         menu = await menus.fetch(token, event.sender_id, event.chat_id)
+        access.require(menu.media.site, event.sender_id)
         if index >= len(menu.media.qualities):
             raise DownloadError("کیفیت انتخاب‌شده معتبر نیست.")
     except DownloadError as error:

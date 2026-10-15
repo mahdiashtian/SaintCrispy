@@ -93,7 +93,9 @@ CALLBACK_PREFIX = "yt"
 
 
 def register_handler(client, service, menus) -> None:
+    callback = partial(handle_youtube_link, service=service, menus=menus)
+    callback.provider_site = "youtube"
     client.add_event_handler(
-        partial(handle_youtube_link, service=service, menus=menus),
+        callback,
         events.NewMessage(incoming=True, pattern=LINK_PATTERN.search),
     )

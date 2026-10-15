@@ -96,6 +96,7 @@ class Settings:
     custom_emoji_set: str = "IconsEmoji"
     postgres_pool_size: int = 32
     group_links_per_minute: int = 5
+    main_admin_id: int | None = None
 
     @classmethod
     def from_environment(cls):
@@ -145,4 +146,9 @@ class Settings:
             custom_emoji_set=os.environ.get("CUSTOM_EMOJI_SET", "IconsEmoji"),
             postgres_pool_size=integer_setting("POSTGRES_POOL_SIZE", 32, 2, 64),
             group_links_per_minute=integer_setting("GROUP_LINKS_PER_MINUTE", 5, 1, 1000),
+            main_admin_id=(
+                parse_integer("MAIN_ADMIN_ID", value, 1, 2**63 - 1)
+                if (value := os.environ.get("MAIN_ADMIN_ID", "").strip())
+                else None
+            ),
         )

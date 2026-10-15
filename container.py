@@ -43,6 +43,7 @@ from repositories.postgres.group import GroupRepository
 from repositories.postgres.unit_of_work import PostgresUnitOfWork
 from repositories.postgres.workflow import WorkflowRepository
 from repositories.redis.media import FileRepository
+from services.access import ProviderAccess
 from services.download import DownloadService
 from services.group import GroupService
 from services.limits import RequestLimiter
@@ -233,6 +234,7 @@ class Container:
             storage_peer = await client.get_input_entity(settings.storage_chat)
         presentation = BotPresentation()
         await stack.enter_async_context(presentation.loading(client, settings.custom_emoji_set))
+        access = ProviderAccess(settings.main_admin_id)
         service = DownloadService(
             downloader,
             repository,
@@ -256,6 +258,7 @@ class Container:
             transfer_timeout=settings.transfer_timeout,
             telemetry=telemetry,
             caption_builder=partial(download_caption, bot_username=bot.username),
+            access=access,
         )
         jobs = await stack.enter_async_context(
             TransferJobs(capacity=settings.max_requests, telemetry=telemetry)
@@ -300,6 +303,7 @@ class Container:
             max_link_handlers=settings.max_requests,
             groups=groups,
             bot_id=bot.id,
+            access=access,
         )
         await catch_up_bot(client, telemetry)
         telemetry.emit("bot_ready", bot_username=bot.username)

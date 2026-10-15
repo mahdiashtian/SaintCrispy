@@ -3,14 +3,15 @@
 from bot.deeplinks import bot_handle
 
 
-def start_text(bot_username: str | None, interval: int = 60) -> str:
+def start_text(bot_username: str | None, interval: int = 60, *, youtube_enabled=False) -> str:
     handle = bot_handle(bot_username)
+    youtube = "▶️ YouTube\n" if youtube_enabled else ""
     return (
         f"📬 به {handle} خوش اومدی!\n\n"
         "لینک رو بفرست، کیفیت رو انتخاب کن و فایل رو همین‌جا بگیر.\n"
         "لازم نیست قبل از هر لینک /start بزنی.\n\n"
         "📋 سایت‌های پشتیبانی‌شده:\n"
-        "🎵 SoundCloud\n▶️ YouTube\n📸 Instagram\n📌 Pinterest\n🎬 XVideos\n🎬 XNXX\n\n"
+        f"🎵 SoundCloud\n{youtube}📸 Instagram\n📌 Pinterest\n🎬 XVideos\n🎬 XNXX\n\n"
         f"⏱ هر {interval} ثانیه یک لینک می‌تونی بفرستی.\n"
         "برای لغو دانلود، «توقف» زیر پیام وضعیت رو بزن.\n"
         "فایلی که قبلاً گرفته باشم، از تلگرام دوباره برات می‌فرستم.\n\n"
@@ -41,11 +42,11 @@ def group_start_text(bot_username: str | None, interval: int, group_limit: int) 
     )
 
 
-def sites_text() -> str:
+def sites_text(*, youtube_enabled=False) -> str:
+    youtube = "▶️ YouTube: ویدیو، شورت و فایل صوتی\n" if youtube_enabled else ""
     return (
         "🌐 لینک چی رو می‌تونم بگیرم؟\n\n"
-        "▶️ YouTube: ویدیو، شورت و فایل صوتی\n"
-        "📸 Instagram: پست، ریلز و بخش‌های آلبوم؛ استوری با نشست مجاز\n"
+        f"{youtube}📸 Instagram: پست، ریلز و بخش‌های آلبوم؛ استوری با نشست مجاز\n"
         "🎵 SoundCloud: آهنگ و کیفیت‌های موجود\n"
         "📌 Pinterest: عکس و ویدیو\n"
         "🎬 XVideos و XNXX: ویدیو\n\n"

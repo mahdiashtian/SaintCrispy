@@ -78,6 +78,9 @@ class DownloaderRouter(Downloader):
         _, downloader, normalized = self._route_url(url)
         return await downloader.inspect(normalized)
 
+    def site_for(self, url: str) -> str:
+        return self._route_url(url)[0]
+
     async def resolve(self, media: Media, quality: Quality) -> Source:
         return await self._downloader(media.site).resolve(media, quality)
 
