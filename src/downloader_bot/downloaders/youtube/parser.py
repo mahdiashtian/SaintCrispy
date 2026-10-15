@@ -1,7 +1,9 @@
+import json
 import math
 import re
 from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
+from itertools import islice
 from urllib.parse import parse_qs, urlsplit
 
 from schemas.media import DownloadError, Media, Quality, Source
@@ -41,6 +43,51 @@ def video_id(url: str) -> str:
 
 def canonical_url(identity: str) -> str:
     return f"https://www.youtube.com/watch?v={identity}"
+
+
+@dataclass(frozen=True)
+class WatchMetadata:
+    title: str
+    author: str
+    duration: int
+    playable: bool
+
+
+def watch_metadata(text, identity):
+    """Accept only the requested VOD's complete initial player metadata."""
+    pattern = r'(?:\bytInitialPlayerResponse\s*=|\["ytInitialPlayerResponse"\]\s*=)\s*'
+    for match in islice(re.finditer(pattern, text), 8):
+        try:
+            player, _ = json.JSONDecoder().raw_decode(text, match.end())
+        except (ValueError, RecursionError):
+            continue
+        if not isinstance(player, dict):
+            continue
+        details = player.get("videoDetails")
+        if not isinstance(details, dict) or details.get("videoId") != identity:
+            continue
+        length, title, author = (
+            details.get("lengthSeconds"),
+            details.get("title"),
+            details.get("author"),
+        )
+        if (
+            not isinstance(length, str)
+            or not re.fullmatch(r"[0-9]{1,7}", length)
+            or int(length) <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not isinstance(author, str)
+            or not author.strip()
+            or details.get("isPrivate")
+            or details.get("isLiveContent")
+        ):
+            continue
+        status = player.get("playabilityStatus")
+        if not isinstance(status, dict):
+            continue
+        return WatchMetadata(title[:500], author[:100], int(length), status.get("status") == "OK")
+    return None
 
 
 def public_metadata(payload, identity):

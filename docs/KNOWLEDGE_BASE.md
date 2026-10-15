@@ -58,6 +58,25 @@ concrete extractor in violation of `AGENTS.md`.
 
 ## YouTube
 
+October 15 unindexed-video fix: the newly reported `-YVIEsTEZCw` was absent from
+the public search index even though its own watch page returned exact playable
+metadata. Revision `5c89838` reproduced the metadata error after 14.409 seconds.
+Origin-first metadata and an immediate verified guest route produced a complete
+menu in 5.061/5.130 seconds without a native worker. Complete 360p, 720p and MP3
+transfers passed duration/integrity and preparation checks. Telegram calls were
+simulated; no production upload or universal access claim follows. The old reported
+ID and a short video also passed fresh menus, and the short video's full video/audio
+passed. See [the new dated evidence](YOUTUBE_INSTAGRAM_ACCESS.md#october-15-unindexed-video-metadata-and-menu-latency)
+for byte counts, boundaries, failed query/oEmbed attempts and retry conditions.
+
+Metadata no longer depends exclusively on third-party search. Preserve exact-ID
+checks, three-second/4 MiB origin bounds, bounded caching/coalescing, fail-fast
+metadata/key cancellation and the shared origin 429 cooldown. Do not strip a
+leading minus from an ID or substitute a neighboring search result. The observed
+index miss does not establish that a leading minus caused it. Default anonymous
+playable VODs may use the verified resolver first; explicit native client/PO-token
+configuration and account pools retain their existing native-first path.
+
 October 15 performance follow-up: complete-file and reversed-order comparisons
 did not establish a repeatable HTTP/2 improvement on the guest relay. Do not
 promote a short prefix timing to a full-file speed claim. Newly reviewed Cobalt

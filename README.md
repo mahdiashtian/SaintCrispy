@@ -213,17 +213,30 @@ offers one verified progressive MP4; native discovery remains responsible for th
 full catalog. HTTP/3 CDN recovery is also retained for the full transfer. Public
 service availability and quotas are separate from the bot's concurrency limits.
 
-YouTube's guest fallback uses `YOUTUBE_RESOLVER_URL=https://cnv.cx` after bounded
-native extraction failure; empty disables it. It follows the public protocol
+YouTube's anonymous resolver uses `YOUTUBE_RESOLVER_URL=https://cnv.cx`; empty
+disables it. For default guest settings, an exact, guest-playable watch-page result
+can use this verified route immediately, avoiding a challenged native worker.
+Explicit player-client/PO-token settings and account pools retain native-first
+inspection. The resolver follows the public protocol
 reviewed in [ytube-api](https://github.com/Simatwa/ytube-api), implemented asynchronously
 inside YouTube's own provider. No account cookie or API credential is sent. Metadata
 and download responses must identify the exact video ID. A bounded file sample
 verifies actual MP4 dimensions/audio before listing a quality. MP3 is a converted
 128 kbps option, not original AAC. Short-lived links refresh when selected, and
-duplicate concurrent requests share the same verified snapshot. Guest native attempts use an eight-second configurable budget (`YOUTUBE_NATIVE_TIMEOUT_SECONDS`); an accepted public route is preferred for five minutes to avoid repeated challenged workers. Metadata/key work overlaps and complete header probes stop early. HTTP 429 stops
+duplicate concurrent requests share the same verified snapshot. Metadata comes
+from the requested watch page first, with exact-ID search as a bounded fallback;
+an absent search hit no longer rejects an otherwise accessible video. Origin
+metadata reads have a three-second/4 MiB bound, four slots and a bounded cache.
+Guest native attempts use an eight-second configurable budget
+(`YOUTUBE_NATIVE_TIMEOUT_SECONDS`), including the initial metadata preflight; an
+accepted public route is preferred for five minutes. Metadata/key work overlaps,
+failure cancels its sibling task, and complete header probes stop early. HTTP 429 stops
 fallback and applies cooldown. Public service availability, format coverage and
 quotas remain external dependencies; they do not establish 1,000 origin downloads
-per second. See the [dated full-transfer evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md).
+per second. The newly reported `-YVIEsTEZCw` produced a complete menu in 5.061 s,
+versus a 14.409 s metadata failure with the preceding revision on this workstation.
+Full 360p/720p and MP3 transfers passed completeness checks with simulated Telegram
+calls. See the [dated metadata and transfer evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md#october-15-unindexed-video-metadata-and-menu-latency).
 
 ## Data and concurrency model
 

@@ -38,13 +38,30 @@ class YouTubeDownloader(Downloader):
     async def inspect(self, url: str) -> Media:
         try:
             async with asyncio.timeout(85):
+                preflight_seconds = 0.0
                 public = bool(getattr(self.client, "resolver_url", "")) and not getattr(
                     self.client, "cookies_file", None
                 )
                 public_failure = None
-                if public and not self.accounts and time.monotonic() < self._public_preferred_until:
+                prefer_public = time.monotonic() < self._public_preferred_until
+                if (
+                    public
+                    and not self.accounts
+                    and not prefer_public
+                    and not getattr(self.client, "player_clients", None)
+                    and not getattr(self.client, "pot_base_url", None)
+                ):
+                    started = time.monotonic()
+                    metadata = await self.client.origin_metadata(video_id(url))
+                    preflight_seconds = time.monotonic() - started
+                    # An exact guest-playable VOD can take the verified public
+                    # route immediately instead of waiting for a JS worker first.
+                    prefer_public = bool(metadata and metadata.playable)
+                if public and not self.accounts and prefer_public:
                     try:
-                        return await self.client.public_inspect(video_id(url))
+                        media = await self.client.public_inspect(video_id(url))
+                        self._public_preferred_until = time.monotonic() + 300
+                        return media
                     except SiteHTTPError:
                         raise
                     except DownloadError as error:
@@ -54,6 +71,8 @@ class YouTubeDownloader(Downloader):
                     budget = 85
                     if public:
                         budget = 45 if self.accounts else getattr(self.client, "native_timeout", 8)
+                        if not self.accounts:
+                            budget = max(0.05, budget - preflight_seconds)
                     async with asyncio.timeout(budget):
                         return await self._inspect(url)
                 except DownloadError as error:

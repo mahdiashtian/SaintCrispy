@@ -58,11 +58,16 @@ for positive and negative results, including the still limited live guest relay.
 
 ## Optional guest network profiles
 
-YouTube's anonymous converter fallback is enabled by default through
-`YOUTUBE_RESOLVER_URL=https://cnv.cx`; set it empty to disable it. It runs after a
-bounded native guest failure, without account cookies, API credentials or a login.
-The resolver receives the canonical video URL. A separate public metadata endpoint
-must return the exact requested video ID and duration. Download destinations are
+YouTube's anonymous converter route is enabled by default through
+`YOUTUBE_RESOLVER_URL=https://cnv.cx`; set it empty to disable it. With default
+guest settings, exact watch-page metadata reporting guest playability allows this
+verified route before launching native extraction. Explicit player-client/PO-token
+settings and account pools retain native-first inspection. No account cookies,
+API credentials or login are sent. The resolver receives the canonical video URL.
+Metadata comes first from the requested YouTube watch page, whose embedded player
+must match the exact ID and provide a valid title, author and duration. Missing
+origin metadata permits a bounded exact-ID search fallback; a search miss alone
+does not prove that the video is unavailable. Download destinations are
 restricted to the verified HTTPS service domain and exact video ID. Only sampled
 MP4 renditions with actual dimensions and audio, or a verified MP3 header, enter
 the menu. Converted MP3 is labeled separately from native original audio.
@@ -75,16 +80,27 @@ fallback, and public 429 starts a 60-second cooldown. No retry loop attempts to
 turn application concurrency into unlimited public-service throughput. Disabled
 or authenticated clients never send their URLs through this public path.
 
-Guest native extraction now has an eight-second budget before public fallback
+Guest native extraction has an eight-second budget before public fallback
 (`YOUTUBE_NATIVE_TIMEOUT_SECONDS`, accepted range 1-45). Increase it if healthy
-native extraction on your connection needs more time. With a public resolver,
+native extraction on your connection needs more time. The initial origin metadata
+preflight counts against that budget. Origin reads have a three-second deadline
+including capacity waits and stop at 4 MiB or a complete player object. Four
+transport slots, 32 fixed locks and a 128-entry LRU coalesce concurrent duplicates;
+positive/negative metadata live for 60/30 seconds. Origin 429 establishes a
+60-second cooldown checked again after capacity acquisition to stop queued bursts.
+The search fallback has its own three-second deadline. With a public resolver,
 one rejected native strategy is enough to switch routes; disabling the resolver
 retains the alternate-player retry. After successful guest recovery, the provider
 prefers that accepted public route for five minutes across requests. A public
 failure clears the preference and allows native recovery; native account pools
 retain their own failover path, and HTTP 429 still stops alternatives.
 
-Metadata and a fresh anonymous request nonce are fetched concurrently. The same
+Metadata and a fresh anonymous request nonce are fetched concurrently. If either
+fails, the unfinished sibling is canceled and awaited rather than delaying the
+error until a slow nonce request completes. Origin metadata uses its own anonymous
+browser transport, without the public service's headers or any account jar. Safe
+`youtube_origin_metadata` / `youtube_origin_metadata_failed` events record elapsed
+time, availability or error/status without URL values. The same
 nonce was verified for all four conversions of one video; it is never reused
 across identities or persisted. Conversion calls remain capped at two, while CDN
 header probes run independently and stop when the complete required header is
@@ -107,7 +123,7 @@ holds a process slot; upload releases that slot for other preparations. Temporar
 workspaces are removed on success, failure and cancellation. These temporary
 full-file workspaces require sufficient host disk space for active videos.
 
-See the final [dated latency and upload diagnosis](YOUTUBE_INSTAGRAM_ACCESS.md)
+See the [unindexed-video diagnosis and timings](YOUTUBE_INSTAGRAM_ACCESS.md#october-15-unindexed-video-metadata-and-menu-latency)
 for actual workstation measurements and their production/Telegram limits.
 
 Instagram's anonymous public-post fallback is enabled in application composition

@@ -24,10 +24,14 @@ from .parser import (
     public_video_info,
     source_headers,
     usable,
+    watch_metadata,
 )
 from .urls import DEFAULT_RESOLVER, PUBLIC_METADATA_URL, PUBLIC_ORIGIN
 
 log = logging.getLogger(__name__)
+ORIGIN_METADATA_TIMEOUT = 3
+SEARCH_METADATA_TIMEOUT = 3
+MAX_WATCH_BYTES = 4 * 1024 * 1024
 RETRYABLE_EXTRACTION = {
     "youtube_login_required",
     "youtube_extraction_failed",
@@ -61,6 +65,18 @@ class YouTubeClient:
         default_factory=OrderedDict, init=False, repr=False, compare=False
     )
     _public_cooldown: dict = field(default_factory=dict, init=False, repr=False, compare=False)
+    _origin_cache: OrderedDict = field(
+        default_factory=OrderedDict, init=False, repr=False, compare=False
+    )
+    _origin_locks: tuple = field(
+        default_factory=lambda: tuple(asyncio.Lock() for _ in range(32)),
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _origin_slots: asyncio.Semaphore = field(
+        default_factory=lambda: asyncio.Semaphore(4), init=False, repr=False, compare=False
+    )
     _public_slots: asyncio.Semaphore = field(
         default_factory=lambda: asyncio.Semaphore(2), init=False, repr=False, compare=False
     )
@@ -110,6 +126,110 @@ class YouTubeClient:
             pot_base_url=pot_base_url,
             native_timeout=float(os.environ.get("YOUTUBE_NATIVE_TIMEOUT_SECONDS") or "8"),
         )
+
+    async def origin_metadata(self, identity):
+        """Bounded guest page metadata; no search index, account jar or JS worker."""
+        if self.cookies_file:
+            return None
+        self._check_origin_rate()
+        fetching = False
+        try:
+            async with asyncio.timeout(ORIGIN_METADATA_TIMEOUT + 0.1):
+                async with self._origin_locks[hash(identity) % len(self._origin_locks)]:
+                    self._check_origin_rate()
+                    cached = self._origin_cache.get(identity)
+                    if cached and cached[0] > time.monotonic():
+                        self._origin_cache.move_to_end(identity)
+                        return cached[1]
+                    fetching = True
+                    started, metadata = time.monotonic(), None
+                    try:
+                        async with (
+                            asyncio.timeout(ORIGIN_METADATA_TIMEOUT),
+                            self._origin_slots,
+                            BoundedSession(
+                                impersonate="chrome",
+                                discard_cookies=True,
+                                trust_env=False,
+                                proxy=self.resolver_proxy or None,
+                            ) as browser,
+                            httpx.AsyncClient(
+                                transport=CurlTransport(browser), trust_env=False, timeout=3
+                            ) as http,
+                        ):
+                            self._check_origin_rate()
+                            http.headers.pop("User-Agent", None)
+                            async with http.stream("GET", canonical_url(identity)) as response:
+                                if response.status_code == 429:
+                                    self._cooldowns["youtube_rate_limited"] = time.monotonic() + 60
+                                    raise SiteHTTPError(
+                                        429,
+                                        "یوتیوب موقتاً درخواست‌ها را محدود کرده؛ کمی بعد امتحان کن.",
+                                    )
+                                response.raise_for_status()
+                                body = bytearray()
+                                async for chunk in response.aiter_bytes(65536):
+                                    if len(body) + len(chunk) > MAX_WATCH_BYTES:
+                                        break
+                                    body.extend(chunk)
+                                    metadata = watch_metadata(
+                                        body.decode("utf-8", errors="replace"), identity
+                                    )
+                                    if metadata is not None:
+                                        break
+                    except (httpx.HTTPError, TimeoutError, ValueError) as error:
+                        log.info(
+                            {
+                                "event": "youtube_origin_metadata_failed",
+                                "error_type": type(error).__name__,
+                                "http_status": getattr(
+                                    getattr(error, "response", None), "status_code", None
+                                ),
+                            }
+                        )
+                    self._remember_origin(identity, metadata)
+                    log.info(
+                        {
+                            "event": "youtube_origin_metadata",
+                            "available": metadata is not None,
+                            "playable": bool(metadata and metadata.playable),
+                            "elapsed_seconds": round(time.monotonic() - started, 4),
+                        }
+                    )
+                    return metadata
+        except TimeoutError:
+            if fetching:
+                self._remember_origin(identity, None)
+            return None
+
+    def _check_origin_rate(self):
+        if self._cooldowns.get("youtube_rate_limited", 0) > time.monotonic():
+            raise SiteHTTPError(429, "یوتیوب موقتاً درخواست‌ها را محدود کرده؛ کمی بعد امتحان کن.")
+
+    def _remember_origin(self, identity, metadata):
+        self._origin_cache[identity] = (time.monotonic() + (60 if metadata else 30), metadata)
+        self._origin_cache.move_to_end(identity)
+        while len(self._origin_cache) > 128:
+            self._origin_cache.popitem(last=False)
+
+    async def _public_metadata(self, api, identity):
+        metadata = await self.origin_metadata(identity)
+        if metadata is not None:
+            return metadata.title, metadata.author, metadata.duration
+        # A missing search hit never proves that the requested video is absent.
+        try:
+            async with asyncio.timeout(SEARCH_METADATA_TIMEOUT):
+                result = await self._public_json(
+                    api, "GET", PUBLIC_METADATA_URL, params={"q": identity}
+                )
+            return public_metadata(result, identity)
+        except SiteHTTPError:
+            raise
+        except (DownloadError, httpx.HTTPError, TimeoutError, ValueError) as error:
+            raise DownloadError(
+                "نتونستم اطلاعات کامل همین ویدیو رو از یوتیوب یا مسیر جایگزین بگیرم؛ کمی بعد دوباره بفرست.",
+                code="youtube_public_metadata_unavailable",
+            ) from error
 
     async def _public_json(self, http, method, url, **options):
         started = time.monotonic()
@@ -316,15 +436,18 @@ class YouTubeClient:
         try:
             async with asyncio.timeout(35):
                 async with self._public_session() as api:
-                    metadata, key = await asyncio.gather(
-                        self._public_json(api, "GET", PUBLIC_METADATA_URL, params={"q": identity}),
-                        self._public_key(api, identity),
-                        return_exceptions=True,
-                    )
-                    for result in (metadata, key):
-                        if isinstance(result, BaseException):
-                            raise result
-                    title, author, seconds = public_metadata(metadata, identity)
+                    pending = [
+                        asyncio.create_task(self._public_metadata(api, identity)),
+                        asyncio.create_task(self._public_key(api, identity)),
+                    ]
+                    try:
+                        metadata, key = await asyncio.gather(*pending)
+                    finally:
+                        for task in pending:
+                            if not task.done():
+                                task.cancel()
+                        await asyncio.gather(*pending, return_exceptions=True)
+                    title, author, seconds = metadata
                     results = await asyncio.gather(
                         *(
                             self._public_convert(

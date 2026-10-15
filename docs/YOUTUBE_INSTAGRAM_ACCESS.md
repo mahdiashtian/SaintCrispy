@@ -820,3 +820,96 @@ refusal passed. No new dependency, login, database migration or concurrency incr
 After the final combined-source telemetry correction, all 138 affected provider,
 video, telemetry, architecture and nonblocking tests passed. Ruff lint/format
 checks passed for 223 Python files; diff whitespace checks passed.
+
+## October 15 unindexed-video metadata and menu latency
+
+Scope: Windows workstation, Python 3.13.14, guest access only. The newly reported
+YouTube identity is `-YVIEsTEZCw`. Tests used the native project provider,
+inspection/resolution and actual HTTP bodies, FFmpeg preparation, integrity and
+thumbnail generation. Telegram part acknowledgments, registration and publication
+were simulated; no Telegram message was sent. No production host was accessed.
+
+### Cause and failed alternatives
+
+The preceding revision depended on a third-party search hit for public metadata.
+The bare requested ID returned no items in 4.037 s. Searching the canonical URL
+returned 18 items in 0.873 s, and quoting the ID returned 20 in 0.907 s, but neither
+contained the requested identity. Matching the first title/result would download
+another video. The leading minus was retained correctly by the URL parser; these
+results do not prove a minus-specific search bug. Do not remove it or substitute
+a neighboring result. Revisit search behavior only after an index/protocol change.
+
+The requested watch page returned HTTP 200 in 1.213 s. Its complete embedded
+`ytInitialPlayerResponse` identified this exact video, reported guest playability
+`OK`, and supplied a 2236-second duration. Thus missing public search metadata was
+not evidence that this video was unavailable. YouTube oEmbed returned HTTP 403 on
+this connection; it was not integrated or retried unchanged.
+
+An isolated snapshot of revision `5c89838`, using its actual `YouTubeDownloader`,
+reproduced `youtube_public_metadata_unavailable` after **14.409 s** on this input.
+The old metadata/key gather also waited for both tasks after one had failed.
+
+### Correction and bounded behavior
+
+- Provider-owned watch parsing accepts only exact-ID player metadata, valid
+  nonempty title/author and positive duration. Private/live flags are rejected;
+  a non-OK playability status cannot enable the immediate guest route. No page
+  text, neighboring result or unrelated ID supplies the durable identity.
+- Origin metadata uses an isolated anonymous Chrome transport and explicit
+  resolver proxy settings, without account jars, public-service Origin/Referer
+  headers or ambient proxy configuration. A complete player object stops the
+  body read early; decoded body size is bounded at 4 MiB and time at three seconds.
+- Four transport slots, 32 fixed locks and a 128-entry LRU bound work. Positive
+  metadata lives for 60 seconds, failures for 30. Duplicate followers share work.
+  A timeout while only waiting for another caller's keyed lock does not poison
+  the cache. Native/origin 429 shares a cooldown, checked before cache access and
+  again after transport capacity so queued callers do not issue another burst.
+- Watch metadata is primary; the existing exact-ID search fallback has a
+  three-second budget. Metadata/key tasks cancel and await their unfinished
+  sibling on failure. Conversion, signed-link identity, file caps, actual
+  dimensions/audio and complete-duration checks remain enforced.
+- Default anonymous, guest-playable VODs may take the verified resolver route
+  immediately instead of paying native worker startup/failure first. Successful
+  public routing retains its five-minute preference. A public failure permits
+  native recovery once. Explicit player-client/PO-token settings and account
+  pools retain native-first behavior. Initial origin preflight counts against
+  the existing eight-second native budget. Empty `YOUTUBE_RESOLVER_URL` disables
+  the public path. This changes guest route ordering, not authenticated access.
+
+### Fresh complete-transfer results
+
+| Identity / check | Verified workstation result |
+| --- | --- |
+| New reported ID, fresh complete menu | **5.061 s**, repeated fresh inspection **5.130 s**; actual 360p/720p/1080p H264 with audio plus MP3 128; first run launched zero native workers |
+| New ID, complete 360p delivery preparation | **76,705,138** prepared/acknowledged bytes; **2236.400 s**, complete duration/audio, faststart and preview; transfer 49.430 s, menu-to-completion 54.669 s |
+| New ID, complete 720p delivery preparation | **145,175,573** prepared/acknowledged bytes; **2236.400 s**, complete duration/audio, faststart and preview; resolution/transfer 86.257 s |
+| New ID, complete MP3 | **35,783,165** prepared/acknowledged bytes; **2236.440 s**, complete validation and simulated publication; 37.258 s |
+| Previous reported ID `l6zflbTGNFQ` | Fresh complete four-choice menu **4.645 s**, expected duration 1301 s; this particular matrix check did not re-download its file |
+| Short ID `jNQXAC9IVRw`, fresh menu | **3.495 s**, actual 240p and MP3; requests for higher renditions collapsed to the verified 240p instead of being falsely labeled 720p/1080p |
+| Short ID, complete video | **744,518** prepared/acknowledged bytes; **18.933 s** against expected 19 s; complete validation, faststart, preview and simulated publication; 2.361 s |
+| Short ID, complete MP3 | **304,598** prepared/acknowledged bytes; **19.032 s**, complete validation and simulated publication; 5.351 s |
+
+The first matrix's audio publication failed in the private research harness:
+its Telegram mock handled video registration only and returned no audio document.
+The complete media download had already finished. After adding the missing
+`InputMediaUploadedDocument` audio response to that mock, both fresh MP3 tests
+above passed the unchanged production delivery path. Preserve this harness failure
+as distinct from an origin/transfer failure. Private reports and signed sources
+remain ignored in `.runtime/`; no credentials or ephemeral URLs are published.
+
+The menu comparison replaces a 14.409-second failure with a useful response near
+five seconds on this connection. It is not a guaranteed production latency, a
+measured Telegram upload improvement, or proof that every YouTube video/region
+works. Only 360p/720p and MP3 were fully downloaded for the new ID; its 1080p
+rendition passed the bounded menu probe. External conversion/relay throughput and
+quotas still apply, independently of the bot's request capacity.
+
+Validation: **937 tests passed, 18 skipped** on the workstation. Dedicated service
+and opt-in external tests were not configured. New regressions include exact-ID
+watch parsing, unindexed video recovery, 1,000 duplicate metadata followers,
+finite cache/body/deadline bounds, early response closure, private/age/rate
+boundaries, one queued HTTP request after 429, native configuration precedence,
+preflight time accounting and sibling cancellation. Architecture/provider
+isolation and nonblocking checks passed. Ruff lint and formatting passed for
+223 Python files. No new dependencies, database migrations, account cookies or
+concurrency increase are needed.
