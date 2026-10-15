@@ -3,13 +3,13 @@
 import asyncio
 import shutil
 import tempfile
-from contextlib import aclosing, asynccontextmanager
+from contextlib import aclosing, asynccontextmanager, nullcontext
 from pathlib import Path
 
 from bot.transfers.streaming import PART_SIZE, READ_SIZE
 from schemas.media import DownloadError
 from services.limits import check_file_size
-from services.observability import timed
+from services.observability import acquired, timed
 
 
 async def disk_call(function, *args):
@@ -103,22 +103,34 @@ async def remux(ffmpeg, original, ready, limit):
 
 
 @asynccontextmanager
-async def prepared_video(chunks, ffmpeg, progress, max_file_bytes):
+async def prepared_video(
+    chunks, ffmpeg, progress, max_file_bytes, *, input_slots=None, remux_slots=None
+):
     # Even with the configurable cap disabled, respect the Telegram part limit.
     limit = max_file_bytes or 4000 * PART_SIZE
     async with workspace() as directory:
         original, ready = directory / "source.mp4", directory / "ready.mp4"
         size = 0
-        async with aclosing(chunks):
+        if input_slots is not None:
+            progress.phase = "waiting_process"
+        async with (
+            acquired(input_slots, "remux_wait") if input_slots is not None else nullcontext(),
+            aclosing(chunks),
+        ):
+            progress.phase = "streaming"
             async for chunk in chunks:
                 size += len(chunk)
                 check_file_size(size, limit)
                 await disk_call(append, original, chunk)
         if not size:
             raise DownloadError("فایل دریافت‌شده خالی است.")
-        progress.phase = "preparing_video"
-        with timed("faststart_prepare"):
-            await remux(ffmpeg, original, ready, limit)
+        progress.phase = "waiting_process"
+        async with (
+            acquired(remux_slots, "remux_wait") if remux_slots is not None else nullcontext()
+        ):
+            progress.phase = "preparing_video"
+            with timed("faststart_prepare"):
+                await remux(ffmpeg, original, ready, limit)
         size = (await disk_call(ready.stat)).st_size
         check_file_size(size, limit)
         await disk_call(original.unlink)

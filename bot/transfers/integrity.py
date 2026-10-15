@@ -35,7 +35,8 @@ class MP4Integrity:
     video ending after its first segment, and a large timestamp cannot conceal gaps.
     """
 
-    def __init__(self):
+    def __init__(self, max_metadata_bytes: int = MAX_HEADER_BYTES):
+        self.max_metadata_bytes = max_metadata_bytes
         self.tracks: dict[int, Track] = {}
         self._header = bytearray()
         self._body = bytearray()
@@ -74,7 +75,7 @@ class MP4Integrity:
                     self._invalid()
                 self._remaining = size - needed if size else 0
                 if self._kind in {b"moov", b"moof"} and (
-                    self._open_ended or self._remaining > MAX_HEADER_BYTES
+                    self._open_ended or self._remaining > self.max_metadata_bytes
                 ):
                     self._invalid()
                 self._header.clear()
@@ -215,8 +216,16 @@ class MP4Integrity:
         return durations[primary]
 
 
-async def validated_mp4(chunks, progress, expected, require_audio=False, *, audio_only=False):
-    validator = MP4Integrity()
+async def validated_mp4(
+    chunks,
+    progress,
+    expected,
+    require_audio=False,
+    *,
+    audio_only=False,
+    max_metadata_bytes=MAX_HEADER_BYTES,
+):
+    validator = MP4Integrity(max_metadata_bytes)
     async with aclosing(chunks):
         async for chunk in chunks:
             validator.feed(chunk)

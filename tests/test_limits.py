@@ -336,7 +336,10 @@ async def test_unknown_size_stream_is_capped_without_a_final_upload_part():
     assert all(request.file_total_parts == -1 for request in uploaded)
 
 
-async def test_unknown_size_url_uses_bounded_stream_instead_of_telegram_url_fetch(monkeypatch):
+@pytest.mark.parametrize("already_probed", [False, True])
+async def test_unknown_size_url_uses_bounded_stream_instead_of_telegram_url_fetch(
+    monkeypatch, already_probed
+):
     requests = []
 
     async def response(request):
@@ -359,9 +362,12 @@ async def test_unknown_size_url_uses_bounded_stream_instead_of_telegram_url_fetc
         delivery = TelegramDelivery(Client(), http, "", max_file_bytes=1024)
         with pytest.raises(DownloadError, match="حجم"):
             await delivery.new_file(
-                PEER, MEDIA, QUALITY, Source("https://example.org/file", "progressive")
+                PEER,
+                MEDIA,
+                QUALITY,
+                Source("https://example.org/file", "progressive", size_probed=already_probed),
             )
-    assert requests == ["HEAD", "GET", "GET"]
+    assert requests == (["GET"] if already_probed else ["HEAD", "GET", "GET"])
 
 
 async def test_size_limit_allows_exact_boundary_and_records_the_reference_size():

@@ -240,6 +240,99 @@ async def test_real_video_with_unknown_dimensions_is_playable_before_full_downlo
         assert data != original
         assert mp4_header(data)[1].faststart
         assert b"moof" not in [kind for kind, _, _ in boxes(data)]
+    assert origin.requests.count(("GET", path)) == 1
+
+
+async def test_large_index_finishes_upload_and_thumbnail_without_second_download(
+    video_origin, tmp_path
+):
+    from bot.transfers.video import MAX_PREPARED_HEADER_BYTES
+
+    origin = video_origin
+    metadata, original, ready = (
+        tmp_path / "metadata.txt",
+        tmp_path / "original.mp4",
+        tmp_path / "large.mp4",
+    )
+    metadata.write_text(
+        ";FFMETADATA1\ncomment=" + "x" * (MAX_HEADER_BYTES + 8192), encoding="utf-8"
+    )
+    original.write_bytes(origin.files["/tail.mp4"])
+    process = await asyncio.create_subprocess_exec(
+        origin.ffmpeg,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(original),
+        "-f",
+        "ffmetadata",
+        "-i",
+        str(metadata),
+        "-map_metadata",
+        "1",
+        "-map",
+        "0",
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+        str(ready),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, diagnostic = await process.communicate()
+    assert process.returncode == 0, diagnostic.decode(errors="replace")
+    data = ready.read_bytes()
+    assert mp4_header(data[:MAX_HEADER_BYTES])[1] is None
+    assert mp4_header(data, MAX_PREPARED_HEADER_BYTES)[1].prefix_size > MAX_HEADER_BYTES
+    origin.files["/large.mp4"] = data
+    client, progress = TelegramMock(), TransferProgress()
+    async with httpx.AsyncClient(trust_env=False) as http:
+        reference = await TelegramDelivery(
+            client, http, origin.ffmpeg, max_file_bytes=4 * 1024 * 1024
+        ).new_file(
+            PEER,
+            MEDIA,
+            QUALITY,
+            Source(origin.url + "/large.mp4", "progressive", require_audio=True, size_probed=True),
+            progress,
+        )
+    assert reference.verified_complete and reference.video_faststart and reference.video_preview
+    assert progress.upload_done and progress.uploaded > MAX_HEADER_BYTES
+    assert client.thumbnails and len(client.messages) == 1
+    assert origin.requests == [("GET", "/large.mp4")]
+
+
+async def test_video_preparation_slot_is_released_before_slow_upload(video_origin):
+    origin = video_origin
+    started, release = asyncio.Event(), asyncio.Event()
+    progress = TransferProgress()
+
+    async def ack(request):
+        started.set()
+        await release.wait()
+        return True
+
+    async with httpx.AsyncClient(trust_env=False) as http:
+        delivery = TelegramDelivery(None, http, origin.ffmpeg, remux_concurrency=1)
+        delivery._upload_part = ack
+        task = asyncio.create_task(
+            delivery._upload(
+                Source(origin.url + "/tail.mp4", "progressive"),
+                QUALITY,
+                "video.mp4",
+                progress,
+            )
+        )
+        try:
+            await asyncio.wait_for(started.wait(), 3)
+            assert not delivery._remux_slots.locked()
+            assert progress.download_done
+        finally:
+            release.set()
+            await task
 
 
 async def test_external_streamable_video_keeps_the_zero_local_download_path():

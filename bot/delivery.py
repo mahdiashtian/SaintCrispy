@@ -16,7 +16,12 @@ from bot.texts.downloads import download_caption
 from bot.transfers.faststart import prepared_video
 from bot.transfers.integrity import require_duration, validated_mp4
 from bot.transfers.streaming import media_chunks, source_size, upload_stream
-from bot.transfers.video import MAX_HEADER_BYTES, inspect_mp4, require_video_info
+from bot.transfers.video import (
+    MAX_HEADER_BYTES,
+    MAX_PREPARED_HEADER_BYTES,
+    inspect_mp4,
+    require_video_info,
+)
 from core.request_context import request_chat, request_message
 from schemas.media import (
     DownloadError,
@@ -196,7 +201,12 @@ class TelegramDelivery:
     async def _checked_source_size(self, source: Source) -> int | None:
         check_file_size(source.size_bytes, self.max_file_bytes)
         size = source.size_bytes
-        if source.protocol == "progressive" and self.max_file_bytes and size is None:
+        if (
+            source.protocol == "progressive"
+            and self.max_file_bytes
+            and size is None
+            and not source.size_probed
+        ):
             try:
                 size = await source_size(self.http, source)
             except (httpx.HTTPError, TimeoutError):
@@ -432,12 +442,14 @@ class TelegramDelivery:
         )
 
     async def _upload(self, source, quality, filename, progress, *, preview_prefix=None):
+        preview_limit = MAX_PREVIEW_INPUT
+
         async def upload(chunks):
             async def capture():
                 async with aclosing(chunks):
                     async for chunk in chunks:
-                        if preview_prefix is not None and len(preview_prefix) < MAX_PREVIEW_INPUT:
-                            take = min(len(chunk), MAX_PREVIEW_INPUT - len(preview_prefix))
+                        if preview_prefix is not None and len(preview_prefix) < preview_limit:
+                            take = min(len(chunk), preview_limit - len(preview_prefix))
                             preview_prefix.extend(memoryview(chunk)[:take])
                         yield chunk
 
@@ -451,6 +463,41 @@ class TelegramDelivery:
                 upload_slots=self._upload_slots,
             )
 
+        async def prepare(chunks, *, input_slots=None):
+            nonlocal preview_limit
+            checked = validated_mp4(
+                chunks,
+                progress,
+                source.duration,
+                source.require_audio,
+                max_metadata_bytes=MAX_PREPARED_HEADER_BYTES,
+            )
+            async with prepared_video(
+                checked,
+                self.ffmpeg,
+                progress,
+                self.max_file_bytes,
+                input_slots=input_slots,
+                remux_slots=self._remux_slots,
+            ) as prepared:
+                async with inspect_mp4(
+                    prepared,
+                    self.max_file_bytes,
+                    max_header_bytes=MAX_PREPARED_HEADER_BYTES,
+                ) as (stream, info):
+                    info = require_video_info(info)
+                    if not info.faststart:
+                        raise DownloadError("فهرست پخش ویدیو کامل نیست؛ فایل ارسال نشد.")
+                    preview_limit = MAX_PREVIEW_INPUT + info.prefix_size
+                    checked = validated_mp4(
+                        stream,
+                        progress,
+                        source.duration,
+                        source.require_audio,
+                        max_metadata_bytes=MAX_PREPARED_HEADER_BYTES,
+                    )
+                    return await upload(checked), info
+
         video = streamable_video(quality)
         if quality.mime_type == "audio/mp4" and source.protocol == "progressive":
             chunks = media_chunks(self.http, source, quality, self.ffmpeg, progress)
@@ -462,12 +509,21 @@ class TelegramDelivery:
                 self.max_file_bytes,
             ) as (chunks, info):
                 if info is not None and info.faststart:
+                    preview_limit = MAX_PREVIEW_INPUT + info.prefix_size
                     stream = validated_mp4(chunks, progress, source.duration, source.require_audio)
                     return await upload(stream), info
-            # Close the first response before remuxing a source with its index at the end.
-            progress.downloaded = 0
-            progress.download_done = False
-            progress.total = None
+                # Keep the original response and replay the peek; never download it twice.
+                return await prepare(chunks)
+        if video:
+            chunks = media_chunks(
+                self.http,
+                source,
+                quality,
+                self.ffmpeg,
+                progress,
+                remux_progressive=True,
+            )
+            return await prepare(chunks, input_slots=self._remux_slots)
         audio = quality.mime_type.startswith("audio/") and quality.extension in {
             "mp3",
             "m4a",
@@ -491,21 +547,6 @@ class TelegramDelivery:
                 progress,
                 remux_progressive=video or audio,
             )
-            if video:
-                # A fragmented pipe decodes sequentially, but a seekable player may
-                # scan future fragments before starting. Finalize a classic MP4 first.
-                checked = validated_mp4(chunks, progress, source.duration, source.require_audio)
-                async with prepared_video(
-                    checked, self.ffmpeg, progress, self.max_file_bytes
-                ) as prepared:
-                    async with inspect_mp4(prepared, self.max_file_bytes) as (stream, info):
-                        info = require_video_info(info)
-                        if not info.faststart:
-                            raise DownloadError("فهرست پخش ویدیو کامل نیست؛ فایل ارسال نشد.")
-                        checked = validated_mp4(
-                            stream, progress, source.duration, source.require_audio
-                        )
-                        return await upload(checked), info
             return await upload(chunks), None
 
     async def prepare_cached(self, file: TelegramFile, quality: Quality) -> TelegramFile | None:

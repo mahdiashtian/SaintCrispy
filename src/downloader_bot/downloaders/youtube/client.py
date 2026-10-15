@@ -2,11 +2,12 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -49,6 +50,7 @@ class YouTubeClient:
     player_clients: str | None = None
     pot_base_url: str | None = None
     timeout: float = 80
+    native_timeout: float = 8
     _cookies_lock: asyncio.Lock = field(
         default_factory=asyncio.Lock, init=False, repr=False, compare=False
     )
@@ -70,6 +72,8 @@ class YouTubeClient:
     )
 
     def __post_init__(self):
+        if not 1 <= self.native_timeout <= 45:
+            raise ValueError("YouTube native timeout must be between 1 and 45 seconds")
         if self.proxy and urlsplit(self.proxy).scheme != "http":
             raise DownloadError("YOUTUBE_PROXY باید نشانی یک پراکسی HTTP باشد.")
         if self.resolver_url:
@@ -104,9 +108,11 @@ class YouTubeClient:
             resolver_proxy=os.environ.get("YOUTUBE_PROXY", ""),
             player_clients=player_clients,
             pot_base_url=pot_base_url,
+            native_timeout=float(os.environ.get("YOUTUBE_NATIVE_TIMEOUT_SECONDS") or "8"),
         )
 
     async def _public_json(self, http, method, url, **options):
+        started = time.monotonic()
         if self._public_cooldown.get("until", 0) > time.monotonic():
             raise SiteHTTPError(429, "مسیر عمومی یوتیوب موقتاً محدود شده؛ کمی بعد امتحان کن.")
         async with http.stream(method, url, **options) as response:
@@ -117,11 +123,12 @@ class YouTubeClient:
                 if url.endswith("/converter")
                 else "metadata"
             )
-            log.debug(
+            log.info(
                 {
                     "event": "youtube_public_response",
                     "operation": operation,
                     "http_status": response.status_code,
+                    "elapsed_seconds": round(time.monotonic() - started, 4),
                 }
             )
             if response.status_code == 429:
@@ -153,15 +160,22 @@ class YouTubeClient:
                 api.headers.pop("User-Agent", None)
                 yield api
 
-    async def _public_convert(self, api, identity, kind, value, seconds):
+    async def _public_key(self, api, identity):
+        key = await self._public_json(
+            api,
+            "GET",
+            self.resolver_url.rstrip("/") + "/v2/sanity/key",
+            params={"link": canonical_url(identity)},
+        )
+        key = key.get("key") if isinstance(key, dict) else None
+        if not isinstance(key, str) or not 1 <= len(key) <= 8192 or "\n" in key or "\r" in key:
+            raise ValueError("Missing public request key")
+        return key
+
+    async def _public_convert(self, api, identity, kind, value, seconds, *, request_key=None):
         async with self._public_slots:
             link = canonical_url(identity)
-            key = await self._public_json(
-                api, "GET", self.resolver_url.rstrip("/") + "/v2/sanity/key", params={"link": link}
-            )
-            key = key.get("key") if isinstance(key, dict) else None
-            if not isinstance(key, str) or not 1 <= len(key) <= 8192 or "\n" in key or "\r" in key:
-                raise ValueError("Missing public request key")
+            key = request_key or await self._public_key(api, identity)
             result = await self._public_json(
                 api,
                 "POST",
@@ -176,75 +190,110 @@ class YouTubeClient:
                 },
                 headers={"key": key},
             )
-            if not isinstance(result, dict) or result.get("status") not in {"tunnel", "redirect"}:
-                raise ValueError("Public conversion unavailable")
-            target = public_download_url(result.get("url"), identity)
-            if not target:
-                raise ValueError("Public result identity or destination mismatch")
-            source = Source(
+        return await self._public_source(result, identity, kind, value, seconds)
+
+    async def _public_source(self, result, identity, kind, value, seconds):
+        started = time.monotonic()
+        if not isinstance(result, dict) or result.get("status") not in {"tunnel", "redirect"}:
+            raise ValueError("Public conversion unavailable")
+        target = public_download_url(result.get("url"), identity)
+        if not target:
+            raise ValueError("Public result identity or destination mismatch")
+        source = Source(
+            target,
+            "progressive",
+            headers={"Referer": PUBLIC_ORIGIN + "/"},
+            proxy=self.resolver_proxy,
+            duration=seconds,
+            require_audio=kind == "mp4",
+            size_probed=True,
+        )
+        async with httpx.AsyncClient(
+            trust_env=False, proxy=self.resolver_proxy or None, timeout=12
+        ) as cdn:
+            async with cdn.stream(
+                "GET",
                 target,
-                "progressive",
-                headers={"Referer": PUBLIC_ORIGIN + "/"},
-                proxy=self.resolver_proxy,
-                duration=seconds,
-                require_audio=kind == "mp4",
-            )
-            async with httpx.AsyncClient(
-                trust_env=False, proxy=self.resolver_proxy or None, timeout=12
-            ) as cdn:
-                async with cdn.stream(
-                    "GET",
-                    target,
-                    headers={
-                        **source.headers,
-                        "Range": "bytes=0-262143",
-                        "Accept-Encoding": "identity",
-                    },
-                ) as response:
-                    response.raise_for_status()
-                    sample = bytearray()
-                    async for chunk in response.aiter_bytes(16384):
-                        sample.extend(chunk)
-                        if len(sample) >= 256 * 1024:
-                            break
-            if kind == "mp4":
-                width, height, audio, family = public_video_info(sample)
-                if not width or not height or not audio or family != "h264":
-                    raise ValueError("Missing playable public MP4 header")
-                quality = Quality(
-                    f"public_video_{height}p_h264_mp4",
-                    f"{height}p · H264 · MP4",
-                    "h264",
-                    None,
-                    "mp4",
-                    "video/mp4",
-                    "progressive",
-                    f"public:mp4:{value}",
-                    width=width,
-                    height=height,
-                    duration=seconds,
-                )
-            else:
-                if not (
-                    sample.startswith(b"ID3")
-                    or any(
-                        sample[index] == 255 and sample[index + 1] & 224 == 224
-                        for index in range(min(1024, len(sample) - 1))
+                headers={
+                    **source.headers,
+                    "Range": "bytes=0-262143",
+                    "Accept-Encoding": "identity",
+                },
+            ) as response:
+                if response.status_code == 429:
+                    self._public_cooldown["until"] = time.monotonic() + 60
+                    raise SiteHTTPError(
+                        429, "مسیر عمومی یوتیوب موقتاً محدود شده؛ کمی بعد امتحان کن."
                     )
-                ):
-                    raise ValueError("Missing public MP3 header")
-                quality = Quality(
-                    f"public_audio_mp3_{value}",
-                    f"MP3 · {value}kbps",
-                    "mp3",
-                    int(value),
-                    "mp3",
-                    "audio/mpeg",
-                    "progressive",
-                    f"public:mp3:{value}",
-                    duration=seconds,
+                response.raise_for_status()
+                total = None
+                if response.status_code == 206:
+                    match = re.fullmatch(
+                        r"bytes 0-\d+/(\d{1,20})", response.headers.get("content-range", "")
+                    )
+                    if match:
+                        total = int(match[1])
+                elif response.status_code == 200:
+                    length = response.headers.get("content-length", "")
+                    if length.isdigit() and len(length) <= 20:
+                        total = int(length)
+                source = replace(source, size_bytes=total or None)
+                sample = bytearray()
+                async for chunk in response.aiter_bytes():
+                    sample.extend(chunk[: 256 * 1024 - len(sample)])
+                    if (
+                        (kind == "mp4" and public_video_info(sample)[0])
+                        or (kind == "mp3" and len(sample) >= 1024)
+                        or len(sample) >= 256 * 1024
+                    ):
+                        break
+        if kind == "mp4":
+            width, height, audio, family = public_video_info(sample)
+            if not width or not height or not audio or family != "h264":
+                raise ValueError("Missing playable public MP4 header")
+            quality = Quality(
+                f"public_video_{height}p_h264_mp4",
+                f"{height}p · H264 · MP4",
+                "h264",
+                None,
+                "mp4",
+                "video/mp4",
+                "progressive",
+                f"public:mp4:{value}",
+                width=width,
+                height=height,
+                duration=seconds,
+            )
+        else:
+            if not (
+                sample.startswith(b"ID3")
+                or any(
+                    sample[index] == 255 and sample[index + 1] & 224 == 224
+                    for index in range(min(1024, len(sample) - 1))
                 )
-            return quality, source
+            ):
+                raise ValueError("Missing public MP3 header")
+            quality = Quality(
+                f"public_audio_mp3_{value}",
+                f"MP3 · {value}kbps",
+                "mp3",
+                int(value),
+                "mp3",
+                "audio/mpeg",
+                "progressive",
+                f"public:mp3:{value}",
+                duration=seconds,
+            )
+        log.info(
+            {
+                "event": "youtube_public_probe",
+                "kind": kind,
+                "quality": value,
+                "sample_bytes": len(sample),
+                "elapsed_seconds": round(time.monotonic() - started, 4),
+            }
+        )
+        return quality, source
 
     async def public_inspect(self, identity):
         if not self.resolver_url or self.cookies_file:
@@ -267,13 +316,20 @@ class YouTubeClient:
         try:
             async with asyncio.timeout(35):
                 async with self._public_session() as api:
-                    metadata = await self._public_json(
-                        api, "GET", PUBLIC_METADATA_URL, params={"q": identity}
+                    metadata, key = await asyncio.gather(
+                        self._public_json(api, "GET", PUBLIC_METADATA_URL, params={"q": identity}),
+                        self._public_key(api, identity),
+                        return_exceptions=True,
                     )
+                    for result in (metadata, key):
+                        if isinstance(result, BaseException):
+                            raise result
                     title, author, seconds = public_metadata(metadata, identity)
                     results = await asyncio.gather(
                         *(
-                            self._public_convert(api, identity, kind, value, seconds)
+                            self._public_convert(
+                                api, identity, kind, value, seconds, request_key=key
+                            )
                             for kind, value in (
                                 ("mp4", "360"),
                                 ("mp4", "720"),
@@ -463,7 +519,7 @@ class YouTubeClient:
         # Retry once with a different supported player, inside one overall deadline.
         # An explicit override remains authoritative; private/429 failures never loop.
         strategies = [self.player_clients]
-        if not self.player_clients and not self.cookies_file:
+        if not self.player_clients and not self.cookies_file and not self.resolver_url:
             strategies.append("web_embedded")
         try:
             async with asyncio.timeout(self.timeout):

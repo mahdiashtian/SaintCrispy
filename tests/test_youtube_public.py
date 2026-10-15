@@ -141,8 +141,10 @@ async def test_native_challenge_recovers_anonymous_menu_and_selected_sources(
         source = await downloader.resolve(media, quality)
         assert parse_qs(httpx.URL(source.url).query.decode())["vid"] == [IDENTITY]
         assert source.duration == 1301 and not quality.original
+        assert source.size_probed
         assert source.require_audio == quality.mime_type.startswith("video/")
     assert sum(r.method == "POST" for r in visits) == 4
+    assert sum(r.url.path == "/v2/sanity/key" for r in visits) == 1
     assert options and all(o["discard_cookies"] and not o["trust_env"] for o in options)
 
 
@@ -172,6 +174,93 @@ async def test_concurrent_inspections_share_one_catalog(public_api):
     results = await asyncio.gather(*(client.public_inspect(IDENTITY) for _ in range(1000)))
     assert all(media == results[0] for media in results)
     assert sum(r.method == "POST" for r in visits) == 4
+
+
+async def test_accepted_public_route_skips_native_workers_for_following_requests(
+    monkeypatch, public_api
+):
+    attempts = []
+
+    async def rejected(self, url, player_clients=None):
+        attempts.append(url)
+        raise DownloadError(code="youtube_login_required")
+
+    monkeypatch.setattr(YouTubeClient, "_extract", rejected)
+    provider = YouTubeDownloader(YouTubeClient(resolver_url="https://cnv.cx"))
+    await provider.inspect(PAGE)
+    assert len(attempts) == 1
+    provider.client._public_cache.clear()
+    await provider.inspect(PAGE)
+    assert len(attempts) == 1
+
+
+@pytest.mark.parametrize(
+    "status,headers,size",
+    [
+        (200, {}, None),
+        (200, {"Content-Length": "123456"}, 123456),
+        (206, {"Content-Range": "bytes 0-4095/123456"}, 123456),
+    ],
+)
+async def test_public_probe_returns_after_complete_header_without_reading_media_tail(
+    public_api, monkeypatch, status, headers, size
+):
+    original = module.httpx.AsyncClient
+
+    class HeaderOnly(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield mp4_header()
+            pytest.fail("A verified initialization header must not wait for media bytes")
+
+    def factory(**options):
+        options["transport"] = httpx.MockTransport(
+            lambda request: httpx.Response(status, headers=headers, stream=HeaderOnly())
+        )
+        return original(**options)
+
+    monkeypatch.setattr(module.httpx, "AsyncClient", factory)
+    quality, source = await YouTubeClient(resolver_url="https://cnv.cx")._public_source(
+        {"status": "tunnel", "url": f"https://dl01.yt-dl.click/media?vid={IDENTITY}"},
+        IDENTITY,
+        "mp4",
+        "360",
+        1301,
+    )
+    assert quality.height == 360 and source.size_probed
+    assert source.size_bytes == size
+
+
+@pytest.mark.parametrize("native_recovers", [False, True])
+async def test_preferred_public_failure_permits_native_once_without_repeating_public_request(
+    monkeypatch, public_api, native_recovers
+):
+    from unittest.mock import AsyncMock
+
+    client = YouTubeClient(resolver_url="https://cnv.cx")
+    media = await client.public_inspect(IDENTITY)
+    provider = YouTubeDownloader(client)
+    provider._public_preferred_until = time.monotonic() + 300
+    calls = []
+
+    async def failed_public(self, identity):
+        calls.append(identity)
+        raise DownloadError(code="youtube_public_unavailable")
+
+    monkeypatch.setattr(YouTubeClient, "public_inspect", failed_public)
+    native = (
+        AsyncMock(return_value=media)
+        if native_recovers
+        else AsyncMock(side_effect=DownloadError(code="youtube_login_required"))
+    )
+    monkeypatch.setattr(provider, "_inspect", native)
+    if native_recovers:
+        assert await provider.inspect(PAGE) == media
+    else:
+        with pytest.raises(DownloadError) as failure:
+            await provider.inspect(PAGE)
+        assert failure.value.code == "youtube_public_unavailable"
+    assert calls == [IDENTITY] and native.await_count == 1
+    assert provider._public_preferred_until == 0
 
 
 async def test_menu_uses_actual_dimensions_and_rejects_silent_video(public_api):

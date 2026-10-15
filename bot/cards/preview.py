@@ -2,6 +2,7 @@
 
 import asyncio
 
+from bot.transfers.video import MAX_PREPARED_HEADER_BYTES, mp4_header
 from schemas.media import DownloadError
 
 MAX_PREVIEW_INPUT = 1024 * 1024
@@ -9,6 +10,10 @@ MAX_PREVIEW_BYTES = 20 * 1024
 
 
 async def video_thumbnail(ffmpeg: str, prefix: bytes) -> bytes:
+    _, info = mp4_header(prefix, MAX_PREPARED_HEADER_BYTES)
+    limit = MAX_PREVIEW_INPUT
+    if info:
+        limit += min(info.prefix_size, MAX_PREPARED_HEADER_BYTES)
     try:
         process = await asyncio.create_subprocess_exec(
             ffmpeg,
@@ -41,7 +46,7 @@ async def video_thumbnail(ffmpeg: str, prefix: bytes) -> bytes:
         raise DownloadError("FFmpeg برای آماده‌سازی پیش‌نمایش ویدیو تنظیم نشده است.") from error
     try:
         async with asyncio.timeout(15):
-            jpeg, _ = await process.communicate(prefix[:MAX_PREVIEW_INPUT])
+            jpeg, _ = await process.communicate(prefix[:limit])
         if (
             process.returncode
             or not jpeg.startswith(b"\xff\xd8")

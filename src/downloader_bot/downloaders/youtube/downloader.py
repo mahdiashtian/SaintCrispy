@@ -1,8 +1,9 @@
 import asyncio
+import time
 from dataclasses import replace
 
 from downloader_bot.downloaders.base import Downloader
-from schemas.media import DownloadError, Media, Quality, Source
+from schemas.media import DownloadError, Media, Quality, SiteHTTPError, Source
 
 from .client import YouTubeClient
 from .parser import canonical_url, number, read_media, selections, video_id
@@ -29,6 +30,7 @@ class YouTubeDownloader(Downloader):
         self.client = client
         self.accounts = accounts or {}
         self._next_account = 0
+        self._public_preferred_until = 0.0
 
     def cache_key(self, url: str) -> str:
         return video_id(url)
@@ -39,8 +41,20 @@ class YouTubeDownloader(Downloader):
                 public = bool(getattr(self.client, "resolver_url", "")) and not getattr(
                     self.client, "cookies_file", None
                 )
+                public_failure = None
+                if public and not self.accounts and time.monotonic() < self._public_preferred_until:
+                    try:
+                        return await self.client.public_inspect(video_id(url))
+                    except SiteHTTPError:
+                        raise
+                    except DownloadError as error:
+                        public_failure = error
+                        self._public_preferred_until = 0.0
                 try:
-                    async with asyncio.timeout(45 if public else 85):
+                    budget = 85
+                    if public:
+                        budget = 45 if self.accounts else getattr(self.client, "native_timeout", 8)
+                    async with asyncio.timeout(budget):
                         return await self._inspect(url)
                 except DownloadError as error:
                     if not public or error.code not in {
@@ -57,7 +71,12 @@ class YouTubeDownloader(Downloader):
                 except TimeoutError:
                     if not public:
                         raise
-                return await self.client.public_inspect(video_id(url))
+                if public_failure is not None:
+                    raise public_failure
+                media = await self.client.public_inspect(video_id(url))
+                if not self.accounts:
+                    self._public_preferred_until = time.monotonic() + 300
+                return media
         except TimeoutError as error:
             raise DownloadError(
                 "دریافت اطلاعات یوتیوب طولانی شد. کمی بعد دوباره امتحان کن.",

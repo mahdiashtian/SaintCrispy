@@ -49,6 +49,7 @@ class Source:
     audio_protocol: str | None = None
     http3: bool = False
     doh_url: str | None = field(default=None, repr=False)
+    size_probed: bool = False
 
 
 @dataclass(frozen=True)

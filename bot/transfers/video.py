@@ -5,6 +5,7 @@ from schemas.media import DownloadError
 from services.limits import check_file_size
 
 MAX_HEADER_BYTES = 1024 * 1024
+MAX_PREPARED_HEADER_BYTES = 16 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -111,7 +112,7 @@ def video_info(moov, prefix_size: int) -> VideoInfo | None:
     return None
 
 
-def mp4_header(data) -> tuple[bool, VideoInfo | None]:
+def mp4_header(data, max_header_bytes: int = MAX_HEADER_BYTES) -> tuple[bool, VideoInfo | None]:
     for kind, body, end in boxes(data):
         if kind in {b"mdat", b"moof"}:
             return True, None  # Media before its index needs remuxing.
@@ -123,11 +124,11 @@ def mp4_header(data) -> tuple[bool, VideoInfo | None]:
         offset = end
     if bytes(data[offset + 4 : offset + 8]) in {b"mdat", b"moof"}:
         return True, None
-    return len(data) >= MAX_HEADER_BYTES, None
+    return len(data) >= max_header_bytes, None
 
 
 @asynccontextmanager
-async def inspect_mp4(chunks, max_file_bytes: int = 0):
+async def inspect_mp4(chunks, max_file_bytes: int = 0, *, max_header_bytes: int = MAX_HEADER_BYTES):
     """Peek at a bounded prefix and replay it; closing also closes HTTP or FFmpeg."""
     async with aclosing(chunks):
         prefix = bytearray()
@@ -135,10 +136,10 @@ async def inspect_mp4(chunks, max_file_bytes: int = 0):
         remainder = b""
         async for chunk in chunks:
             check_file_size(len(prefix) + len(chunk), max_file_bytes)
-            take = min(len(chunk), MAX_HEADER_BYTES - len(prefix))
+            take = min(len(chunk), max_header_bytes - len(prefix))
             prefix.extend(memoryview(chunk)[:take])
             remainder = chunk[take:]
-            complete, info = mp4_header(prefix)
+            complete, info = mp4_header(prefix, max_header_bytes)
             if complete:
                 break
 
@@ -157,6 +158,7 @@ async def inspect_mp4(chunks, max_file_bytes: int = 0):
 def require_video_info(info: VideoInfo | None) -> VideoInfo:
     if info is None:
         raise DownloadError(
-            "آماده‌سازی ویدیو برای پخش هنگام دانلود کامل نشد؛ فایل ناقص ارسال نمی‌شود."
+            "آماده‌سازی ویدیو برای پخش هنگام دانلود کامل نشد؛ فایل ناقص ارسال نمی‌شود.",
+            code="video_header_unavailable",
         )
     return info

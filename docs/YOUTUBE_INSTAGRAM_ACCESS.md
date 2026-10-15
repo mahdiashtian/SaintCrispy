@@ -635,3 +635,82 @@ wrong-identity/destination refusal, actual-rendition deduplication, cooldown,
 signed-link renewal and both 1,000-request coalescing cases. External/dedicated
 service opt-in tests were not configured; live workstation evidence is recorded
 separately above.
+
+## Later October 15: slow menu and zero-upload failure
+
+The operator's production logs establish two distinct issues. Initial inspection
+finished in 11.432353 seconds with four qualities; the subsequent memory-cache
+inspection took 0.001782 seconds. A selected 720p transfer then **failed** after
+33.508296 seconds with zero uploaded bytes. Its stages included 3.509825 seconds
+of resolution, 14.337640 seconds of size probing, 14.920981 seconds of download
+and 0.717242 seconds of faststart preparation. The stack ended in
+`require_video_info`, after remuxing and before upload. This was not an upload
+waiting indefinitely for Telegram.
+
+The workstation reproduced the old delivery failure using a freshly resolved
+source and the actual `TelegramDelivery._upload` path. The prepared MP4 had a valid
+**1,360,563-byte `moov`**, exceeding the old 1 MiB inspection cap. It downloaded
+fully, prepared successfully, then failed with zero acknowledged bytes. The
+baseline public menu took 12.865 seconds. This exposed a gap in the earlier raw
+EOF audits: successful source validation did not exercise preparation/thumbnail
+publication stages.
+
+The correction covers all dependent bounds: prepared-video inspection and full
+integrity validation accept up to 16 MiB of metadata, and thumbnail capture allows
+the validated index plus a bounded frame prefix. Ordinary source header peeking
+keeps its previous 1 MiB cap. A regression builds a real decodable MP4 with an
+oversized index and exercises preparation, thumbnail generation, part upload and
+publication using mocked Telegram. Oversized input streams still fail at the
+configured byte limit; a header-probe hint never bypasses that cap.
+
+Performance changes avoid repeated work rather than removing validation:
+
+- One fresh anonymous nonce was accepted for concurrent conversions of the same
+  video. It is fetched alongside exact-ID metadata and shared only inside that
+  inspection. Conversion concurrency remains two. CDN probes no longer hold the
+  conversion slot and stop at a complete initialization/audio header instead of
+  consuming 256 KiB for every quality.
+- Accepted source headers carry the known/unknown size result. An unknown-size
+  source goes directly to the capped local stream, avoiding the redundant
+  HEAD/Range phase seen in production. Known lengths/range totals remain enforced.
+- A nonstreamable progressive response is replayed into preparation instead of
+  closing its initial peek and fetching the file again with FFmpeg. Full duration,
+  audio presence and prepared output are still checked. Tests assert one media
+  GET for both ready and nonstreamable progressive sources.
+- Actual preparation owns the remux semaphore; it releases that slot before
+  multipart upload. A blocked upload therefore cannot monopolize the preparation
+  capacity. Shutdown/cancellation still waits for pending disk operations and
+  removes the workspace.
+- Cold guest native attempts have an eight-second configurable budget. With a
+  public resolver, a rejected native strategy falls back immediately. After an
+  accepted public result, the provider prefers that route for five minutes rather
+  than launching challenged workers for every new input. A public failure clears
+  the preference and permits native recovery. Account pools and rate limits retain
+  their boundaries.
+
+Fresh workstation measurements after the change:
+
+| Check | Result |
+| --- | --- |
+| Complete four-quality public menu | 5.558 s versus 12.865 s baseline, about 2.3x faster in these samples |
+| Separate public menu sample | 8.463 s; one failed rendition was omitted, demonstrating external latency/availability variance |
+| Cold native-first provider menu on the challenged workstation | 12.076 s including the eight-second native budget |
+| Fresh real 720p delivery preparation, local simulated part acknowledgments | 57,470,469 bytes; upload completed, classic faststart and generated JPEG preview confirmed |
+| Complete video duration | 1300.500 s against rounded expected 1301 s |
+| That transfer's elapsed time / first simulated upload | 54.921 s / 54.695 s |
+
+The transfer used real origin data, real FFmpeg preparation and real thumbnail
+generation. Telegram part/registration/publication RPCs were simulated; no message
+was sent. Therefore its elapsed time is not a production upload-bandwidth result.
+External CDN throughput and load varied between samples; no several-fold full-file
+network-throughput guarantee follows from the menu timing. The specific zero-upload
+preparation failure is reproduced and fixed, and the redundant production size
+probe is removed for already inspected sources. Reports remain in ignored
+`.runtime/` without publishing ephemeral URLs or request nonces.
+
+Validation: the full workstation suite passed **903 tests, 18 skipped**; the
+final provider/limits/architecture regression set passed **153 tests** after
+known-size header parsing and public-route failure checks. The final video and
+telemetry regression set passed **68 tests** after applying the frame-prefix budget
+to ready sources as well as prepared ones. Ruff lint/format and whitespace checks
+passed. No new dependencies or database migrations are required.

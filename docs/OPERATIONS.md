@@ -52,6 +52,41 @@ fallback, and public 429 starts a 60-second cooldown. No retry loop attempts to
 turn application concurrency into unlimited public-service throughput. Disabled
 or authenticated clients never send their URLs through this public path.
 
+Guest native extraction now has an eight-second budget before public fallback
+(`YOUTUBE_NATIVE_TIMEOUT_SECONDS`, accepted range 1-45). Increase it if healthy
+native extraction on your connection needs more time. With a public resolver,
+one rejected native strategy is enough to switch routes; disabling the resolver
+retains the alternate-player retry. After successful guest recovery, the provider
+prefers that accepted public route for five minutes across requests. A public
+failure clears the preference and allows native recovery; native account pools
+retain their own failover path, and HTTP 429 still stops alternatives.
+
+Metadata and a fresh anonymous request nonce are fetched concurrently. The same
+nonce was verified for all four conversions of one video; it is never reused
+across identities or persisted. Conversion calls remain capped at two, while CDN
+header probes run independently and stop when the complete required header is
+available. Safe `youtube_public_response` and `youtube_public_probe` events record
+operation/quality, status/sample bytes and elapsed time, without URLs or keys.
+
+An existing verified header sample now carries its size-probe result into delivery.
+A known size is enforced; an unknown size uses the byte-capped local stream,
+without repeating HEAD/Range requests or asking Telegram to fetch an unlimited
+unknown-size URL. Nonstreamable progressive videos reuse that one response for
+preparation instead of reopening it through a second network/FFmpeg pass.
+
+Download reaching 100% before upload starts is expected for fragmented MP4 that
+needs a classic seekable index. Preparation must finish first. The previous
+1 MiB inspection bound rejected the reported long video after successful remuxing;
+prepared-file inspection/integrity now allow a finite 16 MiB metadata bound.
+Thumbnail capture includes that validated index plus a bounded frame prefix.
+Ordinary network header inspection retains its 1 MiB bound. Actual remux work
+holds a process slot; upload releases that slot for other preparations. Temporary
+workspaces are removed on success, failure and cancellation. These temporary
+full-file workspaces require sufficient host disk space for active videos.
+
+See the final [dated latency and upload diagnosis](YOUTUBE_INSTAGRAM_ACCESS.md)
+for actual workstation measurements and their production/Telegram limits.
+
 Instagram's anonymous public-post fallback is enabled in application composition
 by default. `INSTAGRAM_RESOLVER_URL=https://dwnld.nichind.dev` selects the tested
 public Cobalt-compatible service; set the variable to an empty value to disable it,
