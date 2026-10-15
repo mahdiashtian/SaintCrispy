@@ -33,6 +33,47 @@ from upstream conversion time; a fresh cold workstation metadata lookup failed
 in that later connection state. See the dated access sections for successes,
 failures, byte counts and the untested production/Telegram boundary.
 
+## Transfer status finalization (October 15)
+
+The reported Instagram statuses remained at 65% upload or at an estimated 0%
+after publication. Workstation regression tests reproduced three defects in the
+shared reporter: a terminal edit was attempted only once, an existing edit
+FloodWait skipped it entirely, and exit cancelled an in-flight progress edit
+before sending the terminal text. A cancelled client await does not establish
+that Telegram never received the earlier edit. These are code-level findings;
+the production request/error trace for the two reported messages was unavailable.
+
+The reporter now stops scheduling updates, waits for its bounded in-flight edit,
+then confirms the terminal text and clears the stop keyboard. It retries only
+idempotent status edits, up to three attempts within a 15-second finalization
+budget, respecting Telegram's edit cooldown. Each RPC has a three-second deadline.
+An edit cooldown beyond the budget or a persistent/permanent failure falls back
+to deleting the obsolete status with a separate bounded RPC; it never repeats
+file publication. Both edit and delete can still be rejected during a Telegram
+outage or loss of permissions. Failures are logged rather than treated as proof
+that the file was not delivered. The in-flight drain and optional deletion add
+at most three seconds each outside the finalization budget.
+
+The quality handler explicitly marks successful delivery complete and finalizes
+its status before conversation-state persistence, including error/cancellation
+paths. A slow conversation-state write must not leave a delivered file displaying
+an active upload. Provider extraction, quality selection and file-cache identities
+are unchanged. See [operations](OPERATIONS.md#transfer-status-messages) for events.
+
+Workstation tests cover the shared DownloadService/quality-handler/premium-message
+path for all six sites, private/group delivery, progressive/HLS/external/cache
+methods, the two reported progress shapes, short/long cooldowns, transient edits,
+timeouts, permanent errors, cleanup failure, cancellation and slow state writes.
+They assert one publication/resend and one delivery-history write despite status
+retries. A separate simulated batch starts 1,000 terminal editors independently
+and verifies their reporter tasks finish. Origin extraction and Telegram RPCs are
+simulated in these tests; this is not a live Telegram, CDN or production replay.
+The complete workstation suite passed 1,164 tests with zero skips using isolated
+real PostgreSQL 17 and Redis 7.4; Ruff checks and formatting passed. The ten
+existing curl-cffi Windows event-loop warnings remain unrelated to status edits.
+Do not retry edits inside a returned FloodWait or resend a file to repair its
+status. Retry only after cooldown or changed connection/permission evidence.
+
 ## Provider identity and isolation
 
 October 15 presentation update: site-specific menu/file copy now lives in

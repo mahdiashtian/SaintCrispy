@@ -1,10 +1,14 @@
 import asyncio
+import logging
 import time
-from contextlib import suppress
 
 from telethon import errors, types
 
 from schemas.transfer import TransferState
+from services.observability import error_fields
+
+log = logging.getLogger("telegram")
+TERMINAL_PHASES = {"done", "error", "cancelled"}
 
 
 class TransferProgress(TransferState):
@@ -76,7 +80,12 @@ def megabytes(size: int) -> str:
 
 
 class ProgressReporter:
-    """Edit at most once per interval, without slowing the media transfer."""
+    """Coalesce progress updates and confirm a bounded, ordered terminal update."""
+
+    EDIT_TIMEOUT = 3
+    FINAL_TIMEOUT = 15
+    FINAL_ATTEMPTS = 3
+    RETRY_DELAY = 0.5
 
     def __init__(
         self,
@@ -91,6 +100,9 @@ class ProgressReporter:
         self._last = progress.text()
         self._retry_at = 0.0
         self._task = None
+        self._stop = asyncio.Event()
+        self._editable = True
+        self._failure = {}
         self._clear_buttons_on_exit = clear_buttons_on_exit
         self._buttons_cleared = False
 
@@ -101,36 +113,93 @@ class ProgressReporter:
 
     async def __aexit__(self, *args):
         if self._task is not None:
-            self._task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._task
-            await self._edit()
+            # Let an already-sent edit settle before sending the final text.
+            self._stop.set()
+            await self._task
+            if self.progress.phase in TERMINAL_PHASES:
+                await self._finalize()
+            else:
+                await self._edit()
 
     async def _run(self):
-        while True:
-            await asyncio.sleep(self.interval)
+        while not self._stop.is_set():
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=self.interval)
+                return
+            except TimeoutError:
+                pass
+            if self._stop.is_set():
+                return
             await self._edit()
 
-    async def _edit(self):
+    async def _edit(self, *, deadline=None) -> bool:
         text = self.progress.text()
         clear_buttons = (
             self._clear_buttons_on_exit
             and not self._buttons_cleared
-            and self.progress.phase in {"done", "error", "cancelled"}
+            and self.progress.phase in TERMINAL_PHASES
         )
-        if (text == self._last and not clear_buttons) or time.monotonic() < self._retry_at:
-            return
+        if text == self._last and not clear_buttons:
+            return True
+        if not self._editable or time.monotonic() < self._retry_at:
+            return False
         try:
-            async with asyncio.timeout(3):
+            edit_deadline = time.monotonic() + self.EDIT_TIMEOUT
+            async with asyncio.timeout_at(
+                edit_deadline if deadline is None else min(deadline, edit_deadline)
+            ):
                 options = {"buttons": types.ReplyInlineMarkup(rows=[])} if clear_buttons else {}
                 await self.message.edit(text, parse_mode=None, **options)
             self._last = text
             self._buttons_cleared |= clear_buttons
         except errors.FloodWaitError as error:
-            self._retry_at = time.monotonic() + error.seconds
+            self._failure = error_fields(error)
+            self._retry_at = time.monotonic() + max(0, error.seconds)
+            return False
         except errors.MessageNotModifiedError:
             self._last = text
             self._buttons_cleared |= clear_buttons
-        except (errors.RPCError, TimeoutError, OSError):
-            # A deleted status message or an edit failure must not abort the transfer.
-            pass
+        except Exception as error:
+            # Status failures must not turn an accepted file into a failed transfer.
+            self._failure = error_fields(error)
+            self._editable = isinstance(error, (TimeoutError, OSError, errors.RPCError))
+            if isinstance(error, (errors.BadRequestError, errors.ForbiddenError)):
+                self._editable = False
+            return False
+        self._failure = {}
+        return True
+
+    async def _finalize(self):
+        deadline = time.monotonic() + self.FINAL_TIMEOUT
+        fields = {"transfer_id": self.progress.transfer_id, "phase": self.progress.phase}
+        for attempt in range(self.FINAL_ATTEMPTS):
+            delay = max(0, self._retry_at - time.monotonic())
+            if attempt:
+                delay = max(delay, self.RETRY_DELAY * attempt)
+            if not self._editable or time.monotonic() + delay >= deadline:
+                break
+            if delay:
+                await asyncio.sleep(delay)
+            if await self._edit(deadline=deadline):
+                log.info({"event": "transfer_status_finalized", **fields})
+                return
+            log.warning(
+                {
+                    "event": "transfer_status_retry",
+                    **fields,
+                    "attempt": attempt + 1,
+                    **self._failure,
+                }
+            )
+        log.warning({"event": "transfer_status_unconfirmed", **fields, **self._failure})
+        # A long edit cooldown must not leave an obsolete percentage or stop button.
+        delete = getattr(self.message, "delete", None)
+        if delete is not None:
+            try:
+                async with asyncio.timeout(self.EDIT_TIMEOUT):
+                    await delete()
+                log.info({"event": "transfer_status_removed", **fields})
+            except Exception as error:
+                log.warning(
+                    {"event": "transfer_status_cleanup_failed", **fields, **error_fields(error)}
+                )

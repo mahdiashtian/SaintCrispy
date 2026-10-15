@@ -109,3 +109,178 @@ async def test_edit_flood_wait_does_not_delay_or_fail_the_transfer():
     progress.phase = "done"
     await reporter._edit()
     assert len(calls) == 1
+
+
+async def test_terminal_status_retries_a_temporary_edit_failure():
+    calls = []
+    progress = TransferProgress()
+
+    async def edit(text, **options):
+        calls.append((text, options))
+        if len(calls) == 1:
+            raise OSError("connection reset")
+
+    async with ProgressReporter(SimpleNamespace(edit=edit), progress, clear_buttons_on_exit=True):
+        progress.phase = "done"
+    assert len(calls) == 2
+    assert all(text == progress.text() for text, _ in calls)
+    assert calls[-1][1]["buttons"].rows == []
+
+
+async def test_terminal_status_waits_for_the_existing_short_edit_cooldown():
+    calls = []
+    progress = TransferProgress()
+
+    async def edit(text, **options):
+        calls.append(text)
+        if len(calls) == 1:
+            error = errors.FloodWaitError(request=None, capture=1)
+            error.seconds = 0.02
+            raise error
+
+    async with ProgressReporter(SimpleNamespace(edit=edit), progress) as reporter:
+        progress.phase = "external"
+        await reporter._edit()
+        progress.phase = "done"
+    assert calls == [TransferProgress(phase="external").text(), progress.text()]
+
+
+async def test_exit_finishes_inflight_edit_before_publishing_terminal_status():
+    editing, release = asyncio.Event(), asyncio.Event()
+    applied, cancelled = [], []
+    progress = TransferProgress()
+
+    async def edit(text, **options):
+        if not applied:
+            editing.set()
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                cancelled.append(text)
+                raise
+        applied.append(text)
+
+    reporter = ProgressReporter(SimpleNamespace(edit=edit), progress, interval=0.001)
+    await reporter.__aenter__()
+    progress.phase = "external"
+    await asyncio.wait_for(editing.wait(), 1)
+    progress.phase = "done"
+    closing = asyncio.create_task(reporter.__aexit__(None, None, None))
+    await asyncio.sleep(0)
+    release.set()
+    await asyncio.wait_for(closing, 1)
+    assert not cancelled
+    assert applied == [TransferProgress(phase="external").text(), progress.text()]
+    assert reporter._task.done()
+
+
+@pytest.mark.parametrize("phase", ["done", "error", "cancelled"])
+async def test_long_edit_cooldown_removes_stale_status_without_retrying_early(phase, caplog):
+    edits, deleted = [], []
+    progress = TransferProgress()
+
+    async def edit(text, **options):
+        edits.append(text)
+        raise errors.FloodWaitError(request=None, capture=600)
+
+    async def delete():
+        deleted.append(True)
+
+    async with ProgressReporter(SimpleNamespace(edit=edit, delete=delete), progress) as reporter:
+        progress.phase = "streaming"
+        await reporter._edit()
+        progress.phase = phase
+    assert len(edits) == 1 and deleted == [True]
+    assert any(record.msg["event"] == "transfer_status_unconfirmed" for record in caplog.records)
+
+
+async def test_permanent_edit_failure_does_not_retry_or_fail_the_file():
+    calls = []
+
+    async def edit(text, **options):
+        calls.append("edit")
+        raise errors.MessageIdInvalidError(request=None)
+
+    async def delete():
+        calls.append("delete")
+
+    progress = TransferProgress()
+    async with ProgressReporter(SimpleNamespace(edit=edit, delete=delete), progress):
+        progress.phase = "done"
+    assert calls == ["edit", "delete"]
+
+
+async def test_unreachable_telegram_has_bounded_retries_and_safe_cleanup_logs(monkeypatch, caplog):
+    calls = []
+    secret = "signed-url-and-session-must-not-be-logged"
+
+    async def edit(text, **options):
+        calls.append("edit")
+        raise OSError(secret)
+
+    async def delete():
+        calls.append("delete")
+        raise OSError(secret)
+
+    monkeypatch.setattr(ProgressReporter, "RETRY_DELAY", 0)
+    progress = TransferProgress()
+    async with ProgressReporter(SimpleNamespace(edit=edit, delete=delete), progress):
+        progress.phase = "done"
+    assert calls == ["edit", "edit", "edit", "delete"]
+    assert secret not in caplog.text
+    assert any(record.msg["event"] == "transfer_status_cleanup_failed" for record in caplog.records)
+
+
+async def test_terminal_edit_timeout_retries_and_leaves_no_running_task(monkeypatch):
+    calls = []
+
+    async def edit(text, **options):
+        calls.append(text)
+        if len(calls) == 1:
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(ProgressReporter, "EDIT_TIMEOUT", 0.01)
+    monkeypatch.setattr(ProgressReporter, "RETRY_DELAY", 0)
+    progress = TransferProgress()
+    async with ProgressReporter(SimpleNamespace(edit=edit), progress) as reporter:
+        progress.phase = "done"
+    assert calls == [progress.text(), progress.text()]
+    assert reporter._task.done()
+
+
+async def test_already_applied_terminal_text_is_accepted_and_clears_stop_buttons():
+    async def edit(text, **options):
+        assert options["buttons"].rows == []
+        raise errors.MessageNotModifiedError(request=None)
+
+    progress = TransferProgress()
+    async with ProgressReporter(
+        SimpleNamespace(edit=edit), progress, clear_buttons_on_exit=True
+    ) as reporter:
+        progress.phase = "done"
+    assert reporter._last == progress.text() and reporter._buttons_cleared
+
+
+async def test_thousand_terminal_reporters_finalize_independently():
+    started, release = asyncio.Event(), asyncio.Event()
+    active = 0
+
+    async def edit(text, **options):
+        nonlocal active
+        active += 1
+        if active == 1000:
+            started.set()
+        await release.wait()
+
+    async def finish():
+        progress = TransferProgress()
+        async with ProgressReporter(SimpleNamespace(edit=edit), progress) as reporter:
+            progress.phase = "done"
+        assert reporter._task.done()
+
+    tasks = [asyncio.create_task(finish()) for _ in range(1000)]
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+    finally:
+        release.set()
+        await asyncio.gather(*tasks)

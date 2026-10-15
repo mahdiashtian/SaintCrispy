@@ -109,48 +109,51 @@ async def handle_quality(
 
 
 async def run_transfer(event, service, menu, index, status, progress, conversations=None) -> None:
-    async with ProgressReporter(status, progress, clear_buttons_on_exit=True):
-        try:
-            peer = await event.get_input_chat()
-            with user_request(
-                event.sender_id, event.chat_id, progress.transfer_id, menu.message_id
-            ):
-                await service.deliver(peer, menu.media, menu.media.qualities[index], progress)
-        except asyncio.CancelledError:
-            progress.phase = "cancelled"
-            if conversations:
-                await conversations.finish_transfer(
-                    event.sender_id,
-                    event.chat_id,
-                    progress.transfer_id,
-                    ConversationState.CANCELLED,
+    try:
+        async with ProgressReporter(status, progress, clear_buttons_on_exit=True):
+            try:
+                peer = await event.get_input_chat()
+                with user_request(
+                    event.sender_id, event.chat_id, progress.transfer_id, menu.message_id
+                ):
+                    await service.deliver(peer, menu.media, menu.media.qualities[index], progress)
+                progress.phase = "done"
+            except asyncio.CancelledError:
+                progress.phase = "cancelled"
+                raise
+            except DownloadError as error:
+                progress.error = str(error)
+            except errors.FloodWaitError as error:
+                progress.error = (
+                    f"تلگرام محدودیت موقت اعمال کرده؛ {error.seconds} ثانیه بعد امتحان کن."
                 )
-            raise
-        except DownloadError as error:
-            progress.error = str(error)
-        except errors.FloodWaitError as error:
-            progress.error = f"تلگرام محدودیت موقت اعمال کرده؛ {error.seconds} ثانیه بعد امتحان کن."
-        except asyncpg.PostgresError:
-            progress.error = "پایگاه داده در دسترس نیست؛ درخواست را کمی بعد تکرار کن."
-        except (httpx.HTTPError, TimeoutError, errors.RPCError):
-            progress.error = "ارسال فایل کامل نشد؛ درخواست را دوباره امتحان کن."
-        except Exception as error:
-            log.error(
-                {
-                    "event": "transfer_handler_failed",
-                    "transfer_id": progress.transfer_id,
-                    **error_fields(error),
-                }
-            )
-            progress.error = "انتقال به علت خطای داخلی کامل نشد؛ دوباره امتحان کن."
-        if progress.error:
-            progress.phase = "error"
-            if status is None:
-                await event.respond(progress.error, parse_mode=None, reply_to=menu.message_id)
+            except asyncpg.PostgresError:
+                progress.error = "پایگاه داده در دسترس نیست؛ درخواست را کمی بعد تکرار کن."
+            except (httpx.HTTPError, TimeoutError, errors.RPCError):
+                progress.error = "ارسال فایل کامل نشد؛ درخواست را دوباره امتحان کن."
+            except Exception as error:
+                log.error(
+                    {
+                        "event": "transfer_handler_failed",
+                        "transfer_id": progress.transfer_id,
+                        **error_fields(error),
+                    }
+                )
+                progress.error = "انتقال به علت خطای داخلی کامل نشد؛ دوباره امتحان کن."
+            if progress.error:
+                progress.phase = "error"
+                if status is None:
+                    await event.respond(progress.error, parse_mode=None, reply_to=menu.message_id)
+    finally:
+        # Final status precedes conversation persistence, including cancellation.
         if conversations:
+            state = (
+                ConversationState.CANCELLED
+                if progress.phase == "cancelled"
+                else ConversationState.FAILED
+                if progress.error
+                else ConversationState.DONE
+            )
             await conversations.finish_transfer(
-                event.sender_id,
-                event.chat_id,
-                progress.transfer_id,
-                ConversationState.FAILED if progress.error else ConversationState.DONE,
+                event.sender_id, event.chat_id, progress.transfer_id, state
             )

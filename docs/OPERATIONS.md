@@ -453,6 +453,36 @@ python tools/summarize_logs.py 'logs/performance.jsonl*'
 
 `metrics_interval` and `runtime_stopped` report queue drops/write failures; `application_log_streams` reports the same counters separately for the other three streams. Host network counters include traffic from other host processes. Payload download/upload counters belong to the bot. Telegram's direct URL fetch occurs on Telegram's network, so its download duration/bytes cannot be measured as local payload traffic. A forced kill can lose queued logs; graceful SIGTERM/Ctrl+C drains them.
 
+## Transfer status messages
+
+All providers use the same progress reporter. Successful publication ends with
+the completed status and removes the stop keyboard. Conversation-state persistence
+runs afterward. The reporter drains its current edit before finalizing, so a
+previous progress edit is not deliberately cancelled during normal completion.
+
+Terminal edits get at most three attempts in a 15-second budget; each edit has a
+three-second deadline. Short Telegram edit cooldowns are honored. A longer cooldown
+or an edit that remains unavailable triggers a bounded attempt to delete the stale
+status instead of leaving an obsolete percentage. This only affects the progress
+message; the downloaded media is never sent again to repair the status. Permission
+loss or a Telegram outage can prevent deletion too, in which case the failure is
+recorded. There is no detached retry task or unbounded finalization queue.
+
+Inspect these events in `logs/telegram.log`, correlated by `transfer_id`:
+
+| Event | Meaning |
+| --- | --- |
+| `transfer_status_finalized` | Telegram accepted the terminal text/keyboard, or reported it already applied |
+| `transfer_status_retry` | A terminal edit was not confirmed; includes safe error identity and attempt number |
+| `transfer_status_unconfirmed` | The edit budget/cooldown/permanent failure prevented confirmation |
+| `transfer_status_removed` | The obsolete progress message was deleted successfully |
+| `transfer_status_cleanup_failed` | Telegram also rejected/timed out deleting the old status |
+
+These events describe the status message. Use `transfer_finished` for the media
+transfer result, byte counts and timings. Updating this code repairs future
+transfers after restarting Python; it does not recover previously orphaned status
+messages whose identifiers were not retained by the running reporter.
+
 ## Origin checks on the deployment server
 
 Incoming link handlers are capped before database admission. Configure
