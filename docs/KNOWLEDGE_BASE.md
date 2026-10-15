@@ -97,6 +97,10 @@ source. Different POST envelopes and document IDs are distinct methods, not alia
 | October 15 public DNS and HTTP/3, guest only | Corrected DNS over TCP still timed out; HTTP/3 returned HTTP 200 generic HTML, but neither page nor embed exposed media | HTTP 200 is connectivity evidence, not extraction success |
 | Instaloader 4.15.4 and current project queries on the HTTP/3 route | Instaloader's native TCP request timed out; its request through HTTP/3 returned `execution error`/no media. Current root, web and shortcode requests also failed | A documented origin/query/connection change; swapping to Instaloader alone is not a verified fix |
 | Fresh post LSD, matching browser UA, guest mobile REST and Relay action envelope | Post token/UA changes did not recover GraphQL; mobile REST returned 404; web REST returned HTML; action Relay returned 401 | Do not ship guessed query IDs, call HTML a media response, or repeat these unchanged methods |
+| Later October 15 fresh guest browser on exact reel | Real browser rendered an owner-set under-15 content restriction, without a playable video. This establishes a post-specific guest restriction on this connection, beyond earlier transport failures | Do not call all Instagram media broken or infer the user/creator's actual age |
+| Anonymous public resolver, followed by original Instagram CDN | `dwnld.nichind.dev` returned an original CDN URL for the exact shortcode. HTTP/3/DoH consumed 1,468,542 bytes, 11.7 s, with audio; SHA-256 exactly matched the October 14 successful same-input audit | This is a third-party resolver dependency; it is not direct native GraphQL success or proof that every public service works |
+| Native provider with anonymous resolver fallback and default network configuration | Fresh inspection, selected-quality resolution and project full-stream validation succeeded on this workstation; automatic HTTP/3 CDN recovery was required. Repeated final check completed in 59.417 s, transfer in 2.698 s | Preserve identity/CDN/duration checks, provider scope, bounded retries and admission. Never forward cookies, stories or private share tokens to the resolver |
+| Curl streaming queue/early-close behavior | Upstream async streaming queues body chunks without a consumer cap and close waits for EOF. Added a 256 KiB Python receive window, libcurl pause/replay, early cancellation and pre-header cancellation cleanup | Keep slow-consumer/full-byte/reused-handle/cancellation regressions when upgrading curl-cffi; the Python queue bound is not a total native-memory guarantee |
 
 Authenticated media-info responses may omit the shortcode. Accept only an exact
 numeric identity match, including the known `POLARIS_`/owner-ID wrappers. Reject
@@ -113,8 +117,8 @@ extraction, source sampling and full transfer.
 The operator explicitly requires **anonymous access only** for the current recovery
 investigation. Do not ask for or use account cookies as its solution. The October 15
 [guest transport comparison](YOUTUBE_INSTAGRAM_ACCESS.md#anonymous-github-library-and-transport-comparison-october-15)
-records complete YouTube evidence, fresh-extraction failures and the still unresolved
-Instagram input. Provider/account configuration supported by older deployments is
+records complete YouTube evidence, fresh-extraction failures and the later successful
+Instagram resolver path. Provider/account configuration supported by older deployments is
 not evidence that any credentials were used in these tests.
 
 Failed bootstraps are coalesced for ten seconds rather than repeated by every

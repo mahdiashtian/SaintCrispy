@@ -25,8 +25,10 @@ from bot.progress import TransferProgress
 from bot.transfers.integrity import require_duration, validated_mp4
 from bot.transfers.streaming import media_chunks, upload_stream
 from core.dns_tunnel import configured_proxy
+from core.source_http import source_http
 from downloader_bot.downloaders.instagram.client import InstagramClient, instagram_session
 from downloader_bot.downloaders.instagram.downloader import InstagramDownloader
+from downloader_bot.downloaders.instagram.urls import DEFAULT_RESOLVER as INSTAGRAM_RESOLVER
 from downloader_bot.downloaders.pinterest.client import PinterestClient
 from downloader_bot.downloaders.pinterest.downloader import PinterestDownloader
 from downloader_bot.downloaders.soundcloud.client import SoundCloudClient
@@ -143,9 +145,11 @@ async def check_quality(provider, media, quality, args):
                 expected_media_seconds=source.duration,
                 telegram_url_candidate=source.protocol == "progressive" and not source.audio_url,
             )
-            async with httpx.AsyncClient(
-                proxy=source.proxy or None, trust_env=False, timeout=20
-            ) as http:
+            async with AsyncExitStack() as transfer_stack:
+                default_http = await transfer_stack.enter_async_context(
+                    httpx.AsyncClient(trust_env=False, timeout=20)
+                )
+                http = await transfer_stack.enter_async_context(source_http(default_http, source))
                 row.update(
                     await sample_source(
                         http,
@@ -285,6 +289,7 @@ async def audit(args):
                     shortcode_doc_id=os.environ.get("INSTAGRAM_SHORTCODE_DOC_ID")
                     or "27128499623469141",
                     web_doc_id=os.environ.get("INSTAGRAM_WEB_DOC_ID") or "27830990013244856",
+                    resolver_url=os.environ.get("INSTAGRAM_RESOLVER_URL", INSTAGRAM_RESOLVER),
                 )
             ),
             "pinterest": PinterestDownloader(PinterestClient(sessions["pinterest"])),

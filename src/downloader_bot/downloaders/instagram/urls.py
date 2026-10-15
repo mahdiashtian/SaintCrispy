@@ -1,5 +1,7 @@
 import re
 
+DEFAULT_RESOLVER = "https://dwnld.nichind.dev"
+
 PAGE_HOSTS = {"m.instagram.com", "www.instagram.com", "i.instagram.com", "instagram.com"}
 
 

@@ -29,6 +29,8 @@ coverage.xml
 .research/
 .runtime/
 .local-docs/
+.playwright-cli/
+output/playwright/
 /*.md
 !/README.md
 !/AGENTS.md

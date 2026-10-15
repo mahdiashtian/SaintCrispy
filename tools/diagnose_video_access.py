@@ -133,6 +133,7 @@ async def configuration():
             "proxy_configured": bool(os.environ.get("INSTAGRAM_PROXY")),
             "doh_configured": bool(os.environ.get("INSTAGRAM_DOH_URL")),
             "http3_requested": os.environ.get("INSTAGRAM_HTTP_VERSION") == "3",
+            "public_resolver_enabled": bool(os.environ.get("INSTAGRAM_RESOLVER_URL", "default")),
         },
     }
 

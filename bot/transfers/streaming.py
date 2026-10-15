@@ -9,6 +9,7 @@ from telethon import functions, helpers, types
 
 from bot.progress import TransferProgress
 from bot.transfers.integrity import require_duration
+from core.source_http import source_http
 from schemas.media import DownloadError, Quality, Source
 from services.limits import check_file_size
 from services.observability import current_transfer, timed
@@ -19,15 +20,7 @@ READ_SIZE = 64 * 1024
 
 async def source_size(http: httpx.AsyncClient, source: Source) -> int | None:
     """Inspect response headers only; never buffer a media body to find its size."""
-    async with AsyncExitStack() as stack:
-        if source.proxy is not None:
-            http = await stack.enter_async_context(
-                httpx.AsyncClient(
-                    proxy=source.proxy or None,
-                    trust_env=False,
-                    timeout=30,
-                )
-            )
+    async with source_http(http, source) as http:
         headers = {**source.headers, "Accept-Encoding": "identity"}
         for method in ("HEAD", "GET"):
             options = headers if method == "HEAD" else {**headers, "Range": "bytes=0-0"}
@@ -176,15 +169,7 @@ async def _media_chunks(
     remux_progressive: bool = False,
 ) -> AsyncIterator[bytes]:
     if source.protocol == "progressive" and not remux_progressive:
-        async with AsyncExitStack() as stack:
-            if source.proxy is not None:
-                http = await stack.enter_async_context(
-                    httpx.AsyncClient(
-                        proxy=source.proxy or None,
-                        trust_env=False,
-                        timeout=30,
-                    )
-                )
+        async with source_http(http, source) as http:
             async with aclosing(progressive_chunks(http, source, progress)) as chunks:
                 async for chunk in chunks:
                     yield chunk

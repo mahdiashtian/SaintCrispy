@@ -60,6 +60,14 @@ class InstagramDownloader(Downloader):
                         "رسانه کامل و قابل دریافت برای این پست پیدا نشد.",
                         code="instagram_no_playable_format",
                     )
+                if any(fmt.quality.key.endswith("_mp4_resolver") for fmt in formats):
+                    self._resolution_cache[(client, media.content_id)] = (
+                        time.monotonic() + 15,
+                        media,
+                        formats,
+                    )
+                    while len(self._resolution_cache) > 128:
+                        self._resolution_cache.popitem(last=False)
                 return replace(
                     media, qualities=tuple(f.quality for f in available), account_id=account_id
                 )
@@ -187,6 +195,11 @@ class InstagramDownloader(Downloader):
                     source,
                     headers=client.source_headers(media.page_url),
                     proxy=client.proxy or None,
+                    **(
+                        client.source_profile(source.url)
+                        if source.protocol == "progressive"
+                        else {}
+                    ),
                 ),
             )
         except SiteHTTPError as error:

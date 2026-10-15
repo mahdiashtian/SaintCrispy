@@ -24,6 +24,7 @@ from db.postgres.engine import Database
 from db.redis.pool import create_redis
 from downloader_bot.downloaders.instagram.client import InstagramClient, instagram_session
 from downloader_bot.downloaders.instagram.downloader import InstagramDownloader
+from downloader_bot.downloaders.instagram.urls import DEFAULT_RESOLVER as INSTAGRAM_RESOLVER
 from downloader_bot.downloaders.pinterest.client import PinterestClient
 from downloader_bot.downloaders.pinterest.downloader import PinterestDownloader
 from downloader_bot.downloaders.router import DownloaderRouter
@@ -189,6 +190,7 @@ class Container:
                 root_doc_id=os.environ.get("INSTAGRAM_ROOT_DOC_ID", "27130156389949648"),
                 shortcode_doc_id=os.environ.get("INSTAGRAM_SHORTCODE_DOC_ID", "27128499623469141"),
                 web_doc_id=os.environ.get("INSTAGRAM_WEB_DOC_ID") or "27830990013244856",
+                resolver_url=os.environ.get("INSTAGRAM_RESOLVER_URL", INSTAGRAM_RESOLVER),
             )
 
         instagram_accounts = {}

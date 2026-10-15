@@ -4,18 +4,29 @@ import logging
 import os
 import re
 import time
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from http.cookies import SimpleCookie
 from urllib.parse import urljoin, urlsplit
 
 import httpx
 from curl_cffi import CurlHttpVersion, CurlOpt
-from curl_cffi.requests import AsyncSession
 from curl_cffi.requests.exceptions import RequestException
 
-from schemas.media import DownloadError, SiteHTTPError
+from core.bounded_curl import BoundedSession as AsyncSession
+from core.source_http import source_http
+from schemas.media import DownloadError, SiteHTTPError, Source
 
-from .parser import cdn_url, content_path, find_media, media_id, page_media, validate_page_url
+from .parser import (
+    cdn_url,
+    content_path,
+    find_media,
+    media_id,
+    mp4_duration,
+    mp4_info,
+    page_media,
+    validate_page_url,
+)
 
 HEADERS = {
     "User-Agent": (
@@ -156,11 +167,27 @@ class InstagramClient:
         root_doc_id: str = "27130156389949648",
         shortcode_doc_id: str = "27128499623469141",
         web_doc_id: str = "27830990013244856",
+        resolver_url: str = "",
     ):
         self.http = http
         self.cookie = cookie
         validate_proxy(proxy)
         self.proxy = proxy
+        if resolver_url:
+            parsed = urlsplit(resolver_url)
+            if (
+                parsed.scheme != "https"
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+            ):
+                raise ValueError("Instagram resolver must be an HTTPS endpoint without credentials")
+            if parsed.query or parsed.fragment:
+                raise ValueError("Instagram resolver must not contain a query or fragment")
+        self.resolver_url = resolver_url.rstrip("/")
+        self._resolver_until = 0.0
+        self._resolver_slots = asyncio.Semaphore(2)
+        self._http3_sources = OrderedDict()
         if cookie and ("\r" in cookie or "\n" in cookie):
             raise ValueError("INSTAGRAM_COOKIE must be one HTTP Cookie header line")
         if cookie:
@@ -196,12 +223,110 @@ class InstagramClient:
         return {"User-Agent": HEADERS["User-Agent"], "Referer": page_url}
 
     async def content(self, url: str) -> tuple[dict, str, str]:
+        kind, code = content_path(url)
+        fallback = bool(
+            self.resolver_url and not self.cookie and kind == "post" and len(code) <= 14
+        )
         try:
-            return await self._content(url)
-        except TimeoutError as error:
-            raise DownloadError(
+            async with asyncio.timeout(35 if fallback else 60):
+                return await self._content(url)
+        except SiteHTTPError as error:
+            if error.status == 429:
+                raise
+            failure = error
+        except DownloadError as error:
+            failure = error
+        except TimeoutError:
+            failure = DownloadError(
                 "دریافت اطلاعات اینستاگرام روی اتصال ربات طولانی شد؛ کمی بعد امتحان کن.",
                 code="instagram_extraction_timeout",
+            )
+        if fallback:
+            try:
+                return await self._resolve_public(code, reel="/reel" in urlsplit(url).path)
+            except DownloadError as error:
+                log.warning({"event": "instagram_resolver_failed", "error_code": error.code})
+        raise failure
+
+    async def _resolve_public(self, code, *, reel=False):
+        """An independent anonymous resolver receives only a canonical public URL."""
+        if time.monotonic() < self._resolver_until:
+            raise DownloadError(code="instagram_resolver_cooldown")
+        page = f"https://www.instagram.com/p/{code}/"
+        requested = f"https://www.instagram.com/reel/{code}/" if reel else page
+        stage = "metadata"
+        try:
+            async with self._resolver_slots, asyncio.timeout(25):
+                async with httpx.AsyncClient(trust_env=False, timeout=10) as resolver:
+                    async with resolver.stream(
+                        "POST",
+                        self.resolver_url + "/",
+                        json={"url": requested, "downloadMode": "auto"},
+                        headers={"Accept": "application/json", "Content-Type": "application/json"},
+                    ) as response:
+                        if response.status_code == 429:
+                            self._resolver_until = time.monotonic() + 60
+                        response.raise_for_status()
+                        body = bytearray()
+                        async for chunk in response.aiter_bytes(8192):
+                            body.extend(chunk)
+                            if len(body) > 1024 * 1024:
+                                raise ValueError
+                stage = "response"
+                data = json.loads(body)
+                if not isinstance(data, dict) or data.get("status") != "redirect":
+                    raise ValueError
+                filename = data.get("filename")
+                target = cdn_url(data.get("url"))
+                if (
+                    not target
+                    or not isinstance(filename, str)
+                    or len(filename) > 256
+                    or not re.search(
+                        r"(?:^|instagram_|[ /])" + re.escape(code) + r"(?:[._ -]|$)", filename
+                    )
+                ):
+                    raise ValueError
+                stage = "cdn_probe"
+                sample = await self.sample(target, page, metadata=True)
+                width, height, audio = mp4_info(sample)
+                seconds = mp4_duration(sample)
+                if not width or not seconds:
+                    sample = await self.sample(target, page, metadata=True, tail=True)
+                    width, height, audio = mp4_info(sample)
+                    seconds = mp4_duration(sample)
+                stage = "media_metadata"
+                if not width or not height or not seconds or not audio:
+                    raise ValueError
+                node = {
+                    "code": code,
+                    "pk": media_id(code),
+                    "media_type": 2,
+                    "video_duration": seconds,
+                    "has_audio": audio,
+                    "video_versions": [
+                        {"url": target, "width": width, "height": height, "type": "resolver"}
+                    ],
+                }
+                log.info(
+                    {
+                        "event": "instagram_extracted",
+                        "method": "public_resolver",
+                        "content_id": code,
+                    }
+                )
+                return node, page, code
+        except (httpx.HTTPError, TimeoutError, ValueError, RecursionError) as error:
+            log.warning(
+                {
+                    "event": "instagram_resolver_attempt_failed",
+                    "stage": stage,
+                    "error_type": type(error).__name__,
+                }
+            )
+            raise DownloadError(
+                "مسیر عمومی دریافت این پست پاسخ قابل استفاده نداد.",
+                code="instagram_resolver_unavailable",
             ) from error
 
     async def _content(self, url: str) -> tuple[dict, str, str]:
@@ -476,17 +601,49 @@ class InstagramClient:
         self, url: str, page_url: str, *, metadata: bool = False, tail: bool = False
     ) -> bytes:
         limit = 1024 * 1024 if metadata else 1024
-        data, _ = await self._read(
-            url,
-            headers={
+        options = {
+            "headers": {
                 **self.source_headers(page_url),
                 "Range": f"bytes=-{limit}" if tail else f"bytes=0-{limit - 1}",
                 "Accept-Encoding": "identity",
             },
-            cdn=True,
-            sample_limit=limit,
-        )
+            "cdn": True,
+            "sample_limit": limit,
+        }
+        if self._http3_sources.get(url, 0) > time.monotonic():
+            async with source_http(
+                self.http,
+                Source(url, "progressive", proxy=self.proxy or None, **self.source_profile(url)),
+            ) as http:
+                data, _ = await self._read(url, _http=http, **options)
+                return data
+        try:
+            data, _ = await self._read(url, **options)
+        except DownloadError as error:
+            if (
+                error.code != "instagram_connection_failed"
+                or not self.resolver_url
+                or not cdn_url(url)
+            ):
+                raise
+            profile = {"http3": True, "doh_url": "https://dns.google/dns-query"}
+            async with source_http(
+                self.http, Source(url, "progressive", proxy=self.proxy or None, **profile)
+            ) as http:
+                data, _ = await self._read(url, _http=http, **options)
+            self._http3_sources[url] = time.monotonic() + 180
+            self._http3_sources.move_to_end(url)
+            while len(self._http3_sources) > 128:
+                self._http3_sources.popitem(last=False)
         return data
+
+    def source_profile(self, url):
+        alternate = self._http3_sources.get(url, 0) > time.monotonic()
+        return {
+            "http3": alternate or os.environ.get("INSTAGRAM_HTTP_VERSION") == "3",
+            "doh_url": os.environ.get("INSTAGRAM_DOH_URL")
+            or ("https://dns.google/dns-query" if alternate else None),
+        }
 
     async def _read(
         self,
@@ -498,6 +655,7 @@ class InstagramClient:
         data=None,
         cdn: bool = False,
         sample_limit: int = 0,
+        _http=None,
     ) -> tuple[bytes, str]:
         request_headers = {**({} if cdn else HEADERS), **(headers or {})}
         operation = "cdn" if cdn else query_kind(url, data, self)
@@ -514,7 +672,7 @@ class InstagramClient:
                             raise SiteHTTPError(
                                 401, "نشست مجاز اینستاگرام نیازمند ورود یا تأیید دوباره است."
                             )
-                    async with self.http.stream(
+                    async with (_http or self.http).stream(
                         method,
                         url,
                         headers=request_headers,

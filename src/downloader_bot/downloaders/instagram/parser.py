@@ -459,3 +459,29 @@ def mp4_info(data: bytes) -> tuple[int | None, int | None, bool | None]:
         if dimensions and all(dimensions):
             width, height = dimensions
     return width, height, audio
+
+
+def mp4_duration(data: bytes) -> float:
+    start = data.find(b"moov")
+    if start < 4:
+        return 0
+    end = start - 4 + int.from_bytes(data[start - 4 : start], "big")
+    if end > len(data):
+        return 0
+    offset = start + 4
+    while offset + 8 <= end:
+        size = int.from_bytes(data[offset : offset + 4], "big")
+        if size < 8 or offset + size > end:
+            return 0
+        if data[offset + 4 : offset + 8] == b"mvhd":
+            body = data[offset + 8 : offset + size]
+            if not body or body[0] not in (0, 1):
+                return 0
+            at, length = (20, 8) if body[0] == 1 else (12, 4)
+            if len(body) < at + 4 + length:
+                return 0
+            scale = int.from_bytes(body[at : at + 4], "big")
+            ticks = int.from_bytes(body[at + 4 : at + 4 + length], "big")
+            return ticks / scale if scale and ticks != (1 << (8 * length)) - 1 else 0
+        offset += size
+    return 0

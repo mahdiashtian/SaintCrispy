@@ -24,6 +24,7 @@ from downloader_bot.downloaders.instagram.parser import (
     dash_formats,
     find_media,
     media_id,
+    mp4_duration,
     mp4_info,
     page_media,
     read_media,
@@ -1040,3 +1041,114 @@ async def test_bounded_account_attempts_rotate_so_later_healthy_accounts_are_not
     with pytest.raises(DownloadError):
         await provider.inspect(PAGE)
     assert (await provider.inspect(PAGE)).account_id == "healthy"
+
+
+def timed_sample():
+    sample = sample_mp4()
+    movie = bytes(12) + (1000).to_bytes(4, "big") + (11700).to_bytes(4, "big")
+    movie = (len(movie) + 8).to_bytes(4, "big") + b"mvhd" + movie
+    body = movie + sample[len(MP4) + 8 :]
+    return MP4 + (len(body) + 8).to_bytes(4, "big") + b"moov" + body
+
+
+async def test_public_resolver_preserves_identity_and_accepted_snapshot_serves_concurrent_choices(
+    monkeypatch,
+):
+    requests, native_calls = [], []
+    target = "https://scontent.cdninstagram.com/full.mp4"
+    original_client = httpx.AsyncClient
+
+    def resolve(request):
+        requests.append(request)
+        assert json.loads(request.content) == {"url": PAGE, "downloadMode": "auto"}
+        assert "cookie" not in request.headers and "authorization" not in request.headers
+        return httpx.Response(
+            200, json={"status": "redirect", "url": target, "filename": "instagram_Chunk8-jurw.mp4"}
+        )
+
+    async def rejected(url):
+        native_calls.append(url)
+        raise DownloadError("native refused", code="instagram_graphql_unavailable")
+
+    async def sample(url, page, **options):
+        assert url == target
+        return timed_sample()
+
+    async with original_client() as http:
+        client = InstagramClient(http, resolver_url="https://resolver.example")
+        monkeypatch.setattr(client, "_content", rejected)
+        monkeypatch.setattr(client, "sample", sample)
+        monkeypatch.setattr(
+            httpx,
+            "AsyncClient",
+            lambda **options: original_client(transport=httpx.MockTransport(resolve), **options),
+        )
+        provider = InstagramDownloader(client)
+        media = await provider.inspect(PAGE + "?tracking=discarded")
+        assert media.content_id == "Chunk8-jurw" and media.duration == 12
+        sources = await asyncio.gather(
+            *(provider.resolve(media, media.qualities[0]) for _ in range(1000))
+        )
+    assert {source.url for source in sources} == {target}
+    assert all(source.duration == 12 and source.require_audio for source in sources)
+    assert len(native_calls) == len(requests) == 1
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "status": "picker",
+            "url": "https://scontent.cdninstagram.com/full.mp4",
+            "filename": "instagram_Chunk8-jurw.mp4",
+        },
+        {
+            "status": "redirect",
+            "url": "https://evil.example/full.mp4",
+            "filename": "instagram_Chunk8-jurw.mp4",
+        },
+        {
+            "status": "redirect",
+            "url": "https://scontent.cdninstagram.com/full.mp4",
+            "filename": "instagram_AnotherCode.mp4",
+        },
+    ],
+)
+async def test_public_resolver_rejects_other_identity_and_non_origin_downloads(
+    monkeypatch, payload
+):
+    original_client = httpx.AsyncClient
+    async with original_client() as http:
+        client = InstagramClient(http, resolver_url="https://resolver.example")
+        monkeypatch.setattr(
+            httpx,
+            "AsyncClient",
+            lambda **options: original_client(
+                transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload)),
+                **options,
+            ),
+        )
+        with pytest.raises(DownloadError) as failure:
+            await client._resolve_public("Chunk8-jurw")
+    assert failure.value.code == "instagram_resolver_unavailable"
+
+
+async def test_origin_throttle_does_not_trigger_public_resolver(monkeypatch):
+    async def limited(url):
+        raise SiteHTTPError(429, "rate limited")
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("Origin throttling must stop alternatives")
+
+    async with httpx.AsyncClient() as http:
+        client = InstagramClient(http, resolver_url="https://resolver.example")
+        monkeypatch.setattr(client, "_content", limited)
+        monkeypatch.setattr(client, "_resolve_public", forbidden)
+        with pytest.raises(SiteHTTPError):
+            await client.content(PAGE)
+
+
+def test_resolver_movie_duration_is_read_from_a_bounded_complete_header():
+    assert mp4_duration(timed_sample()) == 11.7
+    assert mp4_duration(timed_sample()[:-1]) == 0
+    assert mp4_duration(bytes(20)) == 0

@@ -476,3 +476,81 @@ and host/port refusal, oversized responses, subprocess resolver restoration and
 opaque tunnel shutdown. No load claim about 1,000 successful origin extractions
 per second follows from these checks; origin throttling remains independent of
 application admission/concurrency limits.
+
+## Later October 15: guest browser diagnosis and working Instagram fallback
+
+A fresh isolated Playwright/Edge context imported no browser profile, account or
+cookies. With public DNS and HTTP/3, the exact reel rendered an owner-set content
+restriction for viewers under 15, with no video element. The browser's live
+requests used experiment/promotion queries, rather than exposing an alternative
+working media query. The same fresh-browser test on the exact YouTube URL returned
+`LOGIN_REQUIRED` / the bot-confirmation message, without playable formats. This
+distinguishes origin responses from a Python parsing failure; it does not establish
+the viewer's actual age or prove the media cannot be obtained on another route.
+
+Compared the anonymous service flow in [Inoue's SDK](https://github.com/Inoue-AI/Inoue-AI-Content-Downloader-SDK)
+and [pybalt](https://github.com/nichind/pybalt). sssinstagram timed out, SnapSave's
+current homepage offered Facebook rather than the reviewed old Instagram flow,
+and SnapInsta remained behind a security-verification page in the fresh browser.
+No challenge was solved, no third-party API key was used and no failed service was
+added to a retry loop. The Cobalt registry hostname did not resolve here.
+
+The public pybalt-compatible endpoint `https://dwnld.nichind.dev/` accepted an
+anonymous Instagram request and returned a direct **original Instagram CDN** URL
+whose filename identified `DeR9eU8idi0`. The regular CDN TCP route, including
+corrected DNS, timed out. HTTP/3/DoH succeeded:
+
+| Verification | Result |
+| --- | --- |
+| Complete bytes, consumed to EOF with required audio | 1,468,542 |
+| Measured duration against rounded 12 s | 11.700 s |
+| SHA-256 | `6f7cac9c0533c86e8d1fdfe3439bee9bca49d33682c0d5cd1614b0fa1dfbc150` |
+| Identity cross-check | Exact byte hash matches the October 14 independent same-reel result |
+| First isolated HTTP/3 full transfer | 2.373 s |
+| Final native provider inspect/resolve/full verification | Passed, 59.417 s total; 2.698 s transfer |
+
+The final native run cleared Instagram cookies/proxy/transport settings in its
+own subprocess and used normal project composition choices: native inspection,
+bounded public resolver fallback, original-CDN probing, selected-quality resolution
+and full project integrity validation. It used the new bounded curl transport.
+It published no Telegram message and retained no complete media on disk.
+
+The fallback is provider-owned and only runs for short canonical public post/reel
+identities in guest mode after native failure. Native HTTP 429 stops alternatives.
+It never receives account cookies, stories, tracking parameters or private share
+tokens. Returned URLs must be HTTPS on Instagram's CDN, with a matching shortcode
+filename. A complete bounded MP4 header must establish dimensions, duration and
+audio before exposing a choice. Arbitrary proxy/tunnel URLs, wrong identities,
+picker/carousel responses and incomplete/silent headers are rejected. This path
+currently exposes the one complete MP4 returned by the resolver; it does not
+invent the full native DASH/rendition catalog.
+
+The accepted resolver snapshot is retained briefly so the first callback does not
+repeat the rejected native extraction. Every selection still checks the CDN;
+invalid/expired sources refresh once under the existing bounded cache. A regression
+test resolves 1,000 concurrent choices from that snapshot with one resolver call.
+This is coalescing evidence, not a claim that the external service accepts 1,000
+distinct extraction requests per second.
+
+CDN transport recovery carries its HTTP/3/DoH profile into generic size probing and
+full progressive transfer. No Instagram account jar is copied into that transfer
+session. Curl now pauses receipt at a 256 KiB Python body-buffer window, replays
+paused bytes once, and cancels early-close/pre-header requests without waiting for
+the entire file. Local real-HTTP tests verify slow-consumer bounds, complete byte
+hashes across handle reuse and cancellation. Native libcurl/QUIC/OS buffers remain
+additional memory, independent of the Python window. See the upstream
+[pause contract](https://curl.se/libcurl/c/curl_easy_pause.html).
+
+Fresh YouTube extraction is still under investigation. Additional changed-method
+checks (TV Samsung without web/config bootstrap; HTTP/3/browser transport; the
+public resolver's audio/auto modes) did not recover it. Invidious's listed API-enabled
+instance returned HTTP 500 without formats. Three documented Piped API instances
+returned 502, 500/no streams, or a redirect without JSON. These failed methods were
+not added as production fallbacks. The earlier complete YouTube transfers remain
+valid dated evidence, not proof that fresh extraction now works.
+
+Validation of this Instagram/transport batch: the complete workstation suite passed
+with **858 passed, 18 skipped** (external/dedicated-service opt-in cases were not
+configured). Ruff lint/format checks and diff whitespace checks passed. All six
+provider boundaries remain intact; no provider implementation was shared. The
+live success above is original-CDN full consumption, not Telegram delivery.

@@ -35,6 +35,26 @@ interpretation and the unresolved session/route conditions.
 
 ## Optional guest network profiles
 
+Instagram's anonymous public-post fallback is enabled in application composition
+by default. `INSTAGRAM_RESOLVER_URL=https://dwnld.nichind.dev` selects the tested
+public Cobalt-compatible service; set the variable to an empty value to disable it,
+or to your own compatible HTTPS endpoint. Only the canonical public URL is sent,
+without account cookies. Third-party availability and quotas remain external
+dependencies. Native HTTP 429 stops fallback; resolver 429 has a cooldown.
+
+The reported reel passed complete native-project verification through this
+fallback, including its original CDN, actual dimensions, 11.7-second duration,
+required audio and the exact historical file hash. This fallback exposes one
+verified progressive MP4 when native discovery is refused. It does not represent
+a full native quality catalog or support arbitrary carousel responses. The first
+callback reuses its short validated snapshot and still checks the CDN.
+
+When that CDN's TCP connection fails, the provider can recover with HTTP/3 and
+public DoH; the selected profile is carried into full progressive download and
+size probing. It does not change host DNS, database ports or account sessions.
+The curl transfer session has a bounded Python receive window and early-close
+cancellation. No account cookie jar is copied to it.
+
 Leave these settings empty/default on connections that already work. The October
 15 workstation investigation found non-global system DNS answers and a separate
 Instagram TCP/TLS failure. These opt-in settings address those transport conditions
@@ -76,9 +96,9 @@ The diagnostic reports profile-presence booleans without printing endpoint value
 credentials or signed URLs. The network check establishes only receipt of headers;
 the live check attempts complete downloads and may fail at origin access. These
 settings produced complete transfers of the reported YouTube video/audio from
-accepted sources, but subsequent fresh extraction was challenged. Instagram's page
-became reachable while guest extraction still failed. Do not deploy these as a
-claimed universal login/403 fix or repeatedly run live tests under unchanged
+accepted sources, but subsequent fresh extraction was challenged. The later
+Instagram resolver route recovered the exact guest reel as described above.
+Do not deploy these as a claimed universal login/403 fix or repeatedly run live tests under unchanged
 conditions. See the [dated evidence](YOUTUBE_INSTAGRAM_ACCESS.md#anonymous-github-library-and-transport-comparison-october-15).
 
 ## Reference-layout and runtime recovery

@@ -200,8 +200,18 @@ For guest connections with filtered DNS or blocked TCP, optional `YOUTUBE_DOH_UR
 [operations](docs/OPERATIONS.md#optional-guest-network-profiles). They preserve
 provider isolation and do not log in. The October 15 workstation test received the
 complete reported YouTube video/audio, but later fresh extraction was challenged;
-the reported Instagram input remains unresolved there. Page connectivity alone is
+the reported Instagram input subsequently passed through the anonymous resolver
+fallback and original CDN. Page connectivity alone is
 not download success. See the [guest comparison evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md#anonymous-github-library-and-transport-comparison-october-15).
+
+Instagram's guest fallback uses the tested public Cobalt-compatible endpoint in
+`INSTAGRAM_RESOLVER_URL` after native failure. An empty value disables it; an
+operator-owned compatible HTTPS endpoint can replace it. Only canonical public
+post/reel URLs are sent, without cookies. Returned original-CDN MP4s must identify
+the shortcode and pass dimension/duration/audio checks. The fallback currently
+offers one verified progressive MP4; native discovery remains responsible for the
+full catalog. HTTP/3 CDN recovery is also retained for the full transfer. Public
+service availability and quotas are separate from the bot's concurrency limits.
 
 ## Data and concurrency model
 

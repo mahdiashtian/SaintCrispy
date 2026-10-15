@@ -47,6 +47,8 @@ class Source:
     duration: float | None = None
     input_protocol: str | None = None
     audio_protocol: str | None = None
+    http3: bool = False
+    doh_url: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
