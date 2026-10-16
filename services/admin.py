@@ -35,6 +35,46 @@ class AdminService:
     ):
         self.repository, self.uow_factory, self.groups = repository, uow_factory, groups
         self.main_admin_id, self.cache = main_admin_id, cache
+        from services.admin_channels import ChannelSettings
+
+        self.channels = ChannelSettings(self)
+        from services.admin_maintenance import AdminMaintenance
+
+        self.maintenance = AdminMaintenance(self)
+        self.roster = None
+
+    async def crawl_progress(self, owner, chat_id):
+        from dataclasses import asdict
+
+        await self.authorize(owner)
+        if self.roster is None:
+            raise DownloadError("خزش اعضا در تنظیمات غیرفعال است.")
+        value = await self.roster.progress(chat_id)
+        if value is None:
+            return None
+        return {
+            **asdict(value),
+            "coverage_ratio": value.coverage_ratio,
+            "is_complete": value.is_complete,
+            "accounted_for": value.accounted_for,
+        }
+
+    async def administrators(self, owner):
+        await self.authorize(owner)
+        return await self.repository.administrators()
+
+    async def group_directory(self, owner, page=0, active=None, order="date"):
+        await self.authorize(owner)
+        return await self.repository.group_directory(page, active, order)
+
+    async def member_directory(self, owner, chat_id, page=0, active="all", started="all"):
+        await self.authorize(owner)
+        if type(chat_id) is not int or chat_id >= 0:
+            raise DownloadError("شناسه گروه معتبر نیست.")
+        return await self.repository.member_directory(chat_id, page, active, started)
+
+    async def clear_prompts(self, owner):
+        await self.repository.clear_prompts(owner)
 
     async def authorize(self, user_id, *, root=False, repository=None):
         if type(user_id) is not int or user_id <= 0:
@@ -54,6 +94,10 @@ class AdminService:
             raise DownloadError(
                 "دریافت فایل موقتاً برای نگهداری غیرفعال است.", code="downloads_paused"
             )
+
+    async def can_contact(self, user_id):
+        user = await self.repository.user(user_id)
+        return bool(user and user.is_started and not user.is_blocked and not user.is_banned)
 
     async def stats(self, owner):
         await self.authorize(owner)
@@ -175,30 +219,59 @@ class AdminService:
         }
 
     def validate_job(self, kind, payload):
-        if kind not in {"broadcast", "forward", "health", "leave"} or not isinstance(payload, dict):
+        if kind not in {
+            "broadcast",
+            "forward",
+            "health",
+            "leave",
+            "crawl",
+            "nudge_admin",
+            "nudge_owners",
+            "refresh_users",
+            "report",
+        } or not isinstance(payload, dict):
             raise DownloadError("درخواست مدیریت معتبر نیست.")
+        if kind == "nudge_owners" and (
+            payload.get("target", "owner") not in {"owner", "admins", "both"}
+            or type(payload.get("with_name", True)) is not bool
+        ):
+            raise DownloadError("گزینه یادآوری معتبر نیست.")
         if kind in {"broadcast", "forward"}:
+            target = payload.get("target_id")
+            if target is not None and (
+                type(target) is not int or target == 0 or not -(2**63) < target < 2**63
+            ):
+                raise DownloadError("مقصد معتبر نیست.")
             if payload.get("audience") not in {"users", "groups"}:
                 raise DownloadError("مخاطبان معتبر نیستند.")
             exclusions = payload.get("exclude", [])
+            adders = payload.get("exclude_adders", [])
+            if (
+                not isinstance(adders, list)
+                or len(adders) > 1000
+                or any(type(i) is not int or not 0 < i < 2**63 for i in adders)
+            ):
+                raise DownloadError("آورنده‌های مستثنا معتبر نیستند.")
             if (
                 not isinstance(exclusions, list)
                 or len(exclusions) > 1000
                 or any(type(i) is not int or i == 0 for i in exclusions)
             ):
                 raise DownloadError("فهرست استثنا معتبر نیست.")
-        if kind == "broadcast" and (
-            not isinstance(payload.get("text"), str) or not 1 <= len(payload["text"]) <= 3500
+        if (
+            kind == "broadcast"
+            and not payload.get("copy")
+            and (not isinstance(payload.get("text"), str) or not 1 <= len(payload["text"]) <= 3500)
         ):
             raise DownloadError("متن ارسال باید بین ۱ تا ۳۵۰۰ نویسه باشد.")
-        if kind == "forward" and (
+        if (kind == "forward" or payload.get("copy")) and (
             type(payload.get("source_id")) is not int or payload["source_id"] <= 0
         ):
             raise DownloadError("روی پیام قابل فوروارد ریپلای کن.")
         if kind == "leave" and (type(payload.get("chat_id")) is not int or payload["chat_id"] >= 0):
             raise DownloadError("شناسه گروه معتبر نیست.")
         if (
-            kind == "health"
+            kind in {"health", "crawl"}
             and payload.get("chat_id") is not None
             and (type(payload["chat_id"]) is not int or payload["chat_id"] >= 0)
         ):

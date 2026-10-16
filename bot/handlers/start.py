@@ -18,6 +18,7 @@ async def handle_start(
     presentation=None,
     group_limit=5,
     access=None,
+    management=None,
 ) -> None:
     in_group = event.chat_id < 0
     with user_request(event.sender_id, event.chat_id):
@@ -36,6 +37,10 @@ async def handle_start(
         )
         if in_group:
             text = group_start_text(bot_username, interval, group_limit)
+        elif management is not None:
+            credit = await management.developer_credit()
+            if credit:
+                text += "\n\n" + credit
         buttons = start_buttons(event.sender_id)
         log.info({"event": "bot_started_by_user"})
         if presentation:

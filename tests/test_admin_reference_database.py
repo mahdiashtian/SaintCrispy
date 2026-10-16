@@ -503,6 +503,7 @@ async def test_shared_publication_budget_and_pause_span_workers(app):
 
 
 async def test_same_second_service_join_cannot_override_explicit_participant_leave(app):
+    await app.membership.profile(7, None, "Known", None)
     await app.membership.persist(member(app, "left", "raw-left", 5, 2, "participant"))
     await app.membership.persist(member(app, "joined", "service-join", 5, 999, "service"))
     assert not await app.pool.fetchval("SELECT is_active FROM group_memberships")
@@ -545,7 +546,10 @@ async def test_revision_nine_upgrade_keeps_existing_group_and_user_identities(ap
             group = await connection.fetchrow("SELECT * FROM bot_groups")
             assert user["user_id"] == 7 and user["is_started"] and not user["is_admin"]
             assert group["chat_id"] == -10 and group["is_admin"] and group["added_by_user_id"] == 7
-            assert await connection.fetchval("SELECT max(version) FROM app_schema_migrations") == 10
+            assert (
+                await connection.fetchval("SELECT max(version) FROM app_schema_migrations")
+                == MIGRATIONS[-1][0]
+            )
         finally:
             await connection.execute("RESET search_path")
             await connection.execute(f'DROP SCHEMA "{schema}" CASCADE')

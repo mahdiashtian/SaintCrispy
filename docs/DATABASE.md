@@ -2,9 +2,10 @@
 
 This document describes the downloader repository, reviewed against the October
 15, 2026 Couplyo porting reference supplied in `docss`. Couplyo's 25-table SQL
-snapshot belongs to a different product. This application owns **22 domain tables
-and one migration ledger**, uses native asyncpg and applies revisions 1–10.
-Revision 10 implements [administration, memberships and durable operations](ADMINISTRATION.md).
+snapshot belongs to a different product. This application owns **25 domain tables
+and one migration ledger**, uses native asyncpg and applies revisions 1–11.
+Revision 10 implements administration; revision 11 adds the actual source's
+[resumable member crawling and administration flow](COUPLYO_PARITY.md).
 
 ## Physical layout and ownership
 
@@ -65,11 +66,16 @@ SQL-enforced relationships.
 | `admin_jobs` | generated id; unique bot, dedupe_key | Job kind/status, cursor, progress counters, payload, due/lease and error code. |
 | `outbox_events` | generated id; unique bot, dedupe_key | Durable target effect, stable Telegram random ID, job FK, status, due/lease and outcome. |
 | `telegram_group_peers` | bot, chat_id | Typed raw peer and real access hash; composite group FK; never public UI/logs. |
+| `group_roster_crawls` | bot, chat_id | Current run ID, owner lease, due time, pass/filter/offset, coverage counters and explicit stop reason; group FK. |
+| `roster_crawl_seen` | bot, chat_id, run_id, user_id | Durable per-run human/skipped deduplication; crawl FK. |
+| `membership_departures` | bot, chat_id, user_id | Negative departure timestamp and revision fence; group FK without inventing a human profile. |
 | `app_schema_migrations` | version | Applied revision name and UTC timestamp. Installation schema ledger, not bot-scoped application data. |
 
 The original group-audit/quota foreign keys deliberately have no `ON DELETE CASCADE`. Membership/peer relationships declare cascades, but application removal is always a soft transition and never invokes them. Removal and
 migration retire group identities while preserving their audit and quota history.
-No automated cleanup hard-deletes user/menu/history/group records.
+Ordinary lifecycle transitions never hard-delete records. The owner's explicit,
+confirmed cleanup can delete eligible inactive records and their declared
+dependents; active memberships/groups and installation administrators are protected.
 
 ```mermaid
 erDiagram
@@ -97,6 +103,11 @@ Indexes outside primary/unique keys serve actual query paths:
 - `file_message_expiry_completed`: bot/completion time, completed rows only.
 
 ## Migrations and reference SQL
+
+Revision **11**, `couplyo_roster_crawl_and_membership_fences`, adds the three
+roster/departure tables, membership revision and weekly counter fields, a message
+report index, and additional job/effect kinds. Revisions 1–10 remain unchanged.
+The revision sequence is a database sequence; gaps are expected and harmless.
 
 | Revision | Responsibility |
 | --- | --- |

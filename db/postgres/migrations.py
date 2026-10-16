@@ -1,8 +1,16 @@
 """Ordered additive migrations; preserve the existing version ledger."""
 
-from .models import CONTROL_TABLES, FILE_EXPIRY, GROUP_SCHEMA, SCHEMA, WORKFLOW_SCHEMA
+from .models import (
+    CONTROL_TABLES,
+    FILE_EXPIRY,
+    GROUP_SCHEMA,
+    ROSTER_TABLES,
+    SCHEMA,
+    WORKFLOW_SCHEMA,
+)
 from .models.administration import UPGRADE
 from .models.group import INVARIANTS_SCHEMA
+from .models.roster_crawl import UPGRADE as ROSTER_UPGRADE
 
 MIGRATIONS = (
     (1, "existing_media_schema", SCHEMA),
@@ -40,5 +48,10 @@ MIGRATIONS = (
         10,
         "administration_membership_and_durable_operations",
         UPGRADE + "\n".join(t.schema for t in CONTROL_TABLES),
+    ),
+    (
+        11,
+        "couplyo_roster_crawl_and_membership_fences",
+        ROSTER_UPGRADE + "\n".join(t.schema for t in ROSTER_TABLES),
     ),
 )

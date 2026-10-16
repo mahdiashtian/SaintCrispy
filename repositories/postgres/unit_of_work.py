@@ -8,6 +8,7 @@ from .group import GroupRepository
 from .media import PostgresMediaRepository
 from .membership import MembershipRepository
 from .outbox import OutboxRepository
+from .roster_crawl import RosterCrawlRepository
 from .workflow import WorkflowRepository
 
 
@@ -29,6 +30,7 @@ class PostgresUnitOfWork:
             self.memberships = MembershipRepository(connection, self.bot_id)
             self.admin = AdminRepository(connection, self.bot_id)
             self.outbox = OutboxRepository(connection, self.bot_id)
+            self.roster_crawls = RosterCrawlRepository(connection, self.bot_id)
         except BaseException:
             await stack.__aexit__(*sys.exc_info())
             self._stack = None

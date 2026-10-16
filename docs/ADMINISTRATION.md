@@ -1,5 +1,11 @@
 # Administration, membership and cache architecture
 
+The current source-based implementation is described in [Couplyo parity](COUPLYO_PARITY.md).
+It supersedes the earlier revision-10 observed-only scope below: the category-based
+reply-keyboard panel, full resumable roster crawl, channel management, reminders,
+reports and guarded data operations are implemented in revision 11. The historical
+verification figures at the end of this document describe revision 10 only.
+
 October 16, 2026 implementation of the supplied local `docss/` reference. This is
 the downloader-domain continuation of [reference mapping](REFERENCE_MAPPING.md).
 The private Persian reference bundle stays on the workstation and is ignored by
@@ -108,8 +114,9 @@ The existing [group update matrix](GROUPS.md) remains in force, augmented with:
 Membership history stays under its original group identity during migration;
 observations populate the new identity without inventing current members. Private
 profile updates are separate from group membership and from the `/start` flag.
-There is no full roster crawl, startup dialog scan or claim to recover updates
-Telegram never delivered.
+Revision 11 adds a separate resumable full-roster crawl for eligible administrator
+groups. There is no startup dialog scan or claim to recover updates/members that
+Telegram never delivers.
 
 ## CACHE / STATE / OPS contracts
 
@@ -182,8 +189,8 @@ paths remain valid. Historical users have `account_kind=unknown` until verified;
 an old true `/start` flag is preserved, but a missing historical start date is not
 fabricated. The stack retains native asyncpg/frozen dataclasses/SQL FSM rather than
 adding a second ORM or replacing the existing database. These are explicit backend
-adaptations of the reference contracts. Couple/crush/VIP tables and full-roster
-roadmaps belong to the source product and are not downloader entities.
+adaptations of the reference contracts. Couple/crush/VIP tables remain outside
+the downloader domain; revision 11 implements the separately requested roster.
 
 Stop the old Python receiver, create and verify a restorable PostgreSQL backup,
 then use the [operational commands](OPERATIONS.md#administration-upgrade-revision-10).

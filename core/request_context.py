@@ -32,6 +32,16 @@ request_user: ContextVar[int | None] = ContextVar("request_user", default=None)
 request_chat: ContextVar[int | None] = ContextVar("request_chat", default=None)
 request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
 request_message: ContextVar[int | None] = ContextVar("request_message", default=None)
+request_media: ContextVar[tuple[str, str, str] | None] = ContextVar("request_media", default=None)
+
+
+@contextmanager
+def media_request(site, content_id, quality):
+    token = request_media.set((site, content_id, quality))
+    try:
+        yield
+    finally:
+        request_media.reset(token)
 
 
 @contextmanager

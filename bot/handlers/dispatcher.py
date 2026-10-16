@@ -1,4 +1,5 @@
 import logging
+from contextlib import nullcontext
 from functools import partial
 
 from telethon import errors, events
@@ -40,9 +41,10 @@ log = logging.getLogger("activity")
 class Dispatcher:
     """Isolate every update and validate user context before any side effect."""
 
-    def __init__(self, client, groups=None):
+    def __init__(self, client, groups=None, gate=None):
         self.client = client
         self.groups = groups
+        self.gate = gate
 
     def add_event_handler(self, callback, builder):
         self._register(callback, builder, require_user=True)
@@ -56,18 +58,19 @@ class Dispatcher:
                 log.warning({"event": "update_context_rejected"})
                 return
             try:
-                if (
-                    require_user
-                    and getattr(event, "is_channel", False)
-                    and getattr(event, "is_group", None) is None
-                ):
-                    # A cold callback cache may not know whether this channel is
-                    # a supergroup. Trust the persisted group kind, never guess.
-                    known = await self.groups.get(event.chat_id) if self.groups else None
-                    if known is None or known.chat_kind != "supergroup":
-                        log.warning({"event": "update_group_context_unknown"})
-                        return
-                await callback(event)
+                async with self.gate.operation() if self.gate else nullcontext():
+                    if (
+                        require_user
+                        and getattr(event, "is_channel", False)
+                        and getattr(event, "is_group", None) is None
+                    ):
+                        # A cold callback cache may not know whether this channel is
+                        # a supergroup. Trust the persisted group kind, never guess.
+                        known = await self.groups.get(event.chat_id) if self.groups else None
+                        if known is None or known.chat_kind != "supergroup":
+                            log.warning({"event": "update_group_context_unknown"})
+                            return
+                    await callback(event)
             except events.StopPropagation:
                 raise
             except errors.RPCError as error:
@@ -104,6 +107,8 @@ def register_handlers(
     admin=None,
     memberships=None,
     tracker=None,
+    gate=None,
+    policy=None,
 ) -> None:
     access = access or ProviderAccess()
     tracker = tracker or (GroupTracker(client, groups, bot_id) if groups is not None else None)
@@ -112,7 +117,7 @@ def register_handlers(
         if memberships and tracker
         else None
     )
-    client = Dispatcher(client, groups)
+    client = Dispatcher(client, groups, gate)
     if tracker:
         client.add_system_handler(tracker.handle_update, events.Raw(GROUP_UPDATES))
         client.add_system_handler(
@@ -133,11 +138,21 @@ def register_handlers(
         )
     if admin is not None:
         client.add_event_handler(
-            partial(admin_handlers.open_panel, admin=admin, presentation=presentation),
+            partial(
+                admin_handlers.open_panel,
+                admin=admin,
+                presentation=presentation,
+                conversations=conversations,
+            ),
             events.NewMessage(incoming=True, pattern=r"^/admin(?:@\w+)?$"),
         )
         client.add_event_handler(
-            partial(admin_handlers.callback, admin=admin, presentation=presentation),
+            partial(
+                admin_handlers.callback,
+                admin=admin,
+                presentation=presentation,
+                conversations=conversations,
+            ),
             events.CallbackQuery(pattern=rb"^adm:"),
         )
         client.add_event_handler(
@@ -146,6 +161,25 @@ def register_handlers(
                 incoming=True,
                 func=lambda event: getattr(event, "is_private", False) and event.is_reply,
             ),
+        )
+    if admin is not None and conversations is not None:
+        from .admin_reference import handle_message
+
+        client.add_event_handler(
+            partial(
+                handle_message, admin=admin, conversations=conversations, presentation=presentation
+            ),
+            events.NewMessage(
+                incoming=True, func=lambda event: getattr(event, "is_private", False)
+            ),
+        )
+    if policy is not None:
+        client.add_event_handler(
+            policy.check_start,
+            events.NewMessage(incoming=True, pattern=r"^/start(?:@\w+)?(?:\s.*)?$"),
+        )
+        client.add_event_handler(
+            policy.recheck, events.CallbackQuery(pattern=rb"^mgjoin:([0-9]+)$")
         )
     client.add_event_handler(
         partial(
@@ -157,6 +191,7 @@ def register_handlers(
             presentation=presentation,
             group_limit=getattr(groups, "links_per_minute", 5),
             access=access,
+            management=getattr(policy, "management", None),
         ),
         events.NewMessage(incoming=True, pattern=r"^/start(?:@\w+)?(?:\s.*)?$"),
     )
@@ -168,7 +203,7 @@ def register_handlers(
         presentation,
         max_active=max_link_handlers,
         access=access,
-        policy=admin,
+        policy=policy or admin,
     )
     client.add_event_handler(
         partial(
@@ -178,6 +213,7 @@ def register_handlers(
             interval=getattr(limits, "interval", 60),
             presentation=presentation,
             access=access,
+            management=getattr(policy, "management", None),
         ),
         events.CallbackQuery(pattern=rb"^home:([0-9]+):(help|sites|active|main)$"),
     )
@@ -196,7 +232,7 @@ def register_handlers(
             conversations=conversations,
             presentation=presentation,
             access=access,
-            policy=admin,
+            policy=policy or admin,
         ),
         events.CallbackQuery(pattern=rb"^(?:sc|xnxx|xv|yt|ig|pin|tt):([0-9a-f]{16}):([0-9]+)$"),
     )
@@ -204,3 +240,5 @@ def register_handlers(
         partial(handle_stop, jobs=jobs),
         events.CallbackQuery(pattern=rb"^stop:([0-9a-f]{16})$"),
     )
+    if policy is not None:
+        client.add_system_handler(policy.observe, events.NewMessage(incoming=True))

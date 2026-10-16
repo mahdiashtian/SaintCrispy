@@ -99,7 +99,10 @@ class MembershipTracker:
         if isinstance(update, types.UpdateChannelParticipant):
             chat_id = utils.get_peer_id(types.PeerChannel(update.channel_id))
             active, _, _ = participant_standing(update.new_participant)
+            previous, _, _ = participant_standing(update.prev_participant)
             if active is None:
+                return
+            if previous == active:
                 return
             sequence = update.qts
         elif isinstance(
@@ -110,10 +113,10 @@ class MembershipTracker:
             sequence = update.version
         else:
             return
-        user = await self.human(user_id, update)
+        user = await self.member_user(chat_id, user_id, update, leaving=not active)
         if user is None:
             return
-        if not await self.ensure_group(chat_id, update):
+        if active and not await self.ensure_group(chat_id, update):
             return
         key = hashlib.sha256(bytes(update)).hexdigest()
         await self.memberships.observe(
@@ -130,6 +133,15 @@ class MembershipTracker:
                 "participant" if isinstance(update, types.UpdateChannelParticipant) else "basic",
             )
         )
+
+    async def member_user(self, chat_id, identity, update, *, leaving=False):
+        if leaving:
+            if type(identity) is not int or identity <= 0 or identity == self.bot_id:
+                return None
+            # SQL validates known humans; an unknown departure only records a fence.
+            # Do not resolve a departed user or require SQL before durable queuing.
+            return SimpleNamespace(id=identity, username=None, first_name=None, last_name=None)
+        return await self.human(identity, update)
 
     async def ensure_group(self, chat_id, update):
         if await self.groups.get(chat_id) is not None:
@@ -166,10 +178,10 @@ class MembershipTracker:
         else:
             return
         chat_id = utils.get_peer_id(message.peer_id)
-        if not await self.ensure_group(chat_id, update):
+        if kind != "left" and not await self.ensure_group(chat_id, update):
             return
         for identity in dict.fromkeys(users):
-            user = await self.human(identity, update)
+            user = await self.member_user(chat_id, identity, update, leaving=kind == "left")
             if user is None:
                 continue
             await self.memberships.observe(

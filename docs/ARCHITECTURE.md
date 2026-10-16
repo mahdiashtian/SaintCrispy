@@ -120,7 +120,11 @@ behavior is preserved across every provider.
 
 The native asyncpg/additive-migration and frozen-dataclass stack remains intentional:
 the reference's transaction, type, ownership and recovery contracts do not require
-a second ORM or a replacement migration ledger. Couple selection, crush/VIP logic and full member crawling remain source-product features. The private administration panel, human membership ledger, durable operations and split cache/state infrastructure are now implemented for this downloader in revision 10. See [administration](ADMINISTRATION.md).
+a second ORM or a replacement migration ledger. Couple selection and crush/VIP
+logic remain excluded. Revision 10 introduced administration, membership and split
+cache/state infrastructure; revision 11 follows the actual Couplyo source with
+its category/FSM panel, resumable group-member crawl and channel management.
+See [source parity and ownership](COUPLYO_PARITY.md).
 
 Link handlers have their own `MAX_CONCURRENT_REQUESTS` cap, reserved before SQL
 admission. Excess requests do not consume the user's quota. Rejection replies have

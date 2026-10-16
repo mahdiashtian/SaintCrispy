@@ -1,5 +1,6 @@
 """SQL administration reads, audited writes and scoped confirmation tokens."""
 
+import asyncio
 import json
 import secrets
 
@@ -72,6 +73,44 @@ class AdminRepository:
         )
         return tuple(AdminUser(**dict(row)) for row in rows)
 
+    async def administrators(self):
+        rows = await self.connection.fetch(
+            f"SELECT {USER_FIELDS} FROM bot_users WHERE telegram_account_id=$1 AND is_admin ORDER BY user_id LIMIT 500",
+            self.bot_id,
+        )
+        return tuple(AdminUser(**dict(row)) for row in rows)
+
+    async def group_directory(self, page=0, active=None, order="date"):
+        from schemas.group import GroupSnapshot
+
+        if type(page) is not int or not 0 <= page <= 1000000 or active not in (None, True, False):
+            raise ValueError("Invalid directory page")
+        ordering = {
+            "date": "added_at DESC NULLS LAST,chat_id",
+            "members": "member_count DESC NULLS LAST,chat_id",
+            "members_asc": "member_count ASC NULLS LAST,chat_id",
+            "activity": "last_activity_at DESC NULLS LAST,chat_id",
+        }.get(order)
+        if ordering is None:
+            raise ValueError("Invalid directory order")
+        where = "telegram_account_id=$1 AND ($2::boolean IS NULL OR is_active=$2)"
+        total = await self.connection.fetchval(
+            f"SELECT count(*) FROM bot_groups WHERE {where}", self.bot_id, active
+        )
+        page = min(page, max(0, (total - 1) // 10))
+        rows = await self.connection.fetch(
+            f"SELECT chat_id,title,username,is_active,is_admin,can_send,added_by_user_id,added_at,readded_at,removed_at,admin_since,last_seen_at,last_event_at,migrated_to,chat_kind,owner_id,admin_ids,member_count,link,last_activity_at,links_per_minute,revision FROM bot_groups WHERE {where} ORDER BY {ordering} LIMIT 10 OFFSET $3",
+            self.bot_id,
+            active,
+            page * 10,
+        )
+        groups = []
+        for row in rows:
+            value = dict(row)
+            value["admin_ids"] = tuple(json.loads(value["admin_ids"]))
+            groups.append(GroupSnapshot(**value))
+        return tuple(groups), total, page
+
     async def user(self, query):
         if type(query) is int:
             row = await self.connection.fetchrow(
@@ -109,6 +148,40 @@ class AdminRepository:
             limit,
         )
         return tuple(dict(row) for row in rows)
+
+    async def member_directory(self, chat_id, page=0, active="all", started="all"):
+        if (
+            type(page) is not int
+            or not 0 <= page <= 1000000
+            or active not in {"all", "in", "out"}
+            or started not in {"all", "yes", "no"}
+        ):
+            raise ValueError("Invalid membership page")
+        where = "m.telegram_account_id=$1 AND m.chat_id=$2 AND ($3::boolean IS NULL OR m.is_active=$3) AND ($4::boolean IS NULL OR u.is_started=$4)"
+        params = (
+            self.bot_id,
+            chat_id,
+            {"all": None, "in": True, "out": False}[active],
+            {"all": None, "yes": True, "no": False}[started],
+        )
+        total = await self.connection.fetchval(
+            f"SELECT count(*) FROM group_memberships m JOIN bot_users u USING (telegram_account_id,user_id) WHERE {where}",
+            *params,
+        )
+        page = min(page, max(0, (total - 1) // 10))
+        rows = await self.connection.fetch(
+            f"SELECT m.user_id,u.username,u.first_name,u.is_started,m.is_active,m.last_seen_at,m.message_count FROM group_memberships m JOIN bot_users u USING (telegram_account_id,user_id) WHERE {where} ORDER BY m.user_id LIMIT 10 OFFSET $5",
+            *params,
+            page * 10,
+        )
+        return tuple(dict(row) for row in rows), total, page
+
+    async def clear_prompts(self, owner):
+        await self.connection.execute(
+            "UPDATE admin_requests SET consumed_at=clock_timestamp() WHERE telegram_account_id=$1 AND owner_id=$2 AND consumed_at IS NULL",
+            self.bot_id,
+            owner,
+        )
 
     async def stats(self):
         row = await self.connection.fetchrow(
@@ -162,6 +235,11 @@ class AdminRepository:
 
     async def request(self, owner, kind, action, payload):
         token = secrets.token_hex(8)
+        encoded = (
+            await asyncio.to_thread(json.dumps, payload)
+            if action == "restore_public_data"
+            else json.dumps(payload)
+        )
         await self.connection.execute(
             """INSERT INTO admin_requests (telegram_account_id,token,owner_id,kind,action,payload)
             VALUES ($1,$2,$3,$4,$5,$6::jsonb)""",
@@ -170,7 +248,7 @@ class AdminRepository:
             owner,
             kind,
             action,
-            json.dumps(payload),
+            encoded,
         )
         return token
 
@@ -205,7 +283,11 @@ class AdminRepository:
         )
         if row:
             data = dict(row)
-            data["payload"] = json.loads(data["payload"])
+            data["payload"] = (
+                await asyncio.to_thread(json.loads, data["payload"])
+                if data["action"] == "restore_public_data"
+                else json.loads(data["payload"])
+            )
             return data
 
     async def enqueue_job(self, owner, kind, payload, dedupe):

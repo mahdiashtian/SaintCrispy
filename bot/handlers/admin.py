@@ -34,17 +34,23 @@ async def show(event, text, buttons, presentation=None):
         await event.respond(text, buttons=buttons, parse_mode=None, link_preview=False)
 
 
-async def open_panel(event, admin, presentation=None):
+async def open_panel(event, admin, presentation=None, conversations=None):
     if not private(event):
         return
     try:
         root = await admin.authorize(event.sender_id)
+        if conversations is not None:
+            from bot.handlers.admin_reference import panel
+
+            await admin.clear_prompts(event.sender_id)
+            await panel(event, admin, conversations, presentation=presentation)
+            raise events.StopPropagation
         await show(event, HOME, home(event.sender_id, root), presentation)
     except DownloadError as error:
         await event.respond(f"⛔️ {error}", parse_mode=None)
 
 
-async def callback(event, admin, presentation=None):
+async def callback(event, admin, presentation=None, conversations=None):
     if not private(event):
         await event.answer("پنل مدیریت فقط در گفت‌وگوی خصوصی فعال است.", alert=True)
         return
@@ -57,8 +63,107 @@ async def callback(event, admin, presentation=None):
         await event.answer()
         buttons = back(owner)
         if action == "home":
+            if conversations is not None:
+                from bot.handlers.admin_reference import panel
+
+                await admin.clear_prompts(owner)
+                await panel(event, admin, conversations, presentation=presentation)
+                return
             text = HOME
             buttons = home(owner, root)
+        elif action == "dir":
+            from bot.handlers.admin_reference import directory
+
+            page, active, order = value.split("_", 2)
+            await directory(event, admin, int(page), active, order)
+            return
+        elif action == "mdir":
+            from bot.handlers.admin_reference import member_directory
+
+            chat, page, active, started = value.split("_")
+            await member_directory(event, admin, int(chat, 36), int(page), active, started)
+            return
+        elif action == "crawl":
+            token = await admin.prepare(owner, "crawl", {"chat_id": int(value)})
+            text = f"خزش اعضای قابل مشاهدهٔ گروه {value} در صف پایدار ثبت شود؟"
+            buttons = confirmation(owner, token)
+        elif action == "nudge_target":
+            await admin.authorize(owner, root=True)
+            if value not in {"owner", "admins", "both"}:
+                raise DownloadError("مخاطب یادآوری معتبر نیست.")
+            text = "نام گروه در پیام یادآوری نوشته شود؟"
+            buttons = [
+                [
+                    button(owner, "با نام گروه", "nudge_go", value + "_yes"),
+                    button(owner, "بدون نام گروه", "nudge_go", value + "_no"),
+                ]
+            ]
+        elif action == "nudge_go":
+            target, with_name = value.split("_")
+            if target not in {"owner", "admins", "both"} or with_name not in {"yes", "no"}:
+                raise DownloadError("تنظیم یادآوری معتبر نیست.")
+            token = await admin.prepare(
+                owner, "nudge_owners", {"target": target, "with_name": with_name == "yes"}
+            )
+            text = "ارسال یادآوری برای گروه‌های خارج‌شده را تأیید می‌کنی؟"
+            buttons = confirmation(owner, token)
+        elif action in {"cleanview", "cleanprepare", "cleanup", "restore"}:
+            from bot.handlers.admin_maintenance import decode, open_cleanup
+
+            if action == "cleanview":
+                await open_cleanup(event, admin, value=value)
+                return
+            if action == "cleanprepare":
+                entity, filters = decode(value)
+                token, preview = await admin.maintenance.prepare_cleanup(owner, entity, filters)
+                text = f"⚠️ حذف حداکثر {preview['batch']} رکورد و عضویت‌های وابسته را تأیید می‌کنی؟"
+                buttons = [
+                    [
+                        button(owner, "✅ تأیید حذف", "cleanup", token),
+                        button(owner, "انصراف", "home"),
+                    ]
+                ]
+            elif action == "cleanup":
+                count = await admin.maintenance.confirm_cleanup(owner, value)
+                text = f"✅ {count} رکورد حذف شد. برای بخش بعد، فیلتر را دوباره بررسی کن."
+            else:
+                counts = await admin.maintenance.confirm_restore(owner, value)
+                text = "✅ بازیابی افزایشی انجام شد؛ رکوردهای موجود حفظ شدند.\n" + "\n".join(
+                    f"{key}: {count} ردیف بررسی شد" for key, count in counts.items()
+                )
+        elif action == "watchdel":
+            await admin.channels.remove_watch(owner, int(value))
+            text = "✅ رصد حذف شد."
+        elif action in {"watchpage", "watch", "wkind"}:
+            from bot.handlers.admin_reference import watch_detail, watch_page
+            from bot.texts.admin_buttons import KINDS
+
+            if action == "watchpage":
+                await watch_page(event, admin, int(value))
+            else:
+                if action == "wkind":
+                    encoded, kind = value.split("_", 1)
+                    identity = int(encoded, 36)
+                    if kind not in set(KINDS) | {"all", "none"}:
+                        raise DownloadError("نوع پیام معتبر نیست.")
+
+                    def toggle(rows):
+                        for row in rows:
+                            if row["chat_id"] == identity:
+                                row["kinds"] = (
+                                    list(KINDS)
+                                    if kind == "all"
+                                    else []
+                                    if kind == "none"
+                                    else sorted(set(row["kinds"]).symmetric_difference({kind}))
+                                )
+                        return rows
+
+                    await admin.channels.modify(owner, "watches", toggle)
+                else:
+                    identity = int(value)
+                await watch_detail(event, admin, identity)
+            return
         elif action == "stats":
             data = await admin.stats(owner)
             labels = {
@@ -127,13 +232,18 @@ async def callback(event, admin, presentation=None):
             buttons = [
                 [
                     button(
-                        owner, "👥 اعضای مشاهده‌شده", "members", f"{compact_id(group.chat_id)}_0"
+                        owner, "👥 اعضای گروه", "mdir", f"{compact_id(group.chat_id)}_0_all_all"
                     ),
                     button(owner, "🩺 بررسی زنده", "health", group.chat_id),
                 ]
             ]
             if root:
-                buttons.append([button(owner, "🚪 خروج ربات", "leave", group.chat_id)])
+                buttons.append(
+                    [
+                        button(owner, "🕷 خزش اعضا", "crawl", group.chat_id),
+                        button(owner, "🚪 خروج ربات", "leave", group.chat_id),
+                    ]
+                )
             buttons += back(owner)
         elif action == "members":
             chat, cursor = (int(part, 36) for part in value.split("_"))
@@ -249,6 +359,11 @@ async def callback(event, admin, presentation=None):
 
 async def input_reply(event, admin, presentation=None):
     if not private(event) or not getattr(event, "reply_to_msg_id", None):
+        return
+    raw = (getattr(event, "raw_text", "") or "").strip()
+    command = raw.split(maxsplit=1)[0].split("@", 1)[0] if raw else ""
+    if command in {"/start", "/admin"}:
+        await admin.clear_prompts(event.sender_id)
         return
     handled = False
     try:

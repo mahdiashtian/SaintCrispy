@@ -116,6 +116,11 @@ class Settings:
     redis_state_url: str | None = field(default=None, repr=False)
     cache_ttl_seconds: int = 300
     activity_flush_seconds: int = 45
+    roster_crawl_enabled: bool = True
+    roster_crawl_max_concurrent: int = 1
+    roster_crawl_max_passes: int = 3
+    roster_crawl_max_requests: int = 400
+    roster_crawl_delay_seconds: int = 1
 
     @classmethod
     def from_environment(cls):
@@ -173,4 +178,9 @@ class Settings:
             redis_state_url=state_connection_url(os.environ),
             cache_ttl_seconds=integer_setting("CACHE_TTL_SECONDS", 300, 1, 86400),
             activity_flush_seconds=integer_setting("ACTIVITY_FLUSH_SECONDS", 45, 1, 300),
+            roster_crawl_enabled=bool(integer_setting("ROSTER_CRAWL_ENABLED", 1, 0, 1)),
+            roster_crawl_max_concurrent=integer_setting("ROSTER_CRAWL_MAX_CONCURRENT", 1, 1, 4),
+            roster_crawl_max_passes=integer_setting("ROSTER_CRAWL_MAX_PASSES", 3, 1, 10),
+            roster_crawl_max_requests=integer_setting("ROSTER_CRAWL_MAX_REQUESTS", 400, 1, 10000),
+            roster_crawl_delay_seconds=integer_setting("ROSTER_CRAWL_DELAY_SECONDS", 1, 1, 60),
         )

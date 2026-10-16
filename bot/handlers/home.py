@@ -11,7 +11,13 @@ log = logging.getLogger("activity")
 
 
 async def handle_home(
-    event, jobs=None, bot_username=None, interval=60, presentation=None, access=None
+    event,
+    jobs=None,
+    bot_username=None,
+    interval=60,
+    presentation=None,
+    access=None,
+    management=None,
 ):
     owner_id = int(event.pattern_match[1])
     if owner_id != event.sender_id:
@@ -46,6 +52,10 @@ async def handle_home(
                 start_text(bot_username, interval, youtube_enabled=youtube_enabled),
                 start_buttons(owner_id),
             )
+        if management is not None and action in {"help", "main"}:
+            credit = await management.developer_credit()
+            if credit:
+                text += "\n\n" + credit
         await event.answer()
         try:
             if presentation:

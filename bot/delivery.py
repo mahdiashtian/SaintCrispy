@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import logging
 import re
@@ -94,6 +95,7 @@ class TelegramDelivery:
         self.bot_username = bot_username
         self.rate = rate
         self.file_expiry = file_expiry
+        self.archive_hook = None
         self._remux_slots = asyncio.Semaphore(remux_concurrency)
         if upload_inflight_parts < 1:
             raise ValueError("Global upload window must be positive")
@@ -162,6 +164,37 @@ class TelegramDelivery:
                 await self.file_expiry.schedule(peer, result)
             except Exception as error:
                 log.warning({"event": "file_expiry_schedule_failed", **error_fields(error)})
+        if self.archive_hook is not None and same_chat:
+            from core.request_context import request_media, request_user
+
+            identity = request_media.get()
+            if identity:
+                try:
+                    async with asyncio.timeout(3):
+                        for message in result if isinstance(result, list) else [result]:
+                            await self.archive_hook(
+                                source_chat=request_chat.get(),
+                                sender_id=request_user.get(),
+                                source_peer=utils.get_peer_id(peer),
+                                source_id=message.id,
+                                site=identity[0],
+                                content_id=identity[1],
+                                quality=identity[2],
+                                document={
+                                    "document_id": message.document.id,
+                                    "access_hash": message.document.access_hash,
+                                    "file_reference": base64.b64encode(
+                                        message.document.file_reference
+                                    ).decode("ascii"),
+                                }
+                                if getattr(message, "document", None)
+                                else None,
+                                caption=(getattr(message, "message", "") or "").removesuffix(
+                                    f"\n\n{FILE_EXPIRY_NOTICE}"
+                                ),
+                            )
+                except Exception as error:
+                    log.warning({"event": "download_archive_enqueue_failed", **error_fields(error)})
         return result
 
     async def _upload_part(self, request):

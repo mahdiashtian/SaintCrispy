@@ -24,10 +24,13 @@ class MembershipEvent:
             raise ValueError("Membership requires a human user")
         if (
             self.kind not in {"message", "joined", "left"}
+            or not isinstance(self.event_key, str)
             or not self.event_key
             or len(self.event_key) > 180
+            or "\x00" in self.event_key
         ):
             raise ValueError("Invalid membership event")
+        self.event_key.encode("utf-8")
         if not isinstance(self.occurred_at, datetime) or self.occurred_at.tzinfo is None:
             raise ValueError("Membership evidence needs UTC time")
         if (
@@ -37,7 +40,9 @@ class MembershipEvent:
         ):
             raise ValueError("Invalid membership sequence")
         for value in (self.username, self.first_name, self.last_name):
-            if value is not None and (not isinstance(value, str) or len(value) > 256):
+            if value is not None and (
+                not isinstance(value, str) or len(value) > 256 or "\x00" in value
+            ):
                 raise ValueError("Invalid human metadata")
             if value is not None:
                 value.encode("utf-8")

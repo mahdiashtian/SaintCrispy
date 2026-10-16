@@ -12,10 +12,15 @@ asynchronous metadata request and immediate reuse of fresh selected sources.
 See [TikTok setup, speed measurements and access limits](docs/TIKTOK.md).
 
 See [application architecture](docs/ARCHITECTURE.md), the [reference mapping](docs/REFERENCE_MAPPING.md)
-and the [database dictionary](docs/DATABASE.md) for layer ownership, all fourteen
+and the [database dictionary](docs/DATABASE.md) for layer ownership, all twenty-five
 domain tables, migrations and Redis/state separation. An offline schema reference
 is reproducible with `python scripts/export_schema.py`; use
 `python scripts/migrate.py` for an existing database upgrade.
+
+The private Telegram administrator panel follows the supplied Couplyo source:
+set `MAIN_ADMIN_ID`, restart and send `/admin`. Group lifecycle, human speakers,
+resumable member crawling, channel controls and data operations are documented
+in [the source parity guide](docs/COUPLYO_PARITY.md). No web panel port is required.
 
 ## How it works
 

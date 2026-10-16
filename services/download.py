@@ -5,7 +5,7 @@ from collections.abc import Callable
 from contextlib import nullcontext
 
 from core.locks import KeyedLocks
-from core.request_context import current_inspection_work, request_user
+from core.request_context import current_inspection_work, media_request, request_user
 from downloader_bot.downloaders.base import Downloader
 from repositories.interfaces.media import MediaDelivery, MediaRepository
 from schemas.media import (
@@ -235,7 +235,7 @@ class DownloadService:
         observation = (
             self.telemetry.transfer(media, quality, progress) if self.telemetry else nullcontext()
         )
-        with observation as trace:
+        with observation as trace, media_request(media.site, media.content_id, quality.key):
             async with asyncio.timeout(self._transfer_timeout):
                 method = await self._deliver(peer, media, quality, progress)
                 if trace is not None:

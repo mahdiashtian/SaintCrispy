@@ -100,29 +100,44 @@ class OutboxRepository:
     async def targets(self, job, limit=50):
         audience = job["payload"].get("audience", "groups")
         cursor = job["cursor"]
-        if audience == "users":
+        if audience == "users" or job["kind"] == "refresh_users":
             rows = await self.connection.fetch(
                 """SELECT user_id id FROM bot_users WHERE telegram_account_id=$1
-                AND user_id>COALESCE($2::bigint,0) AND is_started AND NOT is_blocked AND NOT is_banned
+                AND user_id>COALESCE($2::bigint,0) AND (is_started OR $5) AND NOT is_blocked AND NOT is_banned
                 AND first_seen_at<=$3 ORDER BY user_id LIMIT $4""",
                 self.bot_id,
                 cursor,
                 job["created_at"],
                 limit,
+                job["kind"] == "refresh_users",
             )
         else:
             rows = await self.connection.fetch(
                 """SELECT chat_id id FROM bot_groups WHERE telegram_account_id=$1
                 AND ($2::bigint IS NULL OR chat_id>$2) AND migrated_to IS NULL
-                AND (is_active IS TRUE OR $5) AND (can_send IS DISTINCT FROM FALSE OR $5)
-                AND created_at<=$3 ORDER BY chat_id LIMIT $4""",
+                AND (is_active IS TRUE OR $5 OR $8) AND (can_send IS DISTINCT FROM FALSE OR $5 OR $8)
+                AND created_at<=$3 AND NOT COALESCE(added_by_user_id=ANY($6::bigint[]),FALSE)
+                AND (NOT $7 OR is_admin IS DISTINCT FROM TRUE)
+                AND (NOT $8 OR is_active IS FALSE) AND (NOT $9 OR is_admin IS TRUE) ORDER BY chat_id LIMIT $4""",
                 self.bot_id,
                 cursor,
                 job["created_at"],
                 limit,
                 job["kind"] == "health",
+                job["payload"].get("exclude_adders", []),
+                job["kind"] in {"nudge_admin", "nudge_owners"},
+                job["kind"] == "nudge_owners",
+                job["kind"] == "crawl",
             )
         return [row["id"] for row in rows]
+
+    async def started_recipients(self, identities):
+        rows = await self.connection.fetch(
+            "SELECT user_id FROM bot_users WHERE telegram_account_id=$1 AND user_id=ANY($2::bigint[]) AND is_started AND NOT is_blocked AND NOT is_banned ORDER BY user_id",
+            self.bot_id,
+            list(identities),
+        )
+        return tuple(row["user_id"] for row in rows)
 
     async def checkpoint(self, job, owner, cursor, added, done=False):
         return await self.connection.fetchval(

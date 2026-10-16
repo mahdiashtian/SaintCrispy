@@ -7,6 +7,44 @@ rather than rewriting historical failures as successes.
 
 ## Administration and group reference alignment (October 16)
 
+The later **actual-source** review supersedes the observed-members-only scope.
+Source commit `e3e073276b489b72b798a3aecc5b3dd3c9361e8b` is mapped in
+[source parity and dated evidence](COUPLYO_PARITY.md). Revision 11 implements the
+category/FSM panel, source group-member crawler, channel controls and guarded
+maintenance. Provider extraction and network acceptance were not changed.
+
+Newly reproduced and fixed: `/admin` could be consumed twice and reset the just
+opened FSM; raw unknown departures needed a durable negative fence; an old crawl
+page or buffered message could otherwise revive a departure; expired claim owners
+must not commit; two maintenance confirmations must register as waiting before
+the first operation drains active handlers. SQL outage tests now defer typed
+join/message/leave events to STATE and replay once. Crawl coverage distinguishes
+human IDs, skipped accounts, Telegram total and convergence; it never deactivates
+members merely absent from a capped result. Retry requires a new claim, due-time
+expiry, changed rights or a new explicit run, rather than an unchanged error loop.
+
+Source adaptations are explicit: real peer hashes only; fresh owner tokens;
+logical allowlisted public-data JSON rather than executing uploaded PostgreSQL
+archives; no couple-product tables. The panel backup is not a full database
+backup. Live Telegram and production deployment remain unverified. Final local
+suite results are appended after verification.
+
+Final source-parity workstation verification: **1,596 passed, zero skipped or
+failed**, in 114.21 seconds against dedicated PostgreSQL 17 and Redis 7.4.
+Ten existing Windows curl-cffi selector warnings remain; the new unawaited mock
+warnings were corrected. Ruff lint and format passed for 308 Python files.
+The generated schema matches revision 11; the wheel rebuilt successfully and its
+isolated module imports excluded Couplyo, private docs and runtime files. The
+rewriting agent implemented the panel and the separate supervising agent reviewed
+it read-only; their findings were addressed before final verification.
+
+Additional recovery evidence: a membership event remains pending while a second
+consumer owns its group's uncommitted creation; it is applied after that group
+commits. A later verified human can replace an earlier skipped roster identity
+without false convergence. Roster reactivation records a new evidence boundary
+so an older explicit leave cannot undo it. Failed worker stop/restart paths
+attempt all affected workers and always release the maintenance gate.
+
 Revision 10 adds downloader administration, observed human membership, safe typed
 CACHE, separate persistent STATE and SQL operational jobs/outbox. See
 [dated architecture and verification evidence](ADMINISTRATION.md). This change

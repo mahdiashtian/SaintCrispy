@@ -268,15 +268,43 @@ class GroupRepository:
             [old_id, new_id],
         )
         key = f"migration:{old_id}:{new_id}"
+        before = await self.get(old_id)
+        target_before = await self.get(new_id)
         result = await self.record(
             GroupChange(
                 old_id, "migrated", key, occurred_at, "group", active=False, migrated_to=new_id
             )
         )
         await self.record(
-            GroupChange(new_id, "migrated", key, occurred_at, "supergroup", active=True)
+            GroupChange(
+                new_id,
+                "migrated",
+                key,
+                occurred_at,
+                "supergroup",
+                active=True
+                if target_before.is_active is None and before.is_active is not False
+                else None,
+                admin=before.is_admin
+                if target_before.is_admin is None and target_before.is_active is not False
+                else None,
+                can_send=before.can_send
+                if target_before.can_send is None and target_before.is_active is not False
+                else None,
+            )
         )
         if result:
+            if (
+                target_before.is_admin is None
+                and before.is_admin is True
+                and before.admin_since is not None
+            ):
+                await self.connection.execute(
+                    "UPDATE bot_groups SET admin_since=$3 WHERE telegram_account_id=$1 AND chat_id=$2 AND is_admin IS TRUE",
+                    self.bot_id,
+                    new_id,
+                    before.admin_since,
+                )
             # Migration is a permanent identity mapping, even if a later removal
             # already supplied the more recent membership snapshot.
             await self.connection.execute(

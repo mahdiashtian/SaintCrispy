@@ -185,6 +185,14 @@ class GroupTracker:
                     return
                 active, admin, can_send, verb = True, None, None, "added"
             elif (
+                isinstance(
+                    action,
+                    (types.MessageActionChatJoinedByLink, types.MessageActionChatJoinedByRequest),
+                )
+                and human_id(message.from_id) == self.bot_id
+            ):
+                active, admin, can_send, verb = True, None, None, "added"
+            elif (
                 isinstance(action, types.MessageActionChatDeleteUser)
                 and action.user_id == self.bot_id
             ):
@@ -192,6 +200,10 @@ class GroupTracker:
             else:
                 return
             actor = human_id(message.from_id)
+            if isinstance(action, types.MessageActionChatJoinedByLink):
+                actor = human_id(action.inviter_id)
+            if actor == self.bot_id:
+                actor = None
             stream, sequence, priority = "service", message.id, 1
         else:
             if update.user_id != self.bot_id:
@@ -214,6 +226,8 @@ class GroupTracker:
                     else "permissions_changed"
                 )
                 actor = human_id(update.actor_id)
+                if actor == self.bot_id:
+                    actor = None
                 stream, sequence, priority = "participant", update.qts, 2
             else:
                 chat_id = -update.chat_id
@@ -322,6 +336,9 @@ class GroupTracker:
             )
         )
         self._seen.pop(chat_id, None)
+        if isinstance(result, dict) and result.get("transition") and result.get("is_admin") is True:
+            await self.remember(entity, chat_id)
+            await self.snapshot(entity, chat_id)
         return result
 
     async def snapshot(self, entity, chat_id):
@@ -339,12 +356,13 @@ class GroupTracker:
             for user in users:
                 if not isinstance(user, types.User) or user.bot or user.deleted:
                     continue
-                admins.append(user.id)
                 if isinstance(
                     getattr(user, "participant", None),
                     (types.ChannelParticipantCreator, types.ChatParticipantCreator),
                 ):
                     owner = user.id
+                else:
+                    admins.append(user.id)
             count = getattr(entity, "participants_count", None)
             await self.service.metadata(
                 chat_id,

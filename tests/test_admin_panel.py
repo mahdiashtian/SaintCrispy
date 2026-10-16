@@ -369,7 +369,9 @@ async def test_outbox_recovers_saved_group_peer_after_cold_session_lookup():
     ],
 )
 async def test_human_service_join_leave_complements_raw_participants(action, expected):
-    memberships = SimpleNamespace(observe=AsyncMock())
+    memberships = SimpleNamespace(
+        observe=AsyncMock(), departure=AsyncMock(), known_member=AsyncMock(return_value=True)
+    )
     groups = SimpleNamespace(get=AsyncMock(return_value=object()))
     tracker = MembershipTracker(None, groups, None, memberships, 123)
     message = types.MessageService(

@@ -14,8 +14,10 @@ from bot.file_expiry import FileExpiry
 from bot.handlers import register_handlers
 from bot.handlers.groups import GroupTracker
 from bot.jobs import TransferJobs
+from bot.management import ManagementHooks
 from bot.operations import EffectDelivery, OperationalWorkers
 from bot.premium_emoji import BotPresentation
+from bot.roster_crawl import RosterCrawler
 from bot.session import catch_up_bot, connect_bot, create_session, sign_in_bot
 from bot.state.manager import ConversationManager
 from bot.state.menus import PersistentMenuStore
@@ -25,6 +27,7 @@ from core.config import Settings
 from core.dns_tunnel import configured_proxy
 from core.log_writer import JsonLogWriter
 from core.logging_config import ApplicationLogging
+from core.maintenance import MaintenanceGate
 from db.postgres.engine import Database
 from db.redis.pool import create_redis
 from downloader_bot.downloaders.instagram.client import InstagramClient, instagram_session
@@ -49,6 +52,7 @@ from repositories.postgres.file_expiry import FileExpiryRepository
 from repositories.postgres.group import GroupRepository
 from repositories.postgres.membership import MembershipRepository
 from repositories.postgres.outbox import OutboxRepository
+from repositories.postgres.roster_crawl import RosterCrawlRepository
 from repositories.postgres.unit_of_work import PostgresUnitOfWork
 from repositories.postgres.workflow import WorkflowRepository
 from repositories.redis.activity import ActivityStream, LifecycleStream
@@ -60,9 +64,11 @@ from services.admin import AdminService
 from services.download import DownloadService
 from services.group import GroupService
 from services.limits import RequestLimiter
+from services.management import ManagementService
 from services.membership import MembershipService
 from services.observability import Telemetry, error_fields
 from services.operations import OperationsService
+from services.roster_crawl import RosterCrawlService
 from services.telegram_rate import TelegramRate
 from services.user import UserService
 
@@ -338,6 +344,8 @@ class Container:
             settings.group_links_per_minute,
             cache=ObjectCache(self.cache_redis, bot.id, settings.cache_ttl_seconds),
             main_admin_id=settings.main_admin_id,
+            roster_enabled=settings.roster_crawl_enabled,
+            management_enabled=True,
             retry_queue=LifecycleStream(self.state_redis, bot.id)
             if self.state_redis is not None
             else None,
@@ -355,13 +363,67 @@ class Container:
             ActivityStream(self.state_redis, bot.id) if self.state_redis is not None else None,
         )
         tracker = GroupTracker(client, groups, bot.id)
+        memberships.recover_groups = groups.flush_deferred
+        memberships.lifecycle_stream = groups.retry_queue
+        gate = MaintenanceGate()
+        roster = (
+            RosterCrawlService(
+                RosterCrawlRepository(pool, bot.id),
+                self.uow_factory,
+                max_concurrent=settings.roster_crawl_max_concurrent,
+            )
+            if settings.roster_crawl_enabled
+            else None
+        )
+        admin.roster = roster
+        management = ManagementService(admin, groups, bot.id)
+        groups.management_changed = admin.channels.invalidate
+        hooks = ManagementHooks(client, management, rate=rate)
+        service.delivery.archive_hook = management.archive_download
         operations = OperationsService(
             OutboxRepository(pool, bot.id),
             self.uow_factory,
             admin,
             EffectDelivery(
-                client, tracker, groups, presentation=presentation, rate=rate, admin=admin
+                client,
+                tracker,
+                groups,
+                presentation=presentation,
+                rate=rate,
+                admin=admin,
+                roster=roster,
+                memberships=memberships,
+                management=management,
             ),
+            management=management,
+        )
+        operational_workers = OperationalWorkers(
+            operations, memberships, settings.activity_flush_seconds, groups, management
+        )
+        workers = [operational_workers]
+        if roster is not None:
+            workers.append(
+                RosterCrawler(
+                    client,
+                    roster,
+                    groups,
+                    tracker,
+                    bot.id,
+                    rate=rate,
+                    max_passes=settings.roster_crawl_max_passes,
+                    max_requests=settings.roster_crawl_max_requests,
+                    delay=settings.roster_crawl_delay_seconds,
+                )
+            )
+        admin.maintenance.guard = partial(
+            gate.guard,
+            jobs=jobs,
+            workers=workers,
+            memberships=memberships,
+            groups=groups,
+            tracker=tracker,
+            cache=groups.cache,
+            bot_id=bot.id,
         )
         recovered = await workflow.recover()
         telemetry.emit("conversations_recovered", interrupted_requests=recovered)
@@ -402,10 +464,12 @@ class Container:
             admin=admin,
             memberships=memberships,
             tracker=tracker,
+            gate=gate,
+            policy=hooks,
         )
         await catch_up_bot(client, telemetry)
         await stack.enter_async_context(file_expiry)
-        await stack.enter_async_context(
-            OperationalWorkers(operations, memberships, settings.activity_flush_seconds, groups)
-        )
+        for worker in workers:
+            await stack.enter_async_context(worker)
+        gate.ready = True
         telemetry.emit("bot_ready", bot_username=bot.username)

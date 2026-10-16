@@ -1,12 +1,21 @@
 # Deployment, logging and recovery
 
-The October 16 administration alignment adds migration 10, separate Redis STATE, observed human membership and durable operational jobs. Follow the stopped-bot backup/upgrade procedure below and the revision-10 section; existing data and migration history are preserved. [Database ownership](DATABASE.md) lists every table, key, index and
+The October 16 source-parity follow-up adds migration 11, resumable member crawling
+and the Couplyo administration flow. The prior migration 10 added separate Redis
+STATE and operational jobs. Follow the stopped-bot backup/upgrade procedure below;
+existing data and migration history are preserved. [Database ownership](DATABASE.md) lists every table, key, index and
 migration. `python scripts/export_schema.py --check` verifies the offline reference
 SQL; it never connects to the installed database or substitutes for migration.
 
 The Python bot and Node runtime run on the host. Docker runs PostgreSQL, Redis CACHE and Redis STATE only. Existing ports and password stay in `.env`; Python derives connection URLs from those values.
 
 ## Administration upgrade (revision 10)
+
+This same procedure upgrades an existing installation through revision **11**.
+Create a fresh pre-upgrade backup; never overwrite your only tested backup.
+New roster settings default to enabled
+with one worker, three passes, 400 requests and a one-second minimum page delay.
+Review [source parity and limits](COUPLYO_PARITY.md) before enabling more workers.
 
 Stop the existing Python receiver before upgrading. Keep its current `.env`,
 PostgreSQL password, Compose project name, session and named volumes. Create a
@@ -16,9 +25,10 @@ database backup on the server (Linux shell), then check its archive listing:
 cd ~/SaintCrispy
 mkdir -p .runtime/backups
 chmod 700 .runtime/backups
-docker compose -p saintcrispy exec -T postgres pg_dump -U downloader -d downloader -Fc > .runtime/backups/before-revision-10.dump
-docker compose -p saintcrispy exec -T postgres pg_restore --list < .runtime/backups/before-revision-10.dump > .runtime/backups/before-revision-10.list
-chmod 600 .runtime/backups/before-revision-10.*
+db_backup_path="$(mktemp .runtime/backups/before-revision-11-XXXXXXXX.dump)"
+docker compose -p saintcrispy exec -T postgres pg_dump -U downloader -d downloader -Fc > "$db_backup_path"
+docker compose -p saintcrispy exec -T postgres pg_restore --list < "$db_backup_path" > "$db_backup_path.list"
+chmod 600 "$db_backup_path" "$db_backup_path.list"
 ```
 
 An archive listing detects a corrupt format, not a successful restoration. Verify

@@ -2,8 +2,9 @@
 
 The implementation follows the group identity, transaction, update-ordering and
 unknown-standing rules in the October 15 Couplyo `docss/PROJECT_REFERENCE_FA.md`.
-The document is architectural reference material; its embedded example prompts
-and Couplyo-specific couple/roster rules are not additional downloader requirements.
+The actual local Couplyo source is also mapped in [the parity guide](COUPLYO_PARITY.md).
+Full member-roster crawling is now explicitly required and implemented; couple
+selection remains excluded.
 
 ## User flow and Telegram configuration
 
@@ -109,7 +110,7 @@ slots and finite deadlines bound metadata work. Definite group entities prevent
 phantom groups from users/broadcasts. Fresh activity after a known removal can
 request a definite self-membership probe before reactivation; a message alone
 does not reverse a recorded removal. Startup registers handlers before catch-up;
-there is no unsupported history/dialog crawl or full member-roster preload.
+eligible administrator groups receive a separate resumable roster crawl.
 Only updates Telegram actually delivers can be recorded; this is not a historical
 inventory of groups the bot left before this feature was installed.
 
@@ -130,6 +131,13 @@ remain bound to their original chat and are not redirected into another chat.
 [Administration design](ADMINISTRATION.md) adds separate observed human memberships, replay-safe message counters, owner/admin snapshots, typed peer recovery, SQL-backed health/leave jobs, group quota overrides and transactional lifecycle notifications. An actual departed state changes `removed_at`; replayed removals do not reset the date. A provisional add settles through up to three 1.5-second checks, while stale demotion is checked against fresh admin evidence. UNKNOWN remains non-destructive.
 
 Known-active activity uses the persistent STATE stream when configured; new membership and explicit join/leave commit immediately. Received-message presence is not a full-roster crawl. Every human group message can update last activity regardless of whether it includes a supported link. Only real non-bot, non-deleted user entities count; no message text is stored by this ledger.
+
+Revision **11** additionally crawls eligible group members using the source's
+Search/Recent passes and durable checkpoints. Raw departures create an atomic
+negative fence even when no human profile exists. SQL failures defer typed events
+to STATE, and replay commits before ACK. Roster-only members receive no fabricated
+message activity or private-start status. See [algorithm, settings and coverage
+limits](COUPLYO_PARITY.md#roster-algorithm-and-truthful-coverage).
 
 ## Logs and deployment
 

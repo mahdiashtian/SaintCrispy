@@ -1,6 +1,8 @@
 """Telegram adapters and owned operational worker lifecycle."""
 
 import asyncio
+import base64
+import io
 import logging
 from datetime import UTC, datetime
 
@@ -15,13 +17,87 @@ log = logging.getLogger("telegram")
 
 
 class EffectDelivery:
-    def __init__(self, client, tracker, groups, *, presentation=None, rate=None, admin=None):
+    def __init__(
+        self,
+        client,
+        tracker,
+        groups,
+        *,
+        presentation=None,
+        rate=None,
+        admin=None,
+        roster=None,
+        memberships=None,
+        management=None,
+    ):
         self.client, self.tracker, self.groups = client, tracker, groups
         self.presentation, self.rate = presentation, rate
         self.admin = admin
+        self.roster, self.memberships, self.management = roster, memberships, management
 
     async def deliver(self, effect):
         try:
+            if effect.kind == "crawl":
+                if self.roster is None:
+                    raise PermanentEffect("crawl_disabled")
+                await self.roster.enqueue(effect.target_id)
+                return
+            if effect.kind == "refresh_users":
+                if self.rate:
+                    delay = await self.rate.reserve()
+                    if delay > 0:
+                        raise RetryEffect(delay, "flood_wait")
+                user = await self.client.get_entity(effect.target_id)
+                if not isinstance(user, types.User):
+                    raise PermanentEffect("not_a_human")
+                await self.memberships.refresh_profile(
+                    user.id,
+                    user.username,
+                    user.first_name,
+                    user.last_name,
+                    deleted=bool(user.deleted),
+                    bot=bool(user.bot),
+                )
+                if self.admin and self.admin.cache:
+                    await self.admin.cache.invalidate("user", user.id)
+                return
+            if effect.kind in {"nudge_admin", "nudge_owners"}:
+                owners = effect.kind == "nudge_owners"
+                group_id = effect.payload.get("group_id") if owners else effect.target_id
+                group = await self.groups.get(group_id, fresh=True)
+                if (
+                    not group
+                    or group.migrated_to
+                    or (group.is_active is not False if owners else group.is_active is not True)
+                ):
+                    raise PermanentEffect("nudge_not_eligible")
+                if owners and not await self.admin.can_contact(effect.target_id):
+                    raise PermanentEffect("recipient_not_started")
+                if not owners:
+                    standing = await self.tracker.health(group_id)
+                    if standing.standing is not Standing.MEMBER:
+                        raise PermanentEffect("nudge_standing_unknown_or_admin")
+                peer = await self.resolve_peer(effect.target_id)
+                if self.rate:
+                    delay = await self.rate.reserve()
+                    if delay > 0:
+                        raise RetryEffect(delay, "flood_wait")
+                title = (
+                    (group.title or str(group.chat_id))
+                    if effect.payload.get("with_name", True)
+                    else "گروهی که مدیریت می‌کنی"
+                )
+                text = (
+                    f"👥 ربات از {title} خارج شده؛ در صورت تمایل دوباره آن را اضافه کن."
+                    if owners
+                    else f"🛡 برای خواندن فهرست اعضای {title}، ربات را ادمین گروه کن."
+                )
+                await self.client(
+                    functions.messages.SendMessageRequest(
+                        peer, text, random_id=effect.random_id, no_webpage=True
+                    )
+                )
+                return
             if effect.kind == "health":
                 report = await self.tracker.health(effect.target_id)
                 if report.standing is Standing.UNKNOWN:
@@ -29,13 +105,7 @@ class EffectDelivery:
                         raise RetryEffect(5, "health_persist_deferred")
                     raise PermanentEffect("health_unknown_" + (report.reason or "unresolved"))
                 return
-            try:
-                peer = await self.client.get_input_entity(effect.target_id)
-            except ValueError:
-                saved = await self.groups.peer(effect.target_id) if effect.target_id < 0 else None
-                if saved is None:
-                    raise
-                peer = saved_input_peer(saved)
+            peer = await self.resolve_peer(effect.target_id)
             if effect.kind == "leave":
                 if isinstance(peer, types.InputPeerChannel):
                     await self.client(functions.channels.LeaveChannelRequest(peer))
@@ -56,7 +126,37 @@ class EffectDelivery:
                 if delay:
                     await asyncio.sleep(delay)
                     await self.rate.wait()
-            if effect.kind == "message":
+            if effect.kind == "report":
+                if self.management is None:
+                    raise PermanentEffect("reports_unavailable")
+                data, caption = await self.management.report(effect.target_id)
+                data_file = io.BytesIO(data)
+                data_file.name = "weekly-report.png"
+                uploaded = await self.client.upload_file(data_file)
+                await self.client(
+                    functions.messages.SendMediaRequest(
+                        peer=peer,
+                        media=types.InputMediaUploadedPhoto(uploaded),
+                        message=caption,
+                        random_id=effect.random_id,
+                    )
+                )
+            elif effect.kind == "archive_document":
+                data = effect.payload["document"]
+                document = types.InputDocument(
+                    data["document_id"],
+                    data["access_hash"],
+                    base64.b64decode(data["file_reference"], validate=True),
+                )
+                await self.client(
+                    functions.messages.SendMediaRequest(
+                        peer=peer,
+                        media=types.InputMediaDocument(document),
+                        message=effect.payload.get("caption", ""),
+                        random_id=effect.random_id,
+                    )
+                )
+            elif effect.kind == "message" and not effect.payload.get("copy"):
                 text = effect.payload["text"]
 
                 async def send(text, **options):
@@ -67,6 +167,9 @@ class EffectDelivery:
                             random_id=effect.random_id,
                             no_webpage=True,
                             entities=options.get("formatting_entities", []),
+                            reply_to=types.InputReplyToMessage(effect.payload["reply_to"])
+                            if effect.payload.get("reply_to")
+                            else None,
                         )
                     )
 
@@ -74,16 +177,34 @@ class EffectDelivery:
                     await self.presentation._send(send, text, {"parse_mode": None})
                 else:
                     await send(text)
-            elif effect.kind == "forward":
+            elif effect.kind == "forward" or effect.payload.get("copy"):
                 source = await self.client.get_input_entity(effect.payload["source_peer"])
-                await self.client(
+                result = await self.client(
                     functions.messages.ForwardMessagesRequest(
                         from_peer=source,
                         id=[effect.payload["source_id"]],
                         random_id=[effect.random_id],
                         to_peer=peer,
+                        drop_author=bool(effect.payload.get("copy")),
                     )
                 )
+                if self.management and effect.payload.get("footer"):
+                    outgoing = next(
+                        (
+                            item.id
+                            for item in getattr(result, "updates", [])
+                            if isinstance(item, types.UpdateMessageID)
+                            and item.random_id == effect.random_id
+                        ),
+                        None,
+                    )
+                    if outgoing:
+                        await self.management.notice(
+                            f"forward-footer:{effect.id}",
+                            effect.target_id,
+                            effect.payload["footer"],
+                            reply_to=outgoing,
+                        )
             else:
                 raise PermanentEffect("unknown_effect_kind")
         except (errors.UserNotParticipantError, errors.ChatForbiddenError) as error:
@@ -116,6 +237,19 @@ class EffectDelivery:
                 raise PermanentEffect(type(error).__name__) from error
             raise RetryEffect(5, type(error).__name__) from error
 
+    async def resolve_peer(self, target_id):
+        try:
+            return await self.client.get_input_entity(target_id)
+        except ValueError:
+            saved = (
+                await self.groups.peer(target_id)
+                if type(target_id) is int and target_id < 0
+                else None
+            )
+            if saved is None:
+                raise
+            return saved_input_peer(saved)
+
     async def mark_left(self, effect):
         group = await self.groups.get(effect.target_id, fresh=True)
         if group and group.is_active is not False:
@@ -136,10 +270,11 @@ class EffectDelivery:
 
 
 class OperationalWorkers:
-    def __init__(self, operations, memberships, interval=45, groups=None):
+    def __init__(self, operations, memberships, interval=45, groups=None, management=None):
         self.operations, self.memberships, self.interval = operations, memberships, interval
         self.tasks = []
         self.groups = groups
+        self.management = management
 
     async def _run(self, action, interval, adaptive=False):
         while True:
@@ -157,6 +292,8 @@ class OperationalWorkers:
         ]
         if self.groups:
             self.tasks.append(asyncio.create_task(self._run(self.groups.flush_deferred, 5)))
+        if self.management:
+            self.tasks.append(asyncio.create_task(self._run(self.management.tick, 30)))
         return self
 
     async def __aexit__(self, *args):

@@ -14,6 +14,9 @@ from .membership import MODEL as MEMBERSHIP
 from .menu import MODEL as MENU
 from .peer import MODEL as PEER
 from .request_limit import MODEL as REQUEST_LIMIT
+from .roster_crawl import DEPARTURES
+from .roster_crawl import MODEL as ROSTER_CRAWL
+from .roster_crawl import SEEN as ROSTER_SEEN
 from .site_account import MODEL as SITE_ACCOUNT
 from .user import MODEL as USER
 
@@ -33,7 +36,10 @@ WORKFLOW_TABLES = (
 )
 GROUP_TABLES = (GROUP, GROUP_EVENT, GROUP_REQUEST_LIMIT)
 CONTROL_TABLES = (MEMBERSHIP, MEMBERSHIP_EVENT, SETTING, AUDIT, REQUEST, JOB, OUTBOX, PEER)
-TABLES = MEDIA_TABLES + WORKFLOW_TABLES + GROUP_TABLES + (FILE_EXPIRY,) + CONTROL_TABLES
+ROSTER_TABLES = (ROSTER_CRAWL, ROSTER_SEEN, DEPARTURES)
+TABLES = (
+    MEDIA_TABLES + WORKFLOW_TABLES + GROUP_TABLES + (FILE_EXPIRY,) + CONTROL_TABLES + ROSTER_TABLES
+)
 SCHEMA = "\n".join(table.schema for table in MEDIA_TABLES)
 WORKFLOW_SCHEMA = "\n".join(table.schema for table in WORKFLOW_TABLES)
 GROUP_SCHEMA = "\n".join(table.schema for table in GROUP_TABLES)

@@ -12,7 +12,7 @@ log = logging.getLogger("activity")
 
 
 class OperationsService:
-    def __init__(self, repository, uow_factory, admin, delivery):
+    def __init__(self, repository, uow_factory, admin, delivery, *, management=None):
         self.repository, self.uow_factory, self.admin, self.delivery = (
             repository,
             uow_factory,
@@ -20,6 +20,7 @@ class OperationsService:
             delivery,
         )
         self.owner = uuid.uuid4().hex
+        self.management = management
 
     async def enumerate(self):
         job = await self.repository.claim_job(self.owner)
@@ -32,20 +33,63 @@ class OperationsService:
                 if not await uow.outbox.owned_job(job["id"], self.owner):
                     return
                 single = (
-                    job["kind"] in {"health", "leave"} and job["payload"].get("chat_id") is not None
+                    job["kind"] in {"health", "leave", "crawl"}
+                    and job["payload"].get("chat_id") is not None
                 )
                 targets = [job["payload"]["chat_id"]] if single else await uow.outbox.targets(job)
+                if (
+                    job["kind"] in {"broadcast", "forward"}
+                    and job["payload"].get("target_id") is not None
+                ):
+                    single = True
+                    targets = [job["payload"]["target_id"]]
                 if single and job["cursor"] is not None:
                     targets = []
                 excluded = set(job["payload"].get("exclude", []))
+                planned = 0
+                skipped = 0
                 for target in targets:
                     if target in excluded:
+                        planned += 1
+                        skipped += 1
                         continue
+                    if job["kind"] == "nudge_owners":
+                        group = await uow.groups.get(target)
+                        contacts = set()
+                        mode = job["payload"].get("target", "owner")
+                        if group and mode in {"owner", "both"} and group.owner_id:
+                            contacts.add(group.owner_id)
+                        if group and mode in {"admins", "both"}:
+                            contacts.update(
+                                identity
+                                for identity in group.admin_ids
+                                if identity != group.owner_id
+                            )
+                        recipients = await uow.outbox.started_recipients(contacts)
+                        if not recipients:
+                            planned += 1
+                            skipped += 1
+                        for recipient in recipients:
+                            planned += 1
+                            await uow.outbox.enqueue(
+                                f"job:{job['id']}:{target}:{recipient}",
+                                "nudge_owners",
+                                recipient,
+                                {**job["payload"], "group_id": target},
+                                job["id"],
+                            )
+                        continue
+                    planned += 1
                     kind = {
                         "broadcast": "message",
                         "forward": "forward",
                         "health": "health",
                         "leave": "leave",
+                        "crawl": "crawl",
+                        "nudge_admin": "nudge_admin",
+                        "nudge_owners": "nudge_owners",
+                        "refresh_users": "refresh_users",
+                        "report": "report",
                     }[job["kind"]]
                     await uow.outbox.enqueue(
                         f"job:{job['id']}:{target}", kind, target, job["payload"], job["id"]
@@ -54,14 +98,12 @@ class OperationsService:
                     job,
                     self.owner,
                     targets[-1] if targets else job["cursor"],
-                    len(targets),
+                    planned,
                     done=not targets or single,
                 ):
                     raise RuntimeError("Lost administrator job lease")
-                if excluded:
-                    await uow.admin.skipped(
-                        job["id"], sum(target in excluded for target in targets)
-                    )
+                if skipped:
+                    await uow.admin.skipped(job["id"], skipped)
         except Exception as error:
             permanent = isinstance(error, DownloadError) or job["attempt_count"] >= 6
             await self.repository.fail_job(
@@ -81,12 +123,16 @@ class OperationsService:
             return
         status, error, delay = "sent", None, 0
         try:
+            if effect.payload.get("policy") == "management" and (
+                self.management is None or not await self.management.allowed(effect)
+            ):
+                raise DownloadError("management_policy_changed")
             if effect.job_id:
                 job = await self.repository.job_owner(effect.job_id)
                 if not job or job["status"] == "cancelled":
                     raise DownloadError("cancelled")
                 await self.admin.authorize(job["requested_by"], root=job["kind"] != "health")
-            elif (
+            elif effect.payload.get("policy") != "management" and (
                 effect.target_id != self.admin.main_admin_id
                 or await self.admin.repository.setting("lifecycle_notifications", True) is not True
             ):

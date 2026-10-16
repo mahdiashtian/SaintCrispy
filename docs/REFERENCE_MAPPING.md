@@ -1,5 +1,12 @@
 # Couplyo reference mapping
 
+The follow-up against the **actual** copied source, commit
+`e3e073276b489b72b798a3aecc5b3dd3c9361e8b`, supersedes the earlier scope below.
+See [source parity](COUPLYO_PARITY.md) for the file map, full roster, category-based
+panel, migration 11 and deliberate safe backend adaptations. The application
+currently owns 25 domain tables and revisions 1–11; historical results below keep
+their original dates and scope.
+
 The current supplied source is Couplyo's `docss/PROJECT_REFERENCE_FA.md`, dated
 October 15, 2026, together with `PORTING_GUIDE_FA.md`, `IMPLEMENTATION_PROMPT_FA.md`,
 `GROUP_LIFECYCLE_FA.md`, `BOT_FEATURES_FA.md`, the scalability reports and reference SQL.
@@ -67,7 +74,8 @@ the same idempotent chain before startup and requires database settings only.
 Group support extends that mapping with migration 7, a bot-scoped group snapshot,
 durable lifecycle audit and atomic rolling group admission. Raw self-membership
 updates retain unknown-state and stale-event guards from the reference. Domain
-couple selection and full member-roster crawling are not downloader requirements.
+couple selection is excluded; full member-roster crawling is implemented by the
+later explicit request and revision 11.
 See [group design and verification](GROUPS.md).
 
 The October 15 follow-up adds side-effect-free `GroupProbe`, immutable group read

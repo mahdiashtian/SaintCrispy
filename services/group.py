@@ -25,6 +25,8 @@ class GroupService(TransactionalService):
         cache: ObjectCache | None = None,
         main_admin_id=None,
         retry_queue=None,
+        roster_enabled=False,
+        management_enabled=False,
     ):
         super().__init__(uow_factory)
         if not 1 <= links_per_minute <= 1000:
@@ -33,6 +35,9 @@ class GroupService(TransactionalService):
         self.links_per_minute = links_per_minute
         self.cache, self.main_admin_id = cache, main_admin_id
         self.retry_queue, self.consumer = retry_queue, uuid.uuid4().hex
+        self.roster_enabled = roster_enabled
+        self.management_enabled = management_enabled
+        self.management_changed = None
 
     async def get(self, chat_id: int, *, fresh=False) -> GroupSnapshot | None:
         if type(chat_id) is not int or chat_id >= 0:
@@ -118,8 +123,79 @@ class GroupService(TransactionalService):
                 await self.retry_queue.acknowledge(shard, [identity])
 
     async def _record(self, change: GroupChange):
+        management_changed = False
         async with self._uow_factory() as uow:
             result = await uow.groups.record(change)
+            if (
+                self.management_enabled
+                and result
+                and result["applied"]
+                and result.get("transition")
+                and result["is_active"] is False
+            ):
+                config = await uow.admin.setting("channel_management", {})
+                watches = config.get("watches", []) if isinstance(config, dict) else []
+                if any(watch.get("chat_id") == change.chat_id for watch in watches):
+                    await uow.admin.connection.execute(
+                        "SELECT pg_advisory_xact_lock($1,$2)", uow.admin.bot_id % 2147483647, 204217
+                    )
+                    config = await uow.admin.setting("channel_management", {})
+                    retired = [
+                        watch
+                        for watch in config.get("watches", [])
+                        if watch.get("chat_id") == change.chat_id
+                    ]
+                    config["watches"] = [
+                        watch
+                        for watch in config.get("watches", [])
+                        if watch.get("chat_id") != change.chat_id
+                    ]
+                    for watch in retired:
+                        target = watch["channel"]["id"]
+                        await uow.outbox.enqueue(
+                            f"watch-retired:{result['event_id']}:{target}",
+                            "message",
+                            target,
+                            {
+                                "text": f"👋 ربات از گروه {change.chat_id} خارج شد و رصد این گروه متوقف شد.",
+                                "policy": "management",
+                                "management": {
+                                    "feature": "watch_removed",
+                                    "source_peer": change.chat_id,
+                                    "retired_target": target,
+                                },
+                            },
+                        )
+                    await uow.admin.set_setting("channel_management", config)
+                    management_changed = True
+                    if self.main_admin_id:
+                        await uow.outbox.enqueue(
+                            f"watch-retired:{result['event_id']}",
+                            "message",
+                            self.main_admin_id,
+                            {
+                                "text": f"👁️ رصد گروه {change.chat_id} پس از خروج ربات متوقف شد.",
+                                "policy": "management",
+                                "management": {"feature": "watch_removed"},
+                            },
+                        )
+            if (
+                self.roster_enabled
+                and result
+                and result["applied"]
+                and result.get("transition")
+                and result["is_active"] is True
+                and result["is_admin"] is True
+            ):
+                await uow.roster_crawls.enqueue(change.chat_id)
+            if (
+                self.roster_enabled
+                and result
+                and result["applied"]
+                and result.get("transition")
+                and (result["is_active"] is False or result["is_admin"] is False)
+            ):
+                await uow.roster_crawls.suspend(change.chat_id, result["is_active"] is False)
             cached = await uow.groups.get(change.chat_id) if result and self.cache else None
             if (
                 result
@@ -137,6 +213,8 @@ class GroupService(TransactionalService):
                             "text": f"📌 تغییر وضعیت گروه\n{change.title or 'گروه'}\nشناسه: {change.chat_id}\nرویداد: {result['kind']}\nعضویت: {result['is_active']} · ادمینی: {result['is_admin']}"
                         },
                     )
+        if management_changed and self.management_changed:
+            self.management_changed()
         if result and self.cache:
             await self.cache.put("group", change.chat_id, cached)
         if result:
@@ -187,9 +265,30 @@ class GroupService(TransactionalService):
             or old_id == new_id
         ):
             raise ValueError("Invalid group migration identities")
+        management_changed = False
         try:
             async with self._uow_factory() as uow:
                 result = await uow.groups.migrate(old_id, new_id, occurred_at)
+                if self.management_enabled:
+                    await uow.admin.connection.execute(
+                        "SELECT pg_advisory_xact_lock($1,$2)", uow.admin.bot_id % 2147483647, 204217
+                    )
+                    config = await uow.admin.setting("channel_management", {})
+                    watches = config.get("watches", []) if isinstance(config, dict) else []
+                    original = next(
+                        (watch for watch in watches if watch.get("chat_id") == old_id), None
+                    )
+                    if original:
+                        retained = [watch for watch in watches if watch.get("chat_id") != old_id]
+                        if not any(watch.get("chat_id") == new_id for watch in retained):
+                            retained.append({**original, "chat_id": new_id})
+                        await uow.admin.set_setting(
+                            "channel_management", {**config, "watches": retained}
+                        )
+                        management_changed = True
+                if self.roster_enabled:
+                    await uow.roster_crawls.suspend(old_id, True, reason="migrated")
+                    await uow.roster_crawls.enqueue(new_id)
         except Exception as error:
             if (
                 replaying
@@ -215,6 +314,8 @@ class GroupService(TransactionalService):
                 {"event": "group_migration_deferred", "chat_id": old_id, "new_chat_id": new_id}
             )
             return
+        if management_changed and self.management_changed:
+            self.management_changed()
         if self.cache:
             await self.cache.invalidate("group", old_id)
             await self.cache.invalidate("group", new_id)

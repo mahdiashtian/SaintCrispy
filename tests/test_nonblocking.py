@@ -48,6 +48,25 @@ def test_runtime_does_not_call_blocking_disk_network_or_subprocess_apis():
                             for function in ast.walk(tree)
                         )
                         continue
+                    cpu_helpers = {
+                        "repositories/postgres/admin.py": {"json.dumps", "json.loads"},
+                        "services/admin_maintenance.py": {
+                            "encode_rows",
+                            "serialize_payload",
+                            "json.loads",
+                            "validate_payload",
+                            "restore_values",
+                        },
+                        "services/management.py": {"render_report"},
+                    }
+                    if path.relative_to(root).as_posix() in cpu_helpers:
+                        assert name(node.args[0]) in cpu_helpers[path.relative_to(root).as_posix()]
+                        assert any(
+                            isinstance(function, ast.AsyncFunctionDef)
+                            and node in ast.walk(function)
+                            for function in ast.walk(tree)
+                        )
+                        continue
                     # Only system sampling and log-thread shutdown may use an I/O worker.
                     assert path.relative_to(root).as_posix() in {
                         "services/observability.py",
