@@ -48,7 +48,7 @@ class EffectDelivery:
                     if delay > 0:
                         raise RetryEffect(delay, "flood_wait")
                 user = await self.client.get_entity(effect.target_id)
-                if not isinstance(user, types.User) or user.id!=effect.target_id:
+                if not isinstance(user, types.User) or user.id != effect.target_id:
                     raise PermanentEffect("not_a_human")
                 if effect.kind == "purge_users":
                     await self.memberships.purge_invalid(

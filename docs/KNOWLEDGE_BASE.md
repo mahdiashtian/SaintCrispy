@@ -138,6 +138,41 @@ Detailed dated evidence is in [provider verification](PROVIDER_VERIFICATION.md),
 [operations](OPERATIONS.md). Sanitized Actions reports provide independent evidence;
 private workstation reports remain in ignored `.runtime/`.
 
+## Spotify addition — October 16, 2026
+
+Read [Spotify research, failed approaches and verified full streams](SPOTIFY.md)
+before changing this provider. It implements public track metadata and a matched
+YouTube MP3, not original Spotify audio. Never promote `audioPreview` to a full
+download, invent lossless/320-kbps choices, or claim the repository applications
+were executed when only their code/network approaches were examined.
+
+Spotify embed metadata and flat yt-dlp search worked here. Old SpotifyDown API
+connection, Spotdown `song-details` 404, Fabdl `invalid origin` 403 (including the
+changed-origin experiment), Spowload redirect budget and Song.link 401 failed.
+SpotMate's current browser script requires Turnstile. Do not retry those old
+snippets unchanged or use embedded third-party credentials. Revisit after a
+documented endpoint/client change, authorized access or new connection evidence.
+Native M4A URL extraction succeeded, but its CDN connection failed; libcurl DoH
+then timed out. A fresh URL is not proof of a consumable file.
+
+The independent public conversion path fully consumed three matched MP3s through
+the real generic audio-integrity pipeline, with metadata in 0.4503–0.6290 seconds,
+resolution in 6.1462–8.0950 seconds and complete streams in 6.2161–10.5492 seconds.
+See the dated table for exact IDs, bytes, durations and hashes. The first loose
+matching rule accepted a four-second-shorter recording; it was replaced by a
+two-second duration bound and ten-result search. Old 210-second success is not
+final-head evidence for the 214-second track. Failed first-track resolution was
+followed only after changed matching and probe-budget code. Production and
+Telegram delivery were not exercised by these workstation tests.
+Final suite: 1,770 passed with zero failures/skips against real isolated SQL/Redis;
+1,000 identical successful and failed calls coalesced, cancelled/oversized workers
+were reaped, sender/chat isolation survived SQL restoration, and 200 concurrent
+file writes produced one file row with 200 separate delivery receipts. Lint and
+format passed for 322 Python files; the isolated wheel includes all six Spotify
+modules. No new dependency, database migration or Docker service was introduced.
+
+## Earlier cross-provider verification (October 15)
+
 Earlier October 15 checks passed fresh anonymous project inspection/resolution and
 complete transfer validation for both reported identities. Instagram used its
 public resolver/original CDN; YouTube used its independent public converter.
@@ -352,6 +387,7 @@ No fresh origin or live Telegram rendering claim follows from these UI tests.
 | YouTube | Validated 11-character video ID, with the selected codec/resolution/frame-rate quality key | `pp`, tracking parameters, temporary Googlevideo URLs or playlist position |
 | Instagram | Requested shortcode/media ID; each carousel item has its own numeric ID; story identity includes its story ID | `dlrf`, signed CDN URL, album position without a stable item ID |
 | SoundCloud | Origin numeric track ID with a supported full-stream quality | Mutable uploader/track slug, search-result title or a preview URL |
+| Spotify | Validated 22-character track ID plus `matched_mp3_128`, scoped to the bot | Share/tracking query, search result position, preview URL, converter signature or YouTube ID as the Spotify identity |
 | Pinterest | Pin ID plus the provider's stable child/rendition identity | Tracking query, signed CDN URL or a short preview mistaken for the full pin video |
 | XVideos | Origin canonical video identity, normalized by that provider across public/embed aliases | Title slug, old URL spelling or CDN URL |
 | XNXX | Origin canonical video identity and stable quality key | Title slug or CDN URL |

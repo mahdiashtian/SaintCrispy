@@ -23,6 +23,14 @@ class DownloadCopy:
 
 
 DOWNLOAD_COPY = {
+    "spotify": DownloadCopy(
+        "🟢",
+        "Spotify",
+        "نسخهٔ متناظر آهنگ، آمادهٔ شنیدن",
+        "🎧 آهنگ",
+        "👤 هنرمند",
+        "نسخهٔ صوتی متناظر رو انتخاب کن؛ فایل از منبع جایگزین تهیه می‌شه، نه صوت اصلی اسپاتیفای:",
+    ),
     "tiktok": DownloadCopy(
         "🎵",
         "TikTok",

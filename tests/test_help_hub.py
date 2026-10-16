@@ -158,6 +158,7 @@ def test_help_is_registered_in_both_chat_types_and_start_policy_is_private_only(
     client = SimpleNamespace(
         add_event_handler=lambda callback, builder: registrations.append((callback, builder))
     )
+
     async def check_start(_event):
         pass
 

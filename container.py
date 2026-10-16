@@ -38,6 +38,8 @@ from downloader_bot.downloaders.pinterest.downloader import PinterestDownloader
 from downloader_bot.downloaders.router import DownloaderRouter
 from downloader_bot.downloaders.soundcloud.client import SoundCloudClient
 from downloader_bot.downloaders.soundcloud.downloader import SoundCloudDownloader
+from downloader_bot.downloaders.spotify.client import SpotifyClient, spotify_sessions
+from downloader_bot.downloaders.spotify.downloader import SpotifyDownloader
 from downloader_bot.downloaders.tiktok.client import TikTokClient, tiktok_session
 from downloader_bot.downloaders.tiktok.downloader import TikTokDownloader
 from downloader_bot.downloaders.xnxx.client import XNXXClient
@@ -271,6 +273,9 @@ class Container:
             await stack.enter_async_context(tiktok_session()),
             await stack.enter_async_context(tiktok_session(os.environ.get("TIKTOK_PROXY", ""))),
         )
+        spotify = SpotifyClient.from_environment(
+            *await stack.enter_async_context(spotify_sessions(os.environ.get("SPOTIFY_PROXY", "")))
+        )
         downloader = DownloaderRouter(
             {
                 "soundcloud": SoundCloudDownloader(
@@ -284,6 +289,7 @@ class Container:
                 ),
                 "instagram": InstagramDownloader(await instagram_client(), instagram_accounts),
                 "tiktok": TikTokDownloader(tiktok),
+                "spotify": SpotifyDownloader(spotify),
             }
         )
         return downloader

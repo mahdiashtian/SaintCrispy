@@ -7,7 +7,7 @@ on:
         description: Provider to check
         type: choice
         required: true
-        options: [youtube, instagram, soundcloud, pinterest, xvideos, xnxx]
+        options: [youtube, instagram, soundcloud, spotify, pinterest, xvideos, xnxx]
       url:
         description: Public HTTPS media page
         type: string

@@ -8,6 +8,8 @@ from downloader_bot.downloaders.pinterest.urls import PINTEREST_HOSTS as PINTERE
 from downloader_bot.downloaders.pinterest.urls import extract_url as extract_pinterest_url
 from downloader_bot.downloaders.soundcloud.urls import LINK_PATTERN as SOUNDCLOUD_LINK
 from downloader_bot.downloaders.soundcloud.urls import extract_url as extract_soundcloud_url
+from downloader_bot.downloaders.spotify.urls import LINK_PATTERN as SPOTIFY_LINK
+from downloader_bot.downloaders.spotify.urls import extract_url as extract_spotify_url
 from downloader_bot.downloaders.tiktok.urls import LINK_PATTERN as TIKTOK_LINK
 from downloader_bot.downloaders.tiktok.urls import extract_url as extract_tiktok_url
 from downloader_bot.downloaders.xnxx.urls import LINK_PATTERN as XNXX_LINK
@@ -41,6 +43,7 @@ SITE_EXTRACTORS = {
     "instagram": extract_instagram_url,
     "pinterest": extract_pinterest_url,
     "tiktok": extract_tiktok_url,
+    "spotify": extract_spotify_url,
 }
 
 __all__ = [
@@ -57,6 +60,8 @@ __all__ = [
     "extract_instagram_url",
     "PINTEREST_LINK",
     "TIKTOK_LINK",
+    "SPOTIFY_LINK",
+    "extract_spotify_url",
     "extract_tiktok_url",
     "extract_pinterest_url",
     "PINTEREST_DOMAINS",

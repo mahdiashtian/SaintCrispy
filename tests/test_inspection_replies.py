@@ -15,6 +15,7 @@ from bot.texts.downloads import inspection_text, quality_menu_text
 from downloader_bot.downloaders.instagram.handler import handle_instagram_link
 from downloader_bot.downloaders.pinterest.handler import handle_pinterest_link
 from downloader_bot.downloaders.soundcloud.handler import handle_soundcloud_link
+from downloader_bot.downloaders.spotify.handler import handle_spotify_link
 from downloader_bot.downloaders.tiktok.handler import handle_tiktok_link
 from downloader_bot.downloaders.xnxx.handler import handle_xnxx_link
 from downloader_bot.downloaders.xvideos.handler import handle_xvideos_link
@@ -22,6 +23,7 @@ from downloader_bot.downloaders.youtube.handler import handle_youtube_link
 from schemas.media import DownloadError, Media, Quality
 
 PROVIDERS = [
+    ("spotify", "sp", handle_spotify_link, "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b"),
     ("youtube", "yt", handle_youtube_link, "https://youtu.be/jNQXAC9IVRw"),
     ("instagram", "ig", handle_instagram_link, "https://www.instagram.com/reel/DeR9eU8idi0/"),
     ("soundcloud", "sc", handle_soundcloud_link, "https://soundcloud.com/artist/track"),
@@ -172,7 +174,7 @@ async def test_equal_concurrent_links_keep_independent_loading_and_reply_identit
 
 
 async def test_album_edits_loading_for_first_page_and_preserves_all_remaining_buttons():
-    site, prefix, handler, url = PROVIDERS[1]
+    site, prefix, handler, url = next(row for row in PROVIDERS if row[0] == "instagram")
     event, status = incoming(url)
     media = replace(
         media_for(site, url), qualities=tuple(replace(QUALITY, key=str(i)) for i in range(120))
@@ -188,7 +190,7 @@ async def test_album_edits_loading_for_first_page_and_preserves_all_remaining_bu
 
 
 async def test_loading_and_replacement_menu_keep_premium_emoji_formatting():
-    site, prefix, handler, url = PROVIDERS[1]
+    site, prefix, handler, url = next(row for row in PROVIDERS if row[0] == "instagram")
     event, status = incoming(url)
     presentation = BotPresentation()
     presentation.emojis = {"📸": 101, "⏳": 102}

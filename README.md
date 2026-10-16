@@ -2,7 +2,7 @@
 
 An asynchronous Telegram media downloader built with Python, Telethon, PostgreSQL and Redis. Each website has an independent implementation with its own client, parser, downloader, handler and URL rules.
 
-Supported providers: **TikTok, SoundCloud, Instagram, Pinterest, XVideos and XNXX**.
+Supported providers: **TikTok, SoundCloud, Spotify, Instagram, Pinterest, XVideos and XNXX**.
 YouTube is temporarily restricted to the configured main administrator. Available
 media, qualities and account requirements depend on the source website. The bot
 interface is currently Persian; developer documentation and code comments are English.
@@ -10,6 +10,13 @@ interface is currently Persian; developer documentation and code comments are En
 TikTok supports public video/photo posts and available soundtracks, with one
 asynchronous metadata request and immediate reuse of fresh selected sources.
 See [TikTok setup, speed measurements and access limits](docs/TIKTOK.md).
+
+Spotify accepts individual public track links, localized URLs and supported share
+redirects. It reads Spotify metadata without login, then obtains a conservatively
+matched YouTube recording as MP3 128 kbps. This is alternative-source audio, not
+Spotify's original stream, lossless audio or a thirty-second preview. Album,
+playlist and podcast downloads are not supported. See [Spotify research, setup
+and full-stream evidence](docs/SPOTIFY.md); no new Python dependency is required.
 
 See [application architecture](docs/ARCHITECTURE.md), the [reference mapping](docs/REFERENCE_MAPPING.md)
 and the [database dictionary](docs/DATABASE.md) for layer ownership, all twenty-nine

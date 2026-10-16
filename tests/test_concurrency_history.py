@@ -212,7 +212,7 @@ async def test_origin_outage_restores_full_catalog_and_later_recovers(monkeypatc
 
 
 @pytest.mark.parametrize(
-    "site", ["soundcloud", "youtube", "instagram", "pinterest", "xvideos", "xnxx"]
+    "site", ["soundcloud", "youtube", "instagram", "pinterest", "xvideos", "xnxx", "spotify"]
 )
 async def test_saved_quality_does_not_hide_an_uncached_quality_after_restart(site):
     first = replace(QUALITY, key="720p")

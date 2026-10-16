@@ -14,6 +14,7 @@ from schemas.media import DownloadError, Media, Quality
 from services.access import ProviderAccess
 
 SITES = {
+    "sp": "spotify",
     "sc": "soundcloud",
     "yt": "youtube",
     "ig": "instagram",

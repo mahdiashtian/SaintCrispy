@@ -33,6 +33,8 @@ from downloader_bot.downloaders.pinterest.client import PinterestClient
 from downloader_bot.downloaders.pinterest.downloader import PinterestDownloader
 from downloader_bot.downloaders.soundcloud.client import SoundCloudClient
 from downloader_bot.downloaders.soundcloud.downloader import SoundCloudDownloader
+from downloader_bot.downloaders.spotify.client import SpotifyClient, spotify_sessions
+from downloader_bot.downloaders.spotify.downloader import SpotifyDownloader
 from downloader_bot.downloaders.tiktok.client import TikTokClient, tiktok_session
 from downloader_bot.downloaders.tiktok.downloader import TikTokDownloader
 from downloader_bot.downloaders.xnxx.client import XNXXClient
@@ -46,6 +48,7 @@ from schemas.media import DownloadError
 from services.observability import error_fields
 
 SAMPLES = {
+    "spotify": "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b",
     "tiktok": "https://www.tiktok.com/@scout2015/video/6718335390845095173",
     "soundcloud": "https://soundcloud.com/gdaal/mojezeh",
     "youtube": "https://youtu.be/jNQXAC9IVRw",
@@ -281,6 +284,13 @@ async def audit(args):
             proxy=await configured_proxy(stack, os.environ, "YOUTUBE", youtube_network_host),
         )
         providers = {
+            "spotify": SpotifyDownloader(
+                SpotifyClient.from_environment(
+                    *await stack.enter_async_context(
+                        spotify_sessions(os.environ.get("SPOTIFY_PROXY", ""))
+                    )
+                )
+            ),
             "tiktok": TikTokDownloader(
                 TikTokClient.from_environment(
                     sessions["tiktok"],

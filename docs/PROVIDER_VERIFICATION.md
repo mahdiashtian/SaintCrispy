@@ -2,6 +2,16 @@
 
 Verification separates parser/unit behavior, database/concurrency behavior, full origin streams, and Telegram registration. A green unit suite cannot establish unrestricted access from every server IP.
 
+## October 16, 2026 Spotify addition
+
+[Spotify research and full-stream evidence](SPOTIFY.md) records three successful
+complete matched-MP3 transfers through the actual audio-integrity path. It also
+records rejected obsolete APIs, native CDN failures, the stricter artist/title/
+duration matching change, public metadata and source-cache behavior. This is
+alternative-source audio for Spotify track links, not Spotify's protected original
+stream. Album, playlist and podcast downloads remain unsupported. Telegram
+publication and production acceptance were not part of these origin checks.
+
 ## October 15, 2026 TikTok addition
 
 See the [TikTok implementation and dated measurement table](TIKTOK.md) for the
