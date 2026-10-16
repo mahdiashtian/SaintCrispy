@@ -417,3 +417,60 @@ async def test_search_rate_limit_is_preserved_and_prevents_next_worker(monkeypat
         with pytest.raises(SiteHTTPError):
             await client.search(media())
     spawn.assert_awaited_once()
+
+
+async def test_reported_radio_edit_uses_one_alternate_query_without_weakening_matching(monkeypatch):
+    value = replace(
+        media(), title="Feel So Close - Radio Edit", artist="Calvin Harris", duration=206
+    )
+    video = entry(
+        title="Calvin Harris - Feel So Close (Official Video)",
+        channel="Calvin Harris",
+        duration=248,
+    )
+    audio = entry(
+        id="Nh_bdvA8cVM", title="Feel So Close (Radio Edit)", channel="Calvin Harris", duration=207
+    )
+    workers = [
+        subprocess_result(json.dumps({"entries": [candidate]}).encode())
+        for candidate in (video, audio)
+    ]
+    spawn = AsyncMock(side_effect=workers)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    assert await SpotifyClient(None, None).search(value) == ("Nh_bdvA8cVM", 207)
+    assert spawn.await_count == 2
+    assert spawn.await_args_list[0].args[-1].endswith("official audio")
+    assert spawn.await_args_list[1].args[-1] == f"ytsearch10:{value.artist} {value.title}"
+    for worker in workers:
+        worker.communicate.assert_awaited_once()
+
+
+async def test_two_rejected_searches_remain_bounded_and_do_not_accept_the_wrong_version(
+    monkeypatch,
+):
+    value = replace(
+        media(), title="Feel So Close - Radio Edit", artist="Calvin Harris", duration=206
+    )
+    wrong = entry(
+        title="Calvin Harris - Feel So Close (Extended Mix)", channel="Calvin Harris", duration=207
+    )
+    workers = [subprocess_result(json.dumps({"entries": [wrong]}).encode()) for _ in range(2)]
+    spawn = AsyncMock(side_effect=workers)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    with pytest.raises(DownloadError) as error:
+        await SpotifyClient(None, None).search(value)
+    assert error.value.code == "spotify_no_matching_audio" and spawn.await_count == 2
+
+
+async def test_alternate_search_shares_deadline_and_reaps_its_worker(monkeypatch):
+    first = subprocess_result(b'{"entries":[]}')
+    second = subprocess_result(b"", returncode=None)
+    second.stdout = asyncio.StreamReader()
+    spawn = AsyncMock(side_effect=[first, second])
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    client = SpotifyClient(None, None)
+    client.search_timeout = 0.02
+    with pytest.raises(TimeoutError):
+        await client.search(media())
+    assert spawn.await_count == 2 and second.returncode == -9
+    second.communicate.assert_awaited_once()

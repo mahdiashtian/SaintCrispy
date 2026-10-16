@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 
-from telethon import errors, types
+from telethon import errors
 
 from schemas.transfer import TransferState
 from services.observability import error_fields
@@ -93,6 +93,7 @@ class ProgressReporter:
         progress: TransferProgress,
         interval: float = 2.5,
         clear_buttons_on_exit: bool = False,
+        terminal_reply=None,
     ):
         self.message = message
         self.progress = progress
@@ -105,6 +106,7 @@ class ProgressReporter:
         self._failure = {}
         self._clear_buttons_on_exit = clear_buttons_on_exit
         self._buttons_cleared = False
+        self._terminal_reply = terminal_reply
 
     async def __aenter__(self):
         if self.message is not None:
@@ -148,7 +150,7 @@ class ProgressReporter:
             async with asyncio.timeout_at(
                 edit_deadline if deadline is None else min(deadline, edit_deadline)
             ):
-                options = {"buttons": types.ReplyInlineMarkup(rows=[])} if clear_buttons else {}
+                options = {"buttons": None} if clear_buttons else {}
                 await self.message.edit(text, parse_mode=None, **options)
             self._last = text
             self._buttons_cleared |= clear_buttons
@@ -192,6 +194,17 @@ class ProgressReporter:
                 }
             )
         log.warning({"event": "transfer_status_unconfirmed", **fields, **self._failure})
+        if self._terminal_reply is not None:
+            try:
+                async with asyncio.timeout(self.EDIT_TIMEOUT):
+                    await self._terminal_reply(self.progress.text())
+                log.info({"event": "transfer_status_replied", **fields})
+            except Exception as error:
+                # Do not erase the only status when its replacement is unconfirmed.
+                log.warning(
+                    {"event": "transfer_status_reply_failed", **fields, **error_fields(error)}
+                )
+                return
         # A long edit cooldown must not leave an obsolete percentage or stop button.
         delete = getattr(self.message, "delete", None)
         if delete is not None:

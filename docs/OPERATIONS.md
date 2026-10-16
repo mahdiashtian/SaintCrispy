@@ -629,12 +629,16 @@ runs afterward. The reporter drains its current edit before finalizing, so a
 previous progress edit is not deliberately cancelled during normal completion.
 
 Terminal edits get at most three attempts in a 15-second budget; each edit has a
-three-second deadline. Short Telegram edit cooldowns are honored. A longer cooldown
-or an edit that remains unavailable triggers a bounded attempt to delete the stale
-status instead of leaving an obsolete percentage. This only affects the progress
-message; the downloaded media is never sent again to repair the status. Permission
-loss or a Telegram outage can prevent deletion too, in which case the failure is
-recorded. There is no detached retry task or unbounded finalization queue.
+three-second deadline. Short Telegram edit cooldowns are honored. Terminal edits
+and Stop callbacks remove inline buttons with explicit `buttons=None`; an empty
+`ReplyInlineMarkup` can be rejected with `ReplyMarkupInvalidError`.
+
+If the transfer handler cannot confirm its terminal edit, it attempts one separate
+terminal-text reply to the original link, with a three-second deadline. Only after
+that reply succeeds does it attempt bounded deletion of the stale status. A failed
+or ambiguous replacement reply preserves the original status and is never retried.
+This only affects text status messages; media publication is never repeated to
+repair a status. There is no detached retry task or unbounded finalization queue.
 
 Inspect these events in `logs/telegram.log`, correlated by `transfer_id`:
 
@@ -643,6 +647,8 @@ Inspect these events in `logs/telegram.log`, correlated by `transfer_id`:
 | `transfer_status_finalized` | Telegram accepted the terminal text/keyboard, or reported it already applied |
 | `transfer_status_retry` | A terminal edit was not confirmed; includes safe error identity and attempt number |
 | `transfer_status_unconfirmed` | The edit budget/cooldown/permanent failure prevented confirmation |
+| `transfer_status_replied` | A separate terminal-text reply was confirmed before old-status cleanup |
+| `transfer_status_reply_failed` | The replacement was unconfirmed; the original status was retained |
 | `transfer_status_removed` | The obsolete progress message was deleted successfully |
 | `transfer_status_cleanup_failed` | Telegram also rejected/timed out deleting the old status |
 

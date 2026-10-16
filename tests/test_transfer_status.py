@@ -90,7 +90,7 @@ async def test_delivered_file_replaces_stale_progress_without_repeating_delivery
     await run_transfer(event, service, menu, 0, status, progress, conversations)
 
     assert len(attempts) == 2 and visible == [progress.text()]
-    assert edits[-1][1]["buttons"].rows == []
+    assert edits[-1][1]["buttons"] is None
     assert edits[-1][1]["formatting_entities"][0].document_id == 101
     assert delivery.new_file.await_count == (0 if method == "reused" else 1)
     assert delivery.resend.await_count == (1 if method == "reused" else 0)
@@ -145,7 +145,7 @@ async def test_terminal_status_precedes_slow_conversation_persistence(outcome):
     try:
         await asyncio.wait_for(saved.wait(), 1)
         assert not task.done()
-        assert edits[-1][1]["buttons"].rows == []
+        assert edits[-1][1]["buttons"] is None
     finally:
         release.set()
         results = await asyncio.gather(task, return_exceptions=True)

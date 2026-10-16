@@ -43,7 +43,10 @@ universal ranking of all downloader services or a production-server diagnosis.
   output choice: matched MP3 128 kbps. It does not imply that Spotify offers MP3.
   Searching/conversion runs only after selection; a missing valid match returns a
   clear error rather than substituting a random result.
-- Search reads at most ten yt-dlp flat results. The title and primary artist must
+- Each query reads at most ten yt-dlp flat results. A no-match result permits one
+  artist/title-only query (at most twenty candidates overall), within the same
+  search deadline. Other failures, rate limits and timeouts do not trigger it.
+  The title and primary artist must
   match, duration must be within **two seconds**, and differing live/remix/cover/
   instrumental/acoustic/slowed/sped/mashup/edit/remaster markers are rejected.
   Official artist/topic results are preferred. These checks reduce mismatches;
@@ -196,3 +199,52 @@ tests are not counted twice. All 323 Python files passed Ruff lint/format checks
 provider/application architecture checks passed, and `git diff --check` passed.
 The ordinary run retained the ten existing Windows curl-cffi selector warnings.
 No live Telegram, production-host or fresh upstream-access claim follows.
+
+## October 16 disappearing start status and Radio Edit
+
+The operator's 14:50:17 UTC trace establishes a different failure from the earlier
+cache/clock regressions: `spotify_no_matching_audio` at `match_recording`, failed
+stage `resolve`, and zero source/upload bytes. Terminal status editing then failed
+with `ReplyMarkupInvalidError`, followed by `transfer_status_removed`. Thus the
+disappearing item was the starting/progress message; no audio had been published.
+
+Both terminal progress edits and Stop callbacks constructed an empty
+`ReplyInlineMarkup`. The installed Telethon client preserves this TL object and
+serializes it into `EditMessageRequest`; it does not interpret it as removing the
+keyboard. They now pass explicit `buttons=None`. New tests use the actual installed
+Telethon `edit_message`, request construction and serialization, simulating rejection
+of the previous empty markup for done/error/cancelled outcomes.
+
+The transfer handler also supplies a terminal-text fallback. If an edit cannot be
+confirmed, it attempts one reply to the original link within three seconds before
+deleting the stale status. A failed/ambiguous fallback reply leaves the original
+status and is not retried. No file is resent. An application-level regression now
+reproduces the Spotify no-match error and checks visible explanation, absent media
+publication, correct reply identity and cleanup ordering.
+
+The reported identity is [Feel So Close - Radio Edit by Calvin Harris](https://open.spotify.com/track/1gihuPhrLraKYrJMAEONyc).
+The artist's [official licensed Radio Edit upload](https://www.youtube.com/watch?v=Nh_bdvA8cVM)
+is publicly indexed. These page observations establish catalog existence, not
+what the production yt-dlp search returned or its CDN accessibility.
+
+The first native workstation attempt returned `spotify_metadata_unavailable`.
+A diagnostic invocation repeated that metadata lookup once before an independent
+flat search with the public title/artist; metadata again failed and the search
+timed out. No candidate list, complete source or Telegram publication was obtained.
+Do not repeat these unchanged native probes without new connection evidence.
+The raw diagnostic script remains ignored under `.runtime/`.
+
+The provider adds one different artist/title-only query after the original
+official-audio query produces a genuine no-match. Both subprocesses share the
+original search deadline and remain bounded/reaped on timeout or cancellation.
+Artist, full title, version markers and the two-second duration bound are unchanged;
+an extended mix cannot substitute for a radio edit. Simulated catalog fixtures
+cover the reported title, a rejected long music video, a matching radio edit,
+wrong-version rejection, exactly two failed queries and second-worker cleanup.
+This improves bounded search coverage; actual recovery of this exact track remains
+unverified on the operator's connection.
+
+Validation: 411 affected progress, Stop, Spotify, handler, presentation, file-expiry,
+ownership, concurrency, architecture and code-language tests passed with zero skips.
+All 323 Python files passed Ruff lint/format checks. No dependency, migration,
+production session or file-expiry policy changed, and no real chat was messaged.

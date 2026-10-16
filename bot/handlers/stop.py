@@ -1,6 +1,6 @@
 import asyncio
 
-from telethon import errors, types
+from telethon import errors
 
 from schemas.media import DownloadError
 
@@ -25,7 +25,7 @@ async def handle_stop(event, jobs) -> None:
             await event.edit(
                 job.progress.text(),
                 parse_mode=None,
-                buttons=types.ReplyInlineMarkup(rows=[]),
+                buttons=None,
             )
     except (errors.RPCError, TimeoutError, OSError):
         # Deleting the status message must not prevent cancellation.

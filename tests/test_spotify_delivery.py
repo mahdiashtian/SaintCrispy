@@ -13,15 +13,59 @@ from test_file_expiry import cleanup_fixture
 from test_spotify_downloader import PAGE, media
 
 from bot.delivery import TelegramDelivery
+from bot.handlers.quality import run_transfer
 from bot.progress import TransferProgress
 from core.request_context import user_request
 from downloader_bot.downloaders.spotify.downloader import SpotifyDownloader
-from schemas.media import CachedFileUnavailable, Source, TelegramFile
+from schemas.media import CachedFileUnavailable, DownloadError, Source, TelegramFile
 from services.download import DownloadService
 
 PEER = types.InputPeerUser(7, 123)
 STALE = TelegramFile(1, 2, b"old", bytes(PEER), 901, 100, verified_complete=True)
 FRESH = replace(STALE, document_id=3, file_reference=b"fresh", message_id=902)
+
+
+@pytest.mark.parametrize("editable", [True, False])
+async def test_reported_no_matching_audio_finishes_with_visible_error_and_no_file_send(editable):
+    value = media()
+    provider_client = SimpleNamespace(
+        timeout=8,
+        search_timeout=20,
+        track=AsyncMock(return_value=value),
+        audio=AsyncMock(
+            side_effect=DownloadError("No matching audio", code="spotify_no_matching_audio")
+        ),
+    )
+    delivery = SimpleNamespace(new_file=AsyncMock(), resend=AsyncMock())
+    service = DownloadService(SpotifyDownloader(provider_client), file_repository(), delivery)
+    visible = []
+
+    async def edit(text, **options):
+        if not editable or options.get("buttons", "missing") is not None:
+            raise errors.ReplyMarkupInvalidError(None)
+        visible.append(text)
+
+    async def respond(text, **options):
+        assert options["reply_to"] == 42
+        visible.append(text)
+
+    event = SimpleNamespace(
+        sender_id=7,
+        chat_id=7,
+        get_input_chat=AsyncMock(return_value=PEER),
+        respond=AsyncMock(side_effect=respond),
+    )
+    status = SimpleNamespace(edit=edit, delete=AsyncMock())
+    progress = TransferProgress()
+    await run_transfer(
+        event, service, SimpleNamespace(media=value, message_id=42), 0, status, progress
+    )
+    assert progress.phase == "error" and visible == [progress.text()]
+    assert "No matching audio" in visible[0]
+    assert event.respond.await_count == int(not editable)
+    assert status.delete.await_count == int(not editable)
+    delivery.new_file.assert_not_awaited()
+    delivery.resend.assert_not_awaited()
 
 
 def file_repository(initial=None):

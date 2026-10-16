@@ -1,15 +1,100 @@
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from telethon import errors
+from telethon import TelegramClient, errors, functions, types
+from telethon.sessions import StringSession
 
 from bot.progress import ProgressReporter, TransferProgress
 from bot.transfers.streaming import PART_SIZE, media_chunks, upload_stream
 from schemas.media import DownloadError, Quality, Source
 
 QUALITY = Quality("original", "Original", "mp3", None, "mp3", "audio/mpeg", "progressive", "url")
+
+
+@pytest.mark.parametrize("phase", ["done", "error", "cancelled"])
+async def test_terminal_status_uses_real_telethon_edit_without_an_empty_keyboard(phase):
+    requests = []
+
+    class Client(TelegramClient):
+        async def get_input_entity(self, peer):
+            return peer
+
+        async def __call__(self, request, *args, **options):
+            assert isinstance(request, functions.messages.EditMessageRequest)
+            bytes(request)
+            requests.append(request)
+            if (
+                isinstance(request.reply_markup, types.ReplyInlineMarkup)
+                and not request.reply_markup.rows
+            ):
+                raise errors.ReplyMarkupInvalidError(request)
+            return None
+
+        def _get_response_message(self, *args):
+            return None
+
+    client = Client(StringSession(), 123, "test")
+    peer = types.InputPeerUser(7, 123)
+
+    async def edit(text, **options):
+        await client.edit_message(peer, 901, text, **options)
+
+    status = SimpleNamespace(edit=edit, delete=AsyncMock())
+    progress = TransferProgress(error="No matching audio")
+    async with ProgressReporter(status, progress, clear_buttons_on_exit=True) as reporter:
+        progress.phase = phase
+    assert len(requests) == 1
+    assert requests[0].reply_markup is None
+    assert requests[0].message == progress.text()
+    assert reporter._buttons_cleared
+    status.delete.assert_not_awaited()
+
+
+@pytest.mark.parametrize("phase", ["done", "error", "cancelled"])
+async def test_uneditable_status_gets_a_confirmed_terminal_reply_before_cleanup(phase):
+    calls = []
+
+    async def edit(*args, **options):
+        raise errors.ReplyMarkupInvalidError(None)
+
+    async def reply(text):
+        calls.append(("reply", text))
+
+    async def delete():
+        calls.append(("delete", None))
+
+    progress = TransferProgress(error="No matching audio")
+    async with ProgressReporter(
+        SimpleNamespace(edit=edit, delete=delete), progress, terminal_reply=reply
+    ):
+        progress.phase = phase
+    assert calls == [("reply", progress.text()), ("delete", None)]
+
+
+@pytest.mark.parametrize("failure", ["timeout", "permission"])
+async def test_unconfirmed_terminal_reply_is_not_repeated_and_keeps_original_status(
+    failure, monkeypatch
+):
+    async def edit(*args, **options):
+        raise errors.ReplyMarkupInvalidError(None)
+
+    async def reply(text):
+        if failure == "timeout":
+            await asyncio.Future()
+        raise errors.ChatWriteForbiddenError(None)
+
+    monkeypatch.setattr(ProgressReporter, "EDIT_TIMEOUT", 0.01)
+    reply = AsyncMock(side_effect=reply)
+    status = SimpleNamespace(edit=edit, delete=AsyncMock())
+    progress = TransferProgress(error="No matching audio")
+    async with ProgressReporter(status, progress, terminal_reply=reply) as reporter:
+        progress.phase = "error"
+    reply.assert_awaited_once_with(progress.text())
+    status.delete.assert_not_awaited()
+    assert reporter._task.done()
 
 
 async def test_known_length_counts_download_and_only_confirmed_upload_bytes():
@@ -124,7 +209,7 @@ async def test_terminal_status_retries_a_temporary_edit_failure():
         progress.phase = "done"
     assert len(calls) == 2
     assert all(text == progress.text() for text, _ in calls)
-    assert calls[-1][1]["buttons"].rows == []
+    assert calls[-1][1]["buttons"] is None
 
 
 async def test_terminal_status_waits_for_the_existing_short_edit_cooldown():
@@ -250,7 +335,7 @@ async def test_terminal_edit_timeout_retries_and_leaves_no_running_task(monkeypa
 
 async def test_already_applied_terminal_text_is_accepted_and_clears_stop_buttons():
     async def edit(text, **options):
-        assert options["buttons"].rows == []
+        assert options["buttons"] is None
         raise errors.MessageNotModifiedError(request=None)
 
     progress = TransferProgress()

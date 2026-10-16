@@ -160,7 +160,28 @@ class SpotifyClient:
 
     async def search(self, media):
         self.check_rate("search")
-        query = f"ytsearch10:{media.artist} {media.title} official audio"
+        queries = (
+            f"ytsearch10:{media.artist} {media.title} official audio",
+            f"ytsearch10:{media.artist} {media.title}",
+        )
+        # Catalog versions can be displaced by music videos in the broad query.
+        # Both attempts share the original deadline and the same strict matcher.
+        async with asyncio.timeout(self.search_timeout):
+            for index, query in enumerate(queries):
+                try:
+                    return await self._search_query(media, query)
+                except DownloadError as error:
+                    if error.code != "spotify_no_matching_audio" or index == len(queries) - 1:
+                        raise
+                    log.info(
+                        {
+                            "event": "spotify_search_no_match",
+                            "track_id": media.content_id,
+                            "query_index": index,
+                        }
+                    )
+
+    async def _search_query(self, media, query):
         arguments = [
             sys.executable,
             "-m",

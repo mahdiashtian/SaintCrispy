@@ -140,6 +140,23 @@ private workstation reports remain in ignored `.runtime/`.
 
 ## Spotify addition — October 16, 2026
 
+Later operator logs identify the actual disappearing-start-status chain:
+`spotify_no_matching_audio` during `resolve`, zero transferred/uploaded bytes,
+then terminal-edit `ReplyMarkupInvalidError` and `transfer_status_removed`.
+This instance did not publish a file and was unrelated to file expiry. Empty
+inline markup is now replaced by explicit `buttons=None` for terminal/Stop edits.
+An uneditable transfer status receives one bounded terminal-text reply before
+cleanup; an unconfirmed replacement keeps the old status without retrying sends.
+Real installed-Telethon request construction reproduces the previous invalid
+markup and verifies the correction for success/error/cancellation.
+Spotify now permits one artist/title-only query after a genuine no-match result;
+both queries share the original deadline and strict artist/version/duration rules.
+The supplied Radio Edit is identified on official Spotify/artist pages, but its
+new workstation metadata/flat-search attempts did not succeed. No live download
+recovery is claimed. See [dated log and access evidence](SPOTIFY.md#october-16-disappearing-start-status-and-radio-edit).
+Validation: 411 affected tests passed with zero skips; all 323 Python files passed
+Ruff lint/format, including provider/application architecture and language checks.
+
 Delivery follow-up: workstation regressions reproduced an expired Telegram file
 reference whose original message was gone, and a cleanup repository returning a
 fresh file early because its clock was ahead. Cached sends now rebuild once after

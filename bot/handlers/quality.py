@@ -112,8 +112,13 @@ async def handle_quality(
 
 
 async def run_transfer(event, service, menu, index, status, progress, conversations=None) -> None:
+    async def terminal_reply(text):
+        await event.respond(text, parse_mode=None, reply_to=menu.message_id)
+
     try:
-        async with ProgressReporter(status, progress, clear_buttons_on_exit=True):
+        async with ProgressReporter(
+            status, progress, clear_buttons_on_exit=True, terminal_reply=terminal_reply
+        ):
             try:
                 peer = await event.get_input_chat()
                 with user_request(

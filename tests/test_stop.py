@@ -47,8 +47,7 @@ async def test_stop_callback_cancels_queued_work_and_removes_the_button():
     assert job.cancelled and jobs.count == 0
     assert "پذیرفته" in answers[0][0]
     assert "لغو" in edits[0][0]
-    assert isinstance(edits[0][1]["buttons"], types.ReplyInlineMarkup)
-    assert edits[0][1]["buttons"].rows == []
+    assert edits[0][1]["buttons"] is None
 
 
 @pytest.mark.parametrize(("owner", "chat"), [(3, 2), (1, 4)])
@@ -121,7 +120,7 @@ async def test_quality_handler_returns_while_transfer_runs_and_stop_cleans_it_up
             await jobs.join()
         assert closed.is_set()
     assert "لغو" in edits[-1][0]
-    assert edits[-1][1]["buttons"].rows == []
+    assert edits[-1][1]["buttons"] is None
 
 
 async def test_stop_between_message_creation_and_enqueue_never_starts_the_transfer():
