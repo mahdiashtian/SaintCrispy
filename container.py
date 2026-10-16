@@ -50,6 +50,7 @@ from downloader_bot.downloaders.youtube.client import YouTubeClient
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
 from downloader_bot.downloaders.youtube.urls import network_host as youtube_network_host
 from repositories.postgres.admin import AdminRepository
+from repositories.postgres.download_quota import DownloadQuotaRepository
 from repositories.postgres.file_expiry import FileExpiryRepository
 from repositories.postgres.group import GroupRepository
 from repositories.postgres.membership import MembershipRepository
@@ -442,6 +443,9 @@ class Container:
             telemetry=telemetry,
             admission_repository=workflow,
             groups=groups,
+            quota_repository=DownloadQuotaRepository(
+                pool, bot.id, group_default=settings.group_links_per_minute
+            ),
         )
         self.client = client
         self.pool = pool
