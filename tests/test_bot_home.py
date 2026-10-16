@@ -8,17 +8,21 @@ from bot.progress import TransferProgress
 from schemas.media import Quality
 
 
-def test_video_choices_pack_top_two_then_three_without_changing_callback_indexes():
+def test_quality_choices_feature_first_then_mirror_pairs_without_changing_callback_indexes():
     qualities = tuple(
         Quality(str(i), f"MP4 {height}p", "video", None, "mp4", "video/mp4", "progressive", "url")
         for i, height in enumerate((2160, 1440, 1080, 720, 480))
     )
     rows = quality_buttons(qualities, "yt", "a" * 16, start_index=50)
-    assert [len(row) for row in rows] == [2, 3]
+    assert [len(row) for row in rows] == [1, 2, 2]
     buttons = [button for row in rows for button in row]
-    assert [button.text for button in buttons] == [q.label for q in qualities]
+    assert [button.text for button in buttons] == [qualities[i].label for i in (0, 2, 1, 4, 3)]
     assert [button.type.data.decode().split(":")[-1] for button in buttons] == [
-        str(i) for i in range(50, 55)
+        "50",
+        "52",
+        "51",
+        "54",
+        "53",
     ]
 
 

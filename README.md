@@ -39,7 +39,7 @@ and groups without prior onboarding, and shows the same topic-based guide as
 the **Help** menu button. Topic buttons edit one message and return to the
 shared overview; group `/start` stays silent. The Persian help label also opens it.
 
-1. A user sends a supported media URL and receives a quality menu. Short choices share rows of three; longer labels use pairs. Audio, video and image choices start separate rows, preserving the provider's preferred order and each selection's identity. `/start` is optional, including after a server restart.
+1. A user sends a supported media URL and receives a quality menu with at most two choices per row. Audio, video and image choices start separate rows. Groups with more than two choices feature the first quality alone, followed by mirrored pairs; each button retains its original selection identity. `/start` is optional, including after a server restart.
 2. The bot identifies the content using the provider's stable ID and the selected quality.
 3. If that file already exists in Telegram, the saved document reference is reused.
 4. Otherwise, a complete progressive URL is offered to Telegram first. The fetched document is checked before publication when its size is known or a size limit is configured.
@@ -409,7 +409,7 @@ Defaults retain roughly 220 MiB of performance logs. The additional system, Tele
 
 Application logging follows Couplyo’s separate streams: `logs/system.log`, `logs/telegram.log`, and `logs/activity.log`. Each line has aligned UTC time with milliseconds, severity, a short source name, the event and safe fields. Persian values remain readable. Archives rotate at the UTC day boundary or size limit and carry a date plus a unique suffix; `LOG_BACKUP_COUNT` limits retained archives. Bounded writer queues keep disk I/O outside the event loop. Credentials, signed URLs and raw exception messages are redacted. Activity logs include request/user/chat correlation where available and should stay private. Start, menu actions and provider failures are recorded. `application_log_streams` in performance summaries exposes their pending/dropped/write-error counters. The performance stream stays JSON Lines for `summarize_logs.py`.
 
-`/start` uses the bot’s real username and offers Help, Supported Sites and My Requests. Active requests are scoped to both the user and chat, with refresh and Stop buttons. Video qualities show two choices in the first row, then up to three per row; callback indexes keep their original provider order. Common bot messages use concise Persian copy reviewed with [Humanizer](https://github.com/blader/humanizer). Set `CUSTOM_EMOJI_SET` (default `IconsEmoji`) for custom emoji entities; Telegram permission errors fall back to Unicode.
+`/start` uses the bot’s real username and offers Help, Supported Sites and My Requests. Active requests are scoped to both the user and chat, with refresh and Stop buttons. Quality menus combine single-choice rows and pairs, with at most two buttons per row. Pairs reverse their left/right positions while callback indexes retain the original provider selection. Common bot messages use concise Persian copy reviewed with [Humanizer](https://github.com/blader/humanizer). Set `CUSTOM_EMOJI_SET` (default `IconsEmoji`) for custom emoji entities; Telegram permission errors fall back to Unicode.
 
 The main events are:
 

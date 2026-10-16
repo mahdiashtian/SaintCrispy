@@ -18,21 +18,19 @@ def start_buttons(owner_id: int):
 def quality_buttons(
     qualities: tuple[Quality, ...], prefix: str, token: str, *, start_index: int = 0
 ) -> list[list[Button]]:
-    """Pack provider-ordered choices without changing their stored callback indexes."""
+    """Feature the first choice and mirror pairs while retaining callback indexes."""
     rows = []
     for _, group in groupby(
         enumerate(qualities, start_index), key=lambda item: item[1].mime_type.split("/", 1)[0]
     ):
         choices = list(group)
-        is_video = choices[0][1].mime_type.startswith("video/")
         offset = 0
         while offset < len(choices):
-            # Put the first two video qualities together, then pack lower choices in threes.
-            count = 2 if (is_video and offset == 0) or len(choices) - offset == 4 else 3
+            count = 1 if offset == 0 and len(choices) > 2 else 2
             rows.append(
                 [
                     Button.inline(quality.label, data=f"{prefix}:{token}:{index}")
-                    for index, quality in choices[offset : offset + count]
+                    for index, quality in reversed(choices[offset : offset + count])
                 ]
             )
             offset += count

@@ -5,6 +5,20 @@ failed approaches and decisions for all providers. Read it before investigating 
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
 
+## Quality button layout (October 16)
+
+The shared Telegram keyboard now caps all quality rows at two buttons and mirrors
+each pair's left/right positions. Within each audio/video/image group, menus with
+more than two choices feature the first choice alone, then use pairs and a final
+singleton when needed. Exactly two choices remain one mirrored pair. Original
+callback indexes, media grouping and Instagram's 50-choice pagination are retained.
+No provider extraction code changed or live origin/Telegram request was made.
+Workstation validation passed 261 affected handler, keyboard, album-pagination,
+ownership, presentation and architecture tests with zero skips; lint/format and
+diff checks passed. One existing Windows curl-cffi selector warning remains.
+A separate in-memory check verified 72 menu shapes across all eight callback
+prefixes, including empty, single, paired and paginated-size selections.
+
 ## Administration and group reference alignment (October 16)
 
 Help/start follow-up: the actual Couplyo `bot/handlers/about.py` and help-topic

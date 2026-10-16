@@ -185,7 +185,8 @@ async def test_album_edits_loading_for_first_page_and_preserves_all_remaining_bu
     pages = [status.edit.call_args.kwargs["buttons"]]
     pages.extend(call.kwargs["buttons"] for call in event.respond.await_args_list[1:])
     data = [button.type.data for page in pages for row in page for button in row]
-    assert [int(value.rsplit(b":", 1)[1]) for value in data] == list(range(120))
+    assert sorted(int(value.rsplit(b":", 1)[1]) for value in data) == list(range(120))
+    assert all(1 <= len(row) <= 2 for page in pages for row in page)
     assert all(call.kwargs["reply_to"] == 42 for call in event.respond.await_args_list)
 
 

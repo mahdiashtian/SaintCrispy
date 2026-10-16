@@ -594,7 +594,10 @@ async def test_large_album_quality_menu_is_split_without_losing_choices():
     await handle_instagram_link(event, SimpleNamespace(inspect=inspect), MenuStore())
     assert [sum(len(row) for row in page) for page in replies] == [50, 50, 20]
     buttons = [button for page in replies for row in page for button in row]
-    assert [int(button.type.data.rsplit(b":", 1)[1]) for button in buttons] == list(range(120))
+    assert sorted(int(button.type.data.rsplit(b":", 1)[1]) for button in buttons) == list(
+        range(120)
+    )
+    assert all(1 <= len(row) <= 2 for page in replies for row in page)
 
 
 async def test_network_waits_remain_nonblocking_and_cancellable():
