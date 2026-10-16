@@ -104,7 +104,7 @@ an existing lifecycle watermark. A fresh re-add clears the old removal's sending
 restriction; an unknown role remains unknown until evidence supplies it.
 
 Groups already containing the bot are discovered lazily from received group
-activity. A 2048-entry, 60-second observation cache, 32 fixed locks, eight probe
+activity. A 2048-entry, 60-second observation cache, per-active-chat keyed locks, eight probe
 slots and finite deadlines bound metadata work. Definite group entities prevent
 phantom groups from users/broadcasts. Fresh activity after a known removal can
 request a definite self-membership probe before reactivation; a message alone
@@ -125,6 +125,12 @@ once. Existing new-group standing is not erased by an older migration event.
 Delayed old-group updates cannot reactivate the retired identity. Old callbacks
 remain bound to their original chat and are not redirected into another chat.
 
+## Administration and membership extension (revision 10)
+
+[Administration design](ADMINISTRATION.md) adds separate observed human memberships, replay-safe message counters, owner/admin snapshots, typed peer recovery, SQL-backed health/leave jobs, group quota overrides and transactional lifecycle notifications. An actual departed state changes `removed_at`; replayed removals do not reset the date. A provisional add settles through up to three 1.5-second checks, while stale demotion is checked against fresh admin evidence. UNKNOWN remains non-destructive.
+
+Known-active activity uses the persistent STATE stream when configured; new membership and explicit join/leave commit immediately. Received-message presence is not a full-roster crawl. Every human group message can update last activity regardless of whether it includes a supported link. Only real non-bot, non-deleted user entities count; no message text is stored by this ledger.
+
 ## Logs and deployment
 
 Committed lifecycle events emit `group_lifecycle` in `logs/activity.log`, with
@@ -143,12 +149,12 @@ On the bot host, stop the existing Python process, then:
 git pull --ff-only
 source .venv/bin/activate
 python -m pip install -e .
+python tools/setup_services.py
 python scripts/migrate.py
 python main.py
 ```
 
-Python remains on the host; the existing PostgreSQL/Redis Docker services remain
-the databases. Do not delete their volumes. Startup also applies the idempotent
+Python remains on the host; PostgreSQL, evictable Redis CACHE and persistent Redis STATE run in Docker. Setup keeps existing ports/password and configures a distinct STATE endpoint. Do not delete their volumes. Startup also applies the idempotent
 migration chain. The new quota defaults to five if the existing `.env` omits it.
 No provider credentials or new runtime dependencies are required.
 
@@ -163,7 +169,7 @@ owner/chat rejection, original-message file reply and private-subscriber behavio
 Telegram calls and origin extraction in these group-flow tests are simulated;
 no live group message, production deployment or origin throughput claim follows.
 
-Final October 15 workstation validation passed **998 tests with zero skips**
+Historical October 15 workstation validation passed **998 tests with zero skips**
 against those dedicated services; ten existing Windows curl selector warnings
 were emitted. Ruff lint/format checks passed for 235 Python files. Provider
 boundaries, layer directions, English-comment and nonblocking checks passed.

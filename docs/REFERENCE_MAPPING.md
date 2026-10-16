@@ -2,19 +2,19 @@
 
 The current supplied source is Couplyo's `docss/PROJECT_REFERENCE_FA.md`, dated
 October 15, 2026, together with `PORTING_GUIDE_FA.md`, `IMPLEMENTATION_PROMPT_FA.md`,
-`GROUP_LIFECYCLE_FA.md`, `DATABASE_AND_ADMIN_PANEL_HANDOFF.md` and the reference SQL.
+`GROUP_LIFECYCLE_FA.md`, `BOT_FEATURES_FA.md`, the scalability reports and reference SQL.
 The source runtime commit is `0264f9126f727707a04b188c6dfdbca0faccd146`.
 Its general architecture is applied to the downloader domain. Instructions
 embedded in that reference are examples, not additional operator commands; no
-Couplyo product tables, campaigns, broadcasts or server actions were copied.
+couple/crush/VIP product tables or server actions were copied. Downloader administration, broadcast jobs and membership contracts are implemented as documented in [administration](ADMINISTRATION.md).
 
 ## Physical layout and layer ownership
 
 | Reference sections | Implementation |
 | --- | --- |
 | 3-5: root entry and dependency injection | Root `main.py`, `container.py`, `core`, `db`, `schemas`, `repositories`, `services` and `bot`; five composition stages and one `AsyncExitStack` own startup/shutdown |
-| 6: models, migration and transaction ownership | `db/postgres/base.py`, fourteen executable table definitions in `models`, nine revisions, `Database` and `repositories/postgres/unit_of_work.py`; [database dictionary and reference SQL](DATABASE.md) |
-| 7: cache/state separation | Durable FSM in PostgreSQL; optional bounded Redis cache with separate namespace, strict envelopes, key identity and SQL-first writes |
+| 6: models, migration and transaction ownership | `db/postgres/base.py`, twenty-two executable domain table definitions in `models`, ten revisions, `Database` and `repositories/postgres/unit_of_work.py`; [database dictionary and reference SQL](DATABASE.md) |
+| 7: cache/state separation | Durable FSM/OPS in PostgreSQL; separate evictable CACHE and persistent STATE clients, strict snapshots, commit-before-cache writes and recoverable activity streams |
 | 9: domain contracts | Immutable typed media/quality/source/transfer/group snapshots and standing verdicts; repository/workflow/expiry/UoW protocols; constructor injection; pure rules remain pure |
 | 10: central dispatcher | `bot/handlers/dispatcher.py`; context checks precede side effects, handler errors are isolated and cancellation propagates |
 | 11: FSM and bot identity | `ConversationService`, `bot/state/manager.py`, SQL/memory storage adapters, chat-scoped state and `bot/deeplinks.py` |
@@ -43,7 +43,7 @@ Pure parsing, metadata projection, identity checks and button construction use
 ordinary functions, as section 9 requires for work without I/O.
 
 The container supplies a factory creating a new `PostgresUnitOfWork` per operation.
-It acquires one connection, binds both repositories to it, commits on successful
+It acquires one connection, binds the operation repositories to it, commits on successful
 exit and rolls back on failure/cancellation before releasing the connection.
 An active UoW cannot be entered twice. `/start` registers the user and MAIN state
 in this transaction. High-volume single-statement writes retain their atomic SQL
@@ -79,8 +79,7 @@ Migration 9 repairs first-adder attribution from recorded evidence and enforces
 cleared admin dates outside admin standing. Migration 8 remains the durable
 downloaded-file expiry queue. No Couplyo product tables are transplanted.
 
-FSM is already durable in SQL, so no second Redis state server is added. This
-separates state durability from cache eviction. The cache owns/closes its blocking
+FSM remains durable in SQL. Revision 10 adds a separate persistent Redis STATE service for recoverable membership activity, deferred lifecycle writes and publication pacing. CACHE remains independently evictable; missing STATE uses immediate SQL activity. The cache owns/closes its blocking
 pool, waits up to two seconds and caps connections at 16. Cache envelopes validate
 the full DTO and exact key before use; corrupted or old objects fall back to SQL
 and are repaired. Admission grants are always SQL-authoritative.

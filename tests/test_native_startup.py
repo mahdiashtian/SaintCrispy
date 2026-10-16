@@ -102,7 +102,7 @@ def test_duplicate_ports_are_rejected(tmp_path):
 
 
 def test_missing_postgres_port_cannot_take_the_explicit_redis_port(tmp_path, monkeypatch):
-    ports = iter((32769, 32770))
+    ports = iter((32769, 32770, 32771))
 
     class Reservation:
         def __enter__(self):
@@ -122,6 +122,7 @@ def test_missing_postgres_port_cannot_take_the_explicit_redis_port(tmp_path, mon
     path = create_env(tmp_path, REDIS_PORT="32769")
     values = setup.configure_environment(path, ROOT / ".env.example")
     assert values["REDIS_PORT"] == "32769" and values["POSTGRES_PORT"] == "32770"
+    assert values["REDIS_STATE_PORT"] == "32771"
 
 
 def test_configure_only_prints_addresses_without_secrets(tmp_path, monkeypatch, capsys):

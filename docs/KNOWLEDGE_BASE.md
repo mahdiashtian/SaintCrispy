@@ -1,9 +1,32 @@
 # Downloader knowledge base
 
-Last updated: October 15, 2026. This is the shared record of verified findings,
+Last updated: October 16, 2026. This is the shared record of verified findings,
 failed approaches and decisions for all providers. Read it before investigating a
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
+
+## Administration and group reference alignment (October 16)
+
+Revision 10 adds downloader administration, observed human membership, safe typed
+CACHE, separate persistent STATE and SQL operational jobs/outbox. See
+[dated architecture and verification evidence](ADMINISTRATION.md). This change
+updates infrastructure only; provider extraction, credentials and upstream
+acceptance have not been retested or changed.
+
+Verified locally with dedicated PostgreSQL 17/Redis 7.4: duplicate activity is
+idempotent; commit-before-ACK replay preserves counts; stale leave/join evidence
+cannot overwrite newer explicit state; malformed/WRONGTYPE cache objects repair;
+SQL writes survive cache-write failure; wrong-owner/expired confirmations and
+revoked permissions cannot run jobs. Telegram RPCs are simulated. The complete workstation suite passed 1,472 tests with zero skips/failures. The new Compose STATE service passed health/configuration and graceful-restart persistence checks. Production
+upgrade, live membership and backup restoration remain unverified.
+
+Two pre-release defects were reproduced and corrected: the old port-reservation
+test supplied only two free candidates after a third service was added, and a
+positional Telethon forward call placed the random-ID list in the target field.
+The forward regression now serializes the real installed TL request and checks
+source, target, message IDs and persistent random ID. A missing session peer uses
+bot-scoped typed SQL recovery; it does not prove membership. Retry failed origin
+methods only under the conditions already recorded in the provider sections.
 
 ## How to use this record
 

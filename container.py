@@ -12,7 +12,9 @@ from telethon.crypto import aes
 from bot.delivery import TelegramDelivery
 from bot.file_expiry import FileExpiry
 from bot.handlers import register_handlers
+from bot.handlers.groups import GroupTracker
 from bot.jobs import TransferJobs
+from bot.operations import EffectDelivery, OperationalWorkers
 from bot.premium_emoji import BotPresentation
 from bot.session import catch_up_bot, connect_bot, create_session, sign_in_bot
 from bot.state.manager import ConversationManager
@@ -42,16 +44,26 @@ from downloader_bot.downloaders.xvideos.downloader import XVideosDownloader
 from downloader_bot.downloaders.youtube.client import YouTubeClient
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
 from downloader_bot.downloaders.youtube.urls import network_host as youtube_network_host
+from repositories.postgres.admin import AdminRepository
 from repositories.postgres.file_expiry import FileExpiryRepository
 from repositories.postgres.group import GroupRepository
+from repositories.postgres.membership import MembershipRepository
+from repositories.postgres.outbox import OutboxRepository
 from repositories.postgres.unit_of_work import PostgresUnitOfWork
 from repositories.postgres.workflow import WorkflowRepository
+from repositories.redis.activity import ActivityStream, LifecycleStream
 from repositories.redis.media import FileRepository
+from repositories.redis.objects import ObjectCache
+from repositories.redis.telegram_rate import TelegramRateRepository
 from services.access import ProviderAccess
+from services.admin import AdminService
 from services.download import DownloadService
 from services.group import GroupService
 from services.limits import RequestLimiter
+from services.membership import MembershipService
 from services.observability import Telemetry, error_fields
+from services.operations import OperationsService
+from services.telegram_rate import TelegramRate
 from services.user import UserService
 
 
@@ -167,6 +179,11 @@ class Container:
         if not await coordinator.fetchval("SELECT pg_try_advisory_lock($1)", bot_id):
             raise RuntimeError("Another coordinator is already running for this Telegram bot")
         repository = FileRepository(pool, redis, bot_id)
+        self.cache_redis = redis
+        self.state_redis = None
+        if settings.redis_state_url:
+            self.state_redis = create_redis(settings.redis_state_url)
+            stack.push_async_callback(self.state_redis.aclose)
         telemetry.emit("startup_progress", stage="database_initializing")
         await repository.initialize()
         return pool, http, repository, coordinator
@@ -275,9 +292,13 @@ class Container:
         presentation = BotPresentation()
         await stack.enter_async_context(presentation.loading(client, settings.custom_emoji_set))
         access = ProviderAccess(settings.main_admin_id)
-        file_expiry = await stack.enter_async_context(
-            FileExpiry(client, FileExpiryRepository(pool, bot.id), repository)
+        rate = TelegramRate(
+            TelegramRateRepository(self.state_redis, bot.id)
+            if self.state_redis is not None
+            else None,
+            per_second=settings.sends_per_second or 25,
         )
+        file_expiry = FileExpiry(client, FileExpiryRepository(pool, bot.id), repository)
         service = DownloadService(
             downloader,
             repository,
@@ -293,6 +314,7 @@ class Container:
                 presentation=presentation,
                 bot_username=bot.username,
                 file_expiry=file_expiry,
+                rate=rate,
             ),
             storage_peer=storage_peer,
             concurrency=settings.concurrency,
@@ -311,7 +333,35 @@ class Container:
         conversations = ConversationManager(PostgresStateStorage(workflow))
         self.uow_factory = lambda: PostgresUnitOfWork(pool, bot.id)
         groups = GroupService(
-            GroupRepository(pool, bot.id), self.uow_factory, settings.group_links_per_minute
+            GroupRepository(pool, bot.id),
+            self.uow_factory,
+            settings.group_links_per_minute,
+            cache=ObjectCache(self.cache_redis, bot.id, settings.cache_ttl_seconds),
+            main_admin_id=settings.main_admin_id,
+            retry_queue=LifecycleStream(self.state_redis, bot.id)
+            if self.state_redis is not None
+            else None,
+        )
+        admin = AdminService(
+            AdminRepository(pool, bot.id),
+            self.uow_factory,
+            groups,
+            settings.main_admin_id,
+            groups.cache,
+        )
+        memberships = MembershipService(
+            MembershipRepository(pool, bot.id),
+            self.uow_factory,
+            ActivityStream(self.state_redis, bot.id) if self.state_redis is not None else None,
+        )
+        tracker = GroupTracker(client, groups, bot.id)
+        operations = OperationsService(
+            OutboxRepository(pool, bot.id),
+            self.uow_factory,
+            admin,
+            EffectDelivery(
+                client, tracker, groups, presentation=presentation, rate=rate, admin=admin
+            ),
         )
         recovered = await workflow.recover()
         telemetry.emit("conversations_recovered", interrupted_requests=recovered)
@@ -334,6 +384,7 @@ class Container:
         self.service = service
         self.jobs = jobs
         self.telemetry = telemetry
+        self.admin, self.memberships, self.operations = admin, memberships, operations
         register_handlers(
             client,
             service,
@@ -348,6 +399,13 @@ class Container:
             groups=groups,
             bot_id=bot.id,
             access=access,
+            admin=admin,
+            memberships=memberships,
+            tracker=tracker,
         )
         await catch_up_bot(client, telemetry)
+        await stack.enter_async_context(file_expiry)
+        await stack.enter_async_context(
+            OperationalWorkers(operations, memberships, settings.activity_flush_seconds, groups)
+        )
         telemetry.emit("bot_ready", bot_username=bot.username)

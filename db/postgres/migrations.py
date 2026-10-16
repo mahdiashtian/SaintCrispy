@@ -1,6 +1,7 @@
 """Ordered additive migrations; preserve the existing version ledger."""
 
-from .models import FILE_EXPIRY, GROUP_SCHEMA, SCHEMA, WORKFLOW_SCHEMA
+from .models import CONTROL_TABLES, FILE_EXPIRY, GROUP_SCHEMA, SCHEMA, WORKFLOW_SCHEMA
+from .models.administration import UPGRADE
 from .models.group import INVARIANTS_SCHEMA
 
 MIGRATIONS = (
@@ -35,4 +36,9 @@ MIGRATIONS = (
         "(telegram_account_id,origin_peer,message_id);",
     ),
     (9, "group_lifecycle_invariants", INVARIANTS_SCHEMA),
+    (
+        10,
+        "administration_membership_and_durable_operations",
+        UPGRADE + "\n".join(t.schema for t in CONTROL_TABLES),
+    ),
 )

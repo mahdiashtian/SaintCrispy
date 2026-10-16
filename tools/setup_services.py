@@ -33,19 +33,23 @@ def configure_environment(path: Path, template: Path) -> dict:
     values = dotenv_values(path, encoding="utf-8-sig", interpolate=False)
     chosen = set()
     updates = {}
-    # Collect both explicit ports before selecting any missing one.
-    for key, url_key in (("POSTGRES_PORT", "DATABASE_URL"), ("REDIS_PORT", "REDIS_URL")):
+    # Reserve every explicit endpoint before choosing any missing port.
+    for key, url_key in (
+        ("POSTGRES_PORT", "DATABASE_URL"),
+        ("REDIS_PORT", "REDIS_URL"),
+        ("REDIS_STATE_PORT", "REDIS_STATE_URL"),
+    ):
         port = values.get(key) or previous_port(values, url_key)
         if not port:
             continue
         number = parse_integer(key, port, 1, 65535)
         if number in chosen:
-            raise RuntimeError("POSTGRES_PORT and REDIS_PORT must be different")
+            raise RuntimeError("Database/cache/state ports must be different")
         chosen.add(number)
         updates[key] = str(number)
 
     with ExitStack() as reservations:
-        for key in ("POSTGRES_PORT", "REDIS_PORT"):
+        for key in ("POSTGRES_PORT", "REDIS_PORT", "REDIS_STATE_PORT"):
             if key in updates:
                 continue
             while True:
@@ -62,6 +66,7 @@ def configure_environment(path: Path, template: Path) -> dict:
         password = secrets.token_hex(32)
     updates["DEV_DB_PASSWORD"] = password
     updates["DATABASE_URL"], updates["REDIS_URL"] = connection_urls(updates)
+    updates["REDIS_STATE_URL"] = f"redis://127.0.0.1:{updates['REDIS_STATE_PORT']}/0"
     if not values.get("FFMPEG_PATH") and (ffmpeg := shutil.which("ffmpeg")):
         updates["FFMPEG_PATH"] = ffmpeg
 
@@ -113,16 +118,29 @@ def compose_command(root: Path, env_file: Path, project: str, distribution=None,
 def start_services(root: Path, env_file: Path, project: str, values: dict, **options) -> None:
     command = compose_command(root, env_file, project, **options)
     environment = os.environ.copy()
-    for key in ("POSTGRES_PORT", "REDIS_PORT", "DEV_DB_PASSWORD"):
+    for key in ("POSTGRES_PORT", "REDIS_PORT", "REDIS_STATE_PORT", "DEV_DB_PASSWORD"):
         environment[key] = values[key]
     if options.get("distribution"):
         # Forward configuration as environment variables, never as secret CLI arguments.
         entries = environment.get("WSLENV", "").split(":")
-        entries.extend(f"{key}/u" for key in ("POSTGRES_PORT", "REDIS_PORT", "DEV_DB_PASSWORD"))
+        entries.extend(
+            f"{key}/u"
+            for key in ("POSTGRES_PORT", "REDIS_PORT", "REDIS_STATE_PORT", "DEV_DB_PASSWORD")
+        )
         environment["WSLENV"] = ":".join(entry for entry in entries if entry)
     subprocess.run(
         command
-        + ["up", "-d", "--remove-orphans", "--wait", "--wait-timeout", "90", "postgres", "redis"],
+        + [
+            "up",
+            "-d",
+            "--remove-orphans",
+            "--wait",
+            "--wait-timeout",
+            "90",
+            "postgres",
+            "redis",
+            "redis-state",
+        ],
         cwd=root,
         env=environment,
         check=True,
@@ -157,6 +175,7 @@ def main() -> int:
         return 1
     print(f"PostgreSQL: 127.0.0.1:{values['POSTGRES_PORT']}")
     print(f"Redis: 127.0.0.1:{values['REDIS_PORT']}")
+    print(f"Redis state: 127.0.0.1:{values['REDIS_STATE_PORT']}")
     print("Ports and connection URLs saved in .env; credentials omitted.")
     return 0
 

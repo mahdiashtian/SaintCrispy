@@ -5,7 +5,15 @@ import math
 from datetime import timedelta
 
 from repositories.postgres.workflow import WorkflowRepository
-from schemas.group import GroupChange, GroupSnapshot
+from schemas.group import GroupChange, GroupSnapshot, SavedGroupPeer
+
+GROUP_FIELDS = "chat_id,chat_kind,title,username,is_active,is_admin,can_send,added_by_user_id,added_at,readded_at,removed_at,admin_since,last_seen_at,last_event_at,migrated_to,owner_id,admin_ids,member_count,link,last_activity_at,links_per_minute,revision"
+
+
+def snapshot(row):
+    data = dict(row)
+    data["admin_ids"] = tuple(json.loads(data["admin_ids"]))
+    return GroupSnapshot(**data)
 
 
 class GroupRepository:
@@ -16,12 +24,58 @@ class GroupRepository:
         row = await self.connection.fetchrow(
             """SELECT chat_id,chat_kind,title,username,is_active,is_admin,can_send,
             added_by_user_id,added_at,readded_at,removed_at,admin_since,last_seen_at,
-            last_event_at,migrated_to FROM bot_groups
+            last_event_at,migrated_to,owner_id,admin_ids,member_count,link,last_activity_at,
+            links_per_minute,revision FROM bot_groups
             WHERE telegram_account_id=$1 AND chat_id=$2""",
             self.bot_id,
             chat_id,
         )
-        return GroupSnapshot(**dict(row)) if row is not None else None
+        if row is None:
+            return None
+        return snapshot(row)
+
+    async def page(self, cursor=None, limit=20):
+        rows = await self.connection.fetch(
+            f"SELECT {GROUP_FIELDS} FROM bot_groups WHERE telegram_account_id=$1 AND ($2::bigint IS NULL OR chat_id>$2) ORDER BY chat_id LIMIT $3",
+            self.bot_id,
+            cursor,
+            limit,
+        )
+        return tuple(snapshot(row) for row in rows)
+
+    async def peer(self, chat_id):
+        row = await self.connection.fetchrow(
+            "SELECT chat_id,raw_id,chat_kind,access_hash FROM telegram_group_peers WHERE telegram_account_id=$1 AND chat_id=$2",
+            self.bot_id,
+            chat_id,
+        )
+        return SavedGroupPeer(**dict(row)) if row else None
+
+    async def remember_peer(self, chat_id, raw_id, chat_kind, access_hash):
+        await self.connection.execute(
+            """INSERT INTO telegram_group_peers (telegram_account_id,chat_id,raw_id,chat_kind,access_hash)
+            SELECT $1,$2,$3,$4,$5 WHERE EXISTS (SELECT 1 FROM bot_groups WHERE telegram_account_id=$1 AND chat_id=$2)
+            ON CONFLICT (telegram_account_id,chat_id) DO UPDATE SET access_hash=EXCLUDED.access_hash,
+            updated_at=now() WHERE telegram_group_peers.access_hash IS DISTINCT FROM EXCLUDED.access_hash""",
+            self.bot_id,
+            chat_id,
+            raw_id,
+            chat_kind,
+            access_hash,
+        )
+
+    async def metadata(self, chat_id, owner_id, admin_ids, member_count, link):
+        await self.connection.execute(
+            """UPDATE bot_groups SET owner_id=COALESCE($3,owner_id),admin_ids=$4::jsonb,
+            member_count=COALESCE($5,member_count),link=COALESCE($6,link),updated_at=now(),revision=revision+1
+            WHERE telegram_account_id=$1 AND chat_id=$2""",
+            self.bot_id,
+            chat_id,
+            owner_id,
+            json.dumps(admin_ids),
+            member_count,
+            link,
+        )
 
     async def _ensure(self, chat_id, chat_kind):
         await self.connection.execute(
@@ -109,7 +163,11 @@ class GroupRepository:
             readded = (
                 change.occurred_at if active and row["is_active"] is False else row["readded_at"]
             )
-            removed = change.occurred_at if active is False else row["removed_at"]
+            removed = (
+                change.occurred_at
+                if active is False and row["is_active"] is not False
+                else row["removed_at"]
+            )
             admin_since = (row["admin_since"] or change.occurred_at) if admin else None
             await self.connection.execute(
                 """UPDATE bot_groups SET title=COALESCE($3,title),username=COALESCE($4,username),
@@ -122,7 +180,7 @@ class GroupRepository:
                 last_event_at=CASE WHEN $18 THEN last_event_at ELSE $14 END,
                 last_event_priority=CASE WHEN $18 THEN last_event_priority ELSE $15 END,
                 event_cursors=$16::jsonb,
-                migrated_to=COALESCE($17,migrated_to),updated_at=now()
+                migrated_to=COALESCE($17,migrated_to),updated_at=now(),revision=revision+1
                 WHERE telegram_account_id=$1 AND chat_id=$2""",
                 self.bot_id,
                 change.chat_id,
@@ -150,12 +208,13 @@ class GroupRepository:
             "is_active": active if newer else row["is_active"],
             "is_admin": admin if newer else row["is_admin"],
             "can_send": can_send if newer else row["can_send"],
+            "transition": newer and (row["is_active"] != active or row["is_admin"] != admin),
         }
 
     async def claim_link(self, user_id, chat_id, request_id, interval, limit):
         # The group row serializes admissions and removal/migration in this transaction.
         group = await self.connection.fetchrow(
-            """SELECT is_active,can_send,migrated_to FROM bot_groups
+            """SELECT is_active,can_send,migrated_to,links_per_minute FROM bot_groups
             WHERE telegram_account_id=$1 AND chat_id=$2 FOR UPDATE""",
             self.bot_id,
             chat_id,
@@ -164,6 +223,7 @@ class GroupRepository:
             return "group_unavailable", 0
         if group["can_send"] is False:
             return "group_send_forbidden", 0
+        limit = group["links_per_minute"] or limit
         await self.connection.execute(
             """INSERT INTO group_request_limits (telegram_account_id,chat_id)
             VALUES ($1,$2) ON CONFLICT DO NOTHING""",
@@ -229,7 +289,13 @@ class GroupRepository:
             )
             await self.connection.execute(
                 """UPDATE bot_groups target SET title=COALESCE(target.title,old.title),
-                added_by_user_id=COALESCE(target.added_by_user_id,old.added_by_user_id)
+                added_by_user_id=COALESCE(target.added_by_user_id,old.added_by_user_id),
+                owner_id=COALESCE(target.owner_id,old.owner_id),
+                admin_ids=CASE WHEN target.admin_ids='[]'::jsonb THEN old.admin_ids ELSE target.admin_ids END,
+                member_count=COALESCE(target.member_count,old.member_count),
+                links_per_minute=COALESCE(target.links_per_minute,old.links_per_minute),
+                added_at=LEAST(target.added_at,old.added_at),
+                last_activity_at=GREATEST(target.last_activity_at,old.last_activity_at)
                 FROM bot_groups old WHERE target.telegram_account_id=$1 AND target.chat_id=$3
                 AND old.telegram_account_id=$1 AND old.chat_id=$2""",
                 self.bot_id,

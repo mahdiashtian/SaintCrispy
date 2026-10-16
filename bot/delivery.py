@@ -81,6 +81,7 @@ class TelegramDelivery:
         external_timeout: float = 30,
         presentation: BotPresentation | None = None,
         bot_username: str | None = None,
+        rate=None,
         file_expiry=None,
     ):
         self.client = client
@@ -91,6 +92,7 @@ class TelegramDelivery:
         self.external_timeout = external_timeout
         self.presentation = presentation if presentation is not None else BotPresentation()
         self.bot_username = bot_username
+        self.rate = rate
         self.file_expiry = file_expiry
         self._remux_slots = asyncio.Semaphore(remux_concurrency)
         if upload_inflight_parts < 1:
@@ -118,6 +120,8 @@ class TelegramDelivery:
                 with timed("telegram_wait"):
                     await asyncio.sleep(delay)
             try:
+                if publish and self.rate:
+                    await self.rate.wait()
                 return await action()
             except errors.FloodWaitError as error:
                 if (trace := current_transfer.get()) is not None:
@@ -126,6 +130,8 @@ class TelegramDelivery:
                 count("flood_wait_requested_seconds", error.seconds)
                 # Only an explicit rejected RPC is repeated; ambiguous network failures are not.
                 self._retry_at = max(self._retry_at, time.monotonic() + max(1, error.seconds))
+                if self.rate:
+                    await self.rate.pause(error.seconds)
                 if progress is not None:
                     progress.phase = "waiting_telegram"
 

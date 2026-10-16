@@ -19,9 +19,12 @@ class WorkflowRepository:
 
     async def touch_user(self, user_id: int, *, started: bool = False) -> None:
         await self.pool.execute(
-            """INSERT INTO bot_users (telegram_account_id,user_id,is_started)
-            VALUES ($1,$2,$3) ON CONFLICT (telegram_account_id,user_id) DO UPDATE SET
-            is_started=bot_users.is_started OR EXCLUDED.is_started, last_seen_at=now()""",
+            """INSERT INTO bot_users (telegram_account_id,user_id,is_started,started_at)
+            VALUES ($1,$2,$3,CASE WHEN $3 THEN now() ELSE NULL END)
+            ON CONFLICT (telegram_account_id,user_id) DO UPDATE SET
+            is_started=bot_users.is_started OR EXCLUDED.is_started,
+            started_at=CASE WHEN $3 THEN COALESCE(bot_users.started_at,now()) ELSE bot_users.started_at END,
+            last_seen_at=now(),updated_at=now()""",
             self.bot_id,
             user_id,
             started,
@@ -49,7 +52,7 @@ class WorkflowRepository:
             ), touched AS (
               INSERT INTO bot_users (telegram_account_id,user_id)
               SELECT $1,$2 FROM granted
-              ON CONFLICT (telegram_account_id,user_id) DO UPDATE SET last_seen_at=now()
+              ON CONFLICT (telegram_account_id,user_id) DO UPDATE SET last_seen_at=now(),updated_at=now()
             ), owned AS (
               INSERT INTO bot_conversations (telegram_account_id,user_id,chat_id,state,data)
               SELECT $1,$2,$3,'INSPECTING',jsonb_build_object('request_id',$4::text) FROM granted

@@ -280,3 +280,172 @@ BEGIN
             CHECK (is_admin IS TRUE OR admin_since IS NULL);
     END IF;
 END $$;
+
+-- Revision 10: administration_membership_and_durable_operations
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS first_name TEXT;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS last_name TEXT;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS account_kind TEXT NOT NULL DEFAULT 'unknown'
+    CHECK (account_kind IN ('real','bot','deleted','unknown'));
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS is_banned BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE bot_groups ADD COLUMN IF NOT EXISTS owner_id BIGINT CHECK (owner_id > 0);
+ALTER TABLE bot_groups ADD COLUMN IF NOT EXISTS admin_ids JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE bot_groups ADD COLUMN IF NOT EXISTS member_count INTEGER CHECK (member_count >= 0);
+ALTER TABLE bot_groups ADD COLUMN IF NOT EXISTS link TEXT;
+ALTER TABLE bot_groups ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ;
+ALTER TABLE bot_groups ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE bot_groups ADD COLUMN IF NOT EXISTS links_per_minute INTEGER
+    CHECK (links_per_minute BETWEEN 1 AND 1000);
+CREATE INDEX IF NOT EXISTS bot_groups_admin_page ON bot_groups
+    (telegram_account_id,is_active,chat_id);
+CREATE INDEX IF NOT EXISTS bot_groups_adder ON bot_groups(telegram_account_id,added_by_user_id);
+CREATE INDEX IF NOT EXISTS bot_users_admin_page ON bot_users(telegram_account_id,user_id);
+CREATE INDEX IF NOT EXISTS bot_users_username ON bot_users(telegram_account_id,lower(username));
+
+CREATE TABLE IF NOT EXISTS group_memberships (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    telegram_account_id BIGINT NOT NULL,
+    chat_id BIGINT NOT NULL CHECK (chat_id < 0),
+    user_id BIGINT NOT NULL CHECK (user_id > 0),
+    is_active BOOLEAN NOT NULL,
+    last_seen_at TIMESTAMPTZ,
+    state_changed_at TIMESTAMPTZ NOT NULL,
+    state_event_order BIGINT NOT NULL DEFAULT 0,
+    state_event_stream TEXT NOT NULL DEFAULT 'message',
+    message_count BIGINT NOT NULL DEFAULT 0 CHECK (message_count >= 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (telegram_account_id,chat_id,user_id),
+    FOREIGN KEY (telegram_account_id,chat_id) REFERENCES bot_groups ON DELETE CASCADE,
+    FOREIGN KEY (telegram_account_id,user_id) REFERENCES bot_users ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS memberships_active ON group_memberships
+    (telegram_account_id,chat_id,user_id) WHERE is_active;
+CREATE INDEX IF NOT EXISTS memberships_last_seen ON group_memberships
+    (telegram_account_id,chat_id,last_seen_at DESC,user_id);
+
+
+CREATE TABLE IF NOT EXISTS membership_events (
+    telegram_account_id BIGINT NOT NULL,
+    chat_id BIGINT NOT NULL,
+    event_key TEXT NOT NULL,
+    user_id BIGINT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('message','joined','left')),
+    occurred_at TIMESTAMPTZ NOT NULL,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (telegram_account_id,chat_id,event_key),
+    FOREIGN KEY (telegram_account_id,chat_id,user_id)
+        REFERENCES group_memberships(telegram_account_id,chat_id,user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS membership_events_daily ON membership_events
+    (telegram_account_id,occurred_at,kind);
+
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    telegram_account_id BIGINT NOT NULL,
+    key TEXT NOT NULL,
+    value JSONB NOT NULL,
+    revision BIGINT NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (telegram_account_id,key)
+);
+
+
+CREATE TABLE IF NOT EXISTS admin_actions (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    telegram_account_id BIGINT NOT NULL,
+    actor_id BIGINT NOT NULL CHECK (actor_id > 0),
+    action TEXT NOT NULL,
+    target_id BIGINT,
+    details JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS admin_actions_history ON admin_actions
+    (telegram_account_id,id DESC);
+
+
+CREATE TABLE IF NOT EXISTS admin_requests (
+    telegram_account_id BIGINT NOT NULL,
+    token TEXT NOT NULL,
+    owner_id BIGINT NOT NULL CHECK (owner_id > 0),
+    kind TEXT NOT NULL CHECK (kind IN ('prompt','confirm')),
+    action TEXT NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}',
+    message_id BIGINT,
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT now() + interval '20 minutes',
+    consumed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (telegram_account_id,token)
+);
+CREATE INDEX IF NOT EXISTS admin_requests_reply ON admin_requests
+    (telegram_account_id,owner_id,message_id) WHERE consumed_at IS NULL;
+
+
+CREATE TABLE IF NOT EXISTS admin_jobs (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    telegram_account_id BIGINT NOT NULL,
+    requested_by BIGINT NOT NULL CHECK (requested_by > 0),
+    kind TEXT NOT NULL CHECK (kind IN ('broadcast','forward','health','leave')),
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued','running','done','failed','cancelled')),
+    dedupe_key TEXT NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}',
+    cursor BIGINT,
+    total_count BIGINT NOT NULL DEFAULT 0,
+    success_count BIGINT NOT NULL DEFAULT 0,
+    failure_count BIGINT NOT NULL DEFAULT 0,
+    skipped_count BIGINT NOT NULL DEFAULT 0,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    locked_until TIMESTAMPTZ,
+    locked_by TEXT,
+    last_error TEXT,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (telegram_account_id,dedupe_key)
+);
+CREATE INDEX IF NOT EXISTS admin_jobs_claim ON admin_jobs
+    (telegram_account_id,available_at,id) WHERE status IN ('queued','running');
+
+
+CREATE TABLE IF NOT EXISTS outbox_events (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    telegram_account_id BIGINT NOT NULL,
+    dedupe_key TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('message','forward','leave','health')),
+    target_id BIGINT NOT NULL CHECK (target_id <> 0),
+    payload JSONB NOT NULL,
+    random_id BIGINT NOT NULL,
+    job_id BIGINT REFERENCES admin_jobs(id),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending','leased','sent','dead','cancelled')),
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    locked_until TIMESTAMPTZ,
+    locked_by TEXT,
+    last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    UNIQUE (telegram_account_id,dedupe_key)
+);
+CREATE INDEX IF NOT EXISTS outbox_events_claim ON outbox_events
+    (telegram_account_id,available_at,id) WHERE status IN ('pending','leased');
+CREATE INDEX IF NOT EXISTS outbox_job ON outbox_events(job_id,status);
+
+
+CREATE TABLE IF NOT EXISTS telegram_group_peers (
+    telegram_account_id BIGINT NOT NULL,
+    chat_id BIGINT NOT NULL,
+    raw_id BIGINT NOT NULL CHECK (raw_id > 0),
+    chat_kind TEXT NOT NULL CHECK (chat_kind IN ('group','supergroup')),
+    access_hash BIGINT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (telegram_account_id,chat_id),
+    FOREIGN KEY (telegram_account_id,chat_id) REFERENCES bot_groups ON DELETE CASCADE,
+    CHECK (chat_kind='group' OR access_hash IS NOT NULL)
+);

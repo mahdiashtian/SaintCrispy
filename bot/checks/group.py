@@ -3,6 +3,15 @@
 from telethon import types
 
 
+def saved_input_peer(saved):
+    """Restore addressing only; saved access never proves current membership."""
+    if saved.chat_kind == "group":
+        return types.InputPeerChat(saved.raw_id)
+    if saved.chat_kind == "supergroup" and saved.access_hash:
+        return types.InputPeerChannel(saved.raw_id, saved.access_hash)
+    raise ValueError("Missing verified group peer")
+
+
 def human_id(value):
     if isinstance(value, types.PeerUser):
         value = value.user_id

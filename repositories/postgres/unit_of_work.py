@@ -3,8 +3,11 @@
 import sys
 from contextlib import AsyncExitStack
 
+from .admin import AdminRepository
 from .group import GroupRepository
 from .media import PostgresMediaRepository
+from .membership import MembershipRepository
+from .outbox import OutboxRepository
 from .workflow import WorkflowRepository
 
 
@@ -23,6 +26,9 @@ class PostgresUnitOfWork:
             self.media = PostgresMediaRepository(connection, self.bot_id)
             self.workflow = WorkflowRepository(connection, self.bot_id)
             self.groups = GroupRepository(connection, self.bot_id)
+            self.memberships = MembershipRepository(connection, self.bot_id)
+            self.admin = AdminRepository(connection, self.bot_id)
+            self.outbox = OutboxRepository(connection, self.bot_id)
         except BaseException:
             await stack.__aexit__(*sys.exc_info())
             self._stack = None

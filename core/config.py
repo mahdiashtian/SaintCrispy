@@ -64,6 +64,22 @@ def connection_urls(values: Mapping[str, str | None]) -> tuple[str | None, str |
     return database_url, redis_url
 
 
+def state_connection_url(values):
+    port = values.get("REDIS_STATE_PORT")
+    if not port or not port.strip():
+        return values.get("REDIS_STATE_URL") or None
+    number = parse_integer("REDIS_STATE_PORT", port, 1, 65535)
+    for key in ("POSTGRES_PORT", "REDIS_PORT"):
+        if value := values.get(key):
+            if value.strip() and parse_integer(key, value, 1, 65535) == number:
+                raise ConfigurationError(
+                    "Database, cache and state ports must differ",
+                    code="duplicate_service_ports",
+                    fields=(key, "REDIS_STATE_PORT"),
+                )
+    return f"redis://127.0.0.1:{number}/0"
+
+
 @dataclass(frozen=True)
 class Settings:
     api_id: int
@@ -97,6 +113,9 @@ class Settings:
     postgres_pool_size: int = 32
     group_links_per_minute: int = 5
     main_admin_id: int | None = None
+    redis_state_url: str | None = field(default=None, repr=False)
+    cache_ttl_seconds: int = 300
+    activity_flush_seconds: int = 45
 
     @classmethod
     def from_environment(cls):
@@ -151,4 +170,7 @@ class Settings:
                 if (value := os.environ.get("MAIN_ADMIN_ID", "").strip())
                 else None
             ),
+            redis_state_url=state_connection_url(os.environ),
+            cache_ttl_seconds=integer_setting("CACHE_TTL_SECONDS", 300, 1, 86400),
+            activity_flush_seconds=integer_setting("ACTIVITY_FLUSH_SECONDS", 45, 1, 300),
         )

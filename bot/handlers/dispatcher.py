@@ -15,9 +15,11 @@ from downloader_bot.downloaders.xvideos.handler import register_handler as regis
 from downloader_bot.downloaders.youtube.handler import register_handler as register_youtube
 from services.access import ProviderAccess
 
+from . import admin as admin_handlers
 from .groups import GROUP_UPDATES, GroupTracker
 from .home import handle_home
 from .limited import LimitedHandlers
+from .membership import MembershipTracker
 from .quality import handle_quality
 from .start import handle_start
 from .stop import handle_stop
@@ -66,6 +68,8 @@ class Dispatcher:
                         log.warning({"event": "update_group_context_unknown"})
                         return
                 await callback(event)
+            except events.StopPropagation:
+                raise
             except errors.RPCError as error:
                 log.warning(
                     {
@@ -97,15 +101,51 @@ def register_handlers(
     groups=None,
     bot_id=None,
     access=None,
+    admin=None,
+    memberships=None,
+    tracker=None,
 ) -> None:
     access = access or ProviderAccess()
-    tracker = GroupTracker(client, groups, bot_id) if groups is not None else None
+    tracker = tracker or (GroupTracker(client, groups, bot_id) if groups is not None else None)
+    membership_tracker = (
+        MembershipTracker(client, groups, tracker, memberships, bot_id)
+        if memberships and tracker
+        else None
+    )
     client = Dispatcher(client, groups)
     if tracker:
         client.add_system_handler(tracker.handle_update, events.Raw(GROUP_UPDATES))
         client.add_system_handler(
             tracker.observe,
             events.NewMessage(incoming=True, func=lambda event: event.is_group),
+        )
+    if membership_tracker:
+        client.add_system_handler(membership_tracker.handle_update, events.Raw(GROUP_UPDATES))
+        client.add_system_handler(
+            membership_tracker.observe,
+            events.NewMessage(incoming=True, func=lambda event: event.is_group),
+        )
+        client.add_system_handler(
+            membership_tracker.observe_private,
+            events.NewMessage(
+                incoming=True, func=lambda event: getattr(event, "is_private", False)
+            ),
+        )
+    if admin is not None:
+        client.add_event_handler(
+            partial(admin_handlers.open_panel, admin=admin, presentation=presentation),
+            events.NewMessage(incoming=True, pattern=r"^/admin(?:@\w+)?$"),
+        )
+        client.add_event_handler(
+            partial(admin_handlers.callback, admin=admin, presentation=presentation),
+            events.CallbackQuery(pattern=rb"^adm:"),
+        )
+        client.add_event_handler(
+            partial(admin_handlers.input_reply, admin=admin, presentation=presentation),
+            events.NewMessage(
+                incoming=True,
+                func=lambda event: getattr(event, "is_private", False) and event.is_reply,
+            ),
         )
     client.add_event_handler(
         partial(
@@ -128,6 +168,7 @@ def register_handlers(
         presentation,
         max_active=max_link_handlers,
         access=access,
+        policy=admin,
     )
     client.add_event_handler(
         partial(
@@ -155,6 +196,7 @@ def register_handlers(
             conversations=conversations,
             presentation=presentation,
             access=access,
+            policy=admin,
         ),
         events.CallbackQuery(pattern=rb"^(?:sc|xnxx|xv|yt|ig|pin|tt):([0-9a-f]{16}):([0-9]+)$"),
     )

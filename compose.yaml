@@ -24,7 +24,22 @@ services:
       - target: 6379
         published: ${REDIS_PORT:?Run python tools/setup_services.py to configure REDIS_PORT}
         host_ip: 127.0.0.1
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "${REDIS_CACHE_MAXMEMORY:-512mb}", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  redis-state:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    ports:
+      - target: 6379
+        published: ${REDIS_STATE_PORT:-6380}
+        host_ip: 127.0.0.1
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "${REDIS_STATE_MAXMEMORY:-1gb}", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_state_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -32,3 +47,4 @@ services:
       retries: 10
 volumes:
   postgres_data:
+  redis_state_data:

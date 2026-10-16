@@ -29,6 +29,7 @@ coverage.xml
 .research/
 .runtime/
 .local-docs/
+/docss/
 .playwright-cli/
 output/playwright/
 /*.md

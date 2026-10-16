@@ -30,6 +30,7 @@ class LimitedHandlers:
         *,
         max_active=1000,
         access=None,
+        policy=None,
     ):
         if max_active < 1:
             raise ValueError("Link handler capacity must be positive")
@@ -40,6 +41,7 @@ class LimitedHandlers:
         self.presentation = presentation
         self.max_active = max_active
         self.access = access or ProviderAccess()
+        self.policy = policy
         self.active = 0
         self.peak_active = 0
         self._error_replies = 0
@@ -79,6 +81,8 @@ class LimitedHandlers:
             correlation_id = secrets.token_hex(8)
             with user_request(event.sender_id, event.chat_id, correlation_id):
                 try:
+                    if self.policy is not None:
+                        await self.policy.check_download(event.sender_id)
                     combined = False
                     if check_link := getattr(self.limits, "check_link", None):
                         combined = await check_link(event.sender_id, event.chat_id, correlation_id)

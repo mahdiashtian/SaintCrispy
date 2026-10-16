@@ -1,13 +1,84 @@
 # Deployment, logging and recovery
 
-The October 15 architecture alignment adds migration 9 for existing group
-attribution/admin-date repair and its constraint. Follow the normal stopped-bot
-backup/upgrade procedure below; no new environment values or database services are
-required. [Database ownership](DATABASE.md) lists every table, key, index and
+The October 16 administration alignment adds migration 10, separate Redis STATE, observed human membership and durable operational jobs. Follow the stopped-bot backup/upgrade procedure below and the revision-10 section; existing data and migration history are preserved. [Database ownership](DATABASE.md) lists every table, key, index and
 migration. `python scripts/export_schema.py --check` verifies the offline reference
 SQL; it never connects to the installed database or substitutes for migration.
 
-The Python bot and Node runtime run on the host. Docker runs PostgreSQL and Redis only. Existing ports and password stay in `.env`; Python derives connection URLs from those values.
+The Python bot and Node runtime run on the host. Docker runs PostgreSQL, Redis CACHE and Redis STATE only. Existing ports and password stay in `.env`; Python derives connection URLs from those values.
+
+## Administration upgrade (revision 10)
+
+Stop the existing Python receiver before upgrading. Keep its current `.env`,
+PostgreSQL password, Compose project name, session and named volumes. Create a
+database backup on the server (Linux shell), then check its archive listing:
+
+```bash
+cd ~/SaintCrispy
+mkdir -p .runtime/backups
+chmod 700 .runtime/backups
+docker compose -p saintcrispy exec -T postgres pg_dump -U downloader -d downloader -Fc > .runtime/backups/before-revision-10.dump
+docker compose -p saintcrispy exec -T postgres pg_restore --list < .runtime/backups/before-revision-10.dump > .runtime/backups/before-revision-10.list
+chmod 600 .runtime/backups/before-revision-10.*
+```
+
+An archive listing detects a corrupt format, not a successful restoration. Verify
+restoration to an isolated database before relying on the backup; keep an off-host
+copy. Do not run `down -v`, delete migration entries or execute the empty-schema
+reference SQL against the installed database.
+
+```bash
+git pull --ff-only
+source .venv/bin/activate
+python -m pip install -e .
+python tools/setup_services.py
+docker compose -p saintcrispy ps
+python scripts/migrate.py
+python main.py
+```
+
+Setup keeps the existing SQL/cache ports and password, selects and saves a distinct
+`REDIS_STATE_PORT` if missing, and writes `REDIS_STATE_URL` to `.env`. Python derives
+the URL from the saved port at startup. A port already in `.env` stays fixed. If
+manually choosing it, use an unused port different from SQL and CACHE, for example:
+
+```dotenv
+REDIS_STATE_PORT=6380
+MAIN_ADMIN_ID=YOUR_NUMERIC_TELEGRAM_USER_ID
+CACHE_TTL_SECONDS=300
+ACTIVITY_FLUSH_SECONDS=45
+```
+
+`MAIN_ADMIN_ID` must be your positive numeric Telegram user ID, not a bot ID,
+username, phone number or group ID. Replace the placeholder before startup. After
+`bot_ready`, open the bot's **private chat** and send `/admin`. The main admin can
+grant delegated read/health access from the panel. Role-changing, ban, broadcast,
+CSV, settings and leave operations remain restricted to the configured main admin.
+
+To start/check just the new persistent STATE service after configuration:
+
+```bash
+docker compose --env-file .env -p saintcrispy up -d --wait redis-state
+docker compose -p saintcrispy exec -T redis-state redis-cli ping
+docker compose -p saintcrispy port redis-state 6379
+docker compose -p saintcrispy logs --tail 100 redis-state
+```
+
+Expected ping is `PONG`. All published services bind to `127.0.0.1`. No inbound
+firewall port is needed for the panel or STATE. `redis` remains evictable CACHE;
+`redis-state` uses its own `redis_state_data` volume, AOF every second and
+`noeviction`. Do not point STATE at the CACHE server. Optional
+`REDIS_CACHE_MAXMEMORY` (default `512mb`) and `REDIS_STATE_MAXMEMORY` (default `1gb`)
+control their Docker memory budgets; restart those services after changing them.
+Monitor memory/stream backlog; a full STATE falls back to SQL activity rather than
+trimming uncommitted events. Blank STATE URL **and** port disable batching and use
+immediate SQL activity. The Python bot stays on the host and is restarted after
+environment changes. No Node container or additional Python dependency is added.
+
+Check lifecycle audit/history, SQL job counters, `admin_job_failed`,
+`outbox_delivery_failed`, `outbox_outcome`, membership quarantine/worker errors and
+cache fallback logs when validating the rollout. Group UNKNOWN checks must not
+change groups to removed. The membership page lists observed humans, not a complete
+Telegram roster. See [administration contracts and limits](ADMINISTRATION.md).
 
 ## Upgrade an existing Linux installation
 

@@ -2,8 +2,9 @@
 
 This document describes the downloader repository, reviewed against the October
 15, 2026 Couplyo porting reference supplied in `docss`. Couplyo's 25-table SQL
-snapshot belongs to a different product. This application owns **14 domain tables
-and one migration ledger**, uses native asyncpg and applies revisions 1–9.
+snapshot belongs to a different product. This application owns **22 domain tables
+and one migration ledger**, uses native asyncpg and applies revisions 1–10.
+Revision 10 implements [administration, memberships and durable operations](ADMINISTRATION.md).
 
 ## Physical layout and ownership
 
@@ -36,7 +37,7 @@ is represented by nullable standing, not a fabricated negative result.
 ## Table dictionary
 
 In this table, `bot` abbreviates `telegram_account_id`. Key order is the actual
-primary-key order. Only the two declared group relationships are foreign keys;
+primary-key order. The declared group, membership, peer and outbox/job relationships are foreign keys;
 the other references are application identities and must not be mistaken for
 SQL-enforced relationships.
 
@@ -56,9 +57,17 @@ SQL-enforced relationships.
 | `group_events` | generated id; unique bot, chat_id, event_key | Immutable lifecycle audit, actor, occurrence/receipt timestamps, previous/resulting standing and applied/stale flag. FK to the same bot/group. |
 | `group_request_limits` | bot, chat_id | Recent accepted timestamps for a rolling 60-second group quota. FK to the same bot/group. |
 | `file_message_expiry` | bot, chat_id, message_id | Serialized peer, original 30-second deadline, retry time/attempts and completion timestamp. Only confirmed user-facing file sends; completion tombstones live two days. |
+| `group_memberships` | generated id; unique bot, chat_id, user_id | Observed human presence, state ordering, last activity and exact message count; composite group/user foreign keys. |
+| `membership_events` | bot, chat_id, event_key | Unique processed message/join/leave ledger; no message contents; composite membership FK. |
+| `app_settings` | bot, key | Versioned installation settings and updated timestamps. |
+| `admin_actions` | generated id | Bot, actor, action, target and safe audit details. |
+| `admin_requests` | bot, token | Owner-bound prompt/confirmation, reply ID, payload, expiry and single-use timestamp. |
+| `admin_jobs` | generated id; unique bot, dedupe_key | Job kind/status, cursor, progress counters, payload, due/lease and error code. |
+| `outbox_events` | generated id; unique bot, dedupe_key | Durable target effect, stable Telegram random ID, job FK, status, due/lease and outcome. |
+| `telegram_group_peers` | bot, chat_id | Typed raw peer and real access hash; composite group FK; never public UI/logs. |
 | `app_schema_migrations` | version | Applied revision name and UTC timestamp. Installation schema ledger, not bot-scoped application data. |
 
-The group foreign keys deliberately have no `ON DELETE CASCADE`. Removal and
+The original group-audit/quota foreign keys deliberately have no `ON DELETE CASCADE`. Membership/peer relationships declare cascades, but application removal is always a soft transition and never invokes them. Removal and
 migration retire group identities while preserving their audit and quota history.
 No automated cleanup hard-deletes user/menu/history/group records.
 
@@ -66,6 +75,11 @@ No automated cleanup hard-deletes user/menu/history/group records.
 erDiagram
     bot_groups ||--o{ group_events : "bot + chat_id"
     bot_groups ||--o| group_request_limits : "bot + chat_id"
+    bot_groups ||--o{ group_memberships : "bot + chat_id"
+    bot_users ||--o{ group_memberships : "bot + user_id"
+    group_memberships ||--o{ membership_events : "bot + chat + user"
+    bot_groups ||--o| telegram_group_peers : "bot + chat_id"
+    admin_jobs ||--o{ outbox_events : "job_id"
 ```
 
 The diagram contains only real database foreign keys. For example, a media
@@ -95,6 +109,7 @@ Indexes outside primary/unique keys serve actual query paths:
 | 7 | Group snapshots, lifecycle audit and rolling group admission |
 | 8 | Durable file expiry queue and origin lookup index |
 | 9 | Repair first-adder attribution from applied add audit, clear invalid admin dates, enforce admin-date standing constraint |
+| 10 | User/group administration fields, observed membership/event ledger, settings, audit, confirmations, durable jobs/outbox and typed peer recovery |
 
 Revision 9 follows migrated group identities with cycle protection and preserves
 the earliest applied add/re-add actor that their audit actually knows. It cannot
@@ -127,20 +142,18 @@ from it. This is not a live production-schema inspection.
 | --- | --- |
 | File cache | Redis `FileRepository`, namespace `media:<bot>:<runtime-uuid>:` and hashed site/content/quality identity; 24-hour TTL, strict versioned payloads, SQL fallback and invalidation |
 | Admission rejections | Redis `request:<bot>:<user>:<scope>:<interval>` and bounded process leases; can reject, never grant without SQL |
+| Group/user/setting cache | Versioned positive/negative DTO snapshots, revision-safe writes, TTL and SQL fallback |
+| Membership/lifecycle activity | Separate persistent STATE streams, commit-before-ACK, quarantine and SQL fallback |
+| Administrative OPS | SQL jobs/outbox, owned confirmation, cursor, lease, due time and progress counters |
 | FSM and menus | PostgreSQL; bounded in-process hot menu cache is disposable |
 | Metadata single-flight | Bounded process state; provider/catalog lookup reconstructs it |
 | File expiry | PostgreSQL queue; service owns deadlines, batching, cache invalidation and retry; Telegram adapter owns peer decoding/RPC/FloodWait translation |
 | Interactive transfers | Bounded process tasks; interrupted FSM recovered on restart; uncertain sends are never automatically replayed |
 | Provider sessions | Independent provider/account HTTP cookie jars; Telegram SQLite session is separate from Redis and PostgreSQL |
 
-`REDIS_CACHE_URL` selects cache storage; blank falls back to the existing Redis
-connection. There is no Redis STATE queue/FSM in this downloader, so a second
-state Redis instance is unnecessary. Eviction cannot erase durable conversations,
-quotas or expiry deadlines. Redis write failures invalidate/bypass stale local
-file cache identities rather than granting access from an uncertain cache.
+`REDIS_CACHE_URL` selects evictable cache storage; blank uses the existing Redis connection. `REDIS_STATE_PORT`/`REDIS_STATE_URL` select a distinct AOF/noeviction service for recoverable activity, lifecycle retries and shared publication pacing. FSM, quotas, confirmations, OPS and expiry remain SQL-backed. Blank STATE means immediate SQL activity, never use of evictable CACHE as a durable queue. Group/user/setting snapshots use strict versioned envelopes, negative caching and a bounded positive TTL; fresh SQL remains the authority for sensitive decisions. See [cache/recovery details](ADMINISTRATION.md#cache--state--ops-contracts).
 
-The expiry queue is the durable, idempotent deletion job for this product. Couplyo
-broadcast/admin/crawl outboxes are not used. Direct file publication and SQL
+The expiry queue remains the durable deletion job. Separate revision-10 administrative jobs/outbox implement confirmed broadcasts, forwarding, health checks, leave operations and transactional lifecycle notifications. Direct file publication and SQL
 persistence remain separate systems; exactly-once cross-system delivery is not
 claimed. Original links, status/quality messages and storage-channel copies are
 outside the file-deletion queue.
@@ -149,9 +162,7 @@ outside the file-deletion queue.
 
 Stop the old receiver, back up PostgreSQL and the account-scoped Telegram session,
 verify the restore procedure, pull the new commit, reinstall the editable package
-and run `python scripts/migrate.py` before `python main.py`. No new environment
-setting, provider credential, Redis instance or dependency is required for this
-refactor. Existing startup also applies the same idempotent migration chain.
+and run `python tools/setup_services.py` and `python scripts/migrate.py` before `python main.py`. Setup now configures a third endpoint for persistent Redis STATE; existing database/cache ports and passwords are preserved. Set `MAIN_ADMIN_ID` for panel access. No new Python dependency or provider credential is required. See the [revision-10 upgrade runbook](OPERATIONS.md#administration-upgrade-revision-10). Existing startup also applies the same idempotent migration chain.
 
 This project has forward migrations only. Do not delete ledger entries or execute
 the reference snapshot to downgrade an existing installation. A rollback requiring

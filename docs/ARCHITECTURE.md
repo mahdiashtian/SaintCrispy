@@ -31,7 +31,7 @@ Handlers do not execute SQL or Redis commands. Business services do not import T
 
 The database driver remains native asyncpg. `db/postgres/models` owns executable
 table/constraint definitions; `migrations.py` retains the existing revisions through
-version 9. The [database dictionary](DATABASE.md) records every table, real foreign
+version 10. The [database dictionary](DATABASE.md) records every table, real foreign
 key, query index, migration and cache/state owner.
 `Database` owns the asynchronous pool. `PostgresUnitOfWork` acquires one private
 connection, binds its repositories to that connection and commits or rolls back
@@ -43,7 +43,7 @@ history is replaced.
 
 Migrations are additive and tracked in `app_schema_migrations`. Startup acquires a transaction-scoped migration lock and applies unapplied versions in one transaction. Version 1 adopts existing tables; version 2 adds users, conversations and owned menus; version 3 adds `video_streaming`; version 4 adds `verified_complete` with a false default for legacy references; version 5 adds nullable `video_preview`; version 6 adds nullable `video_faststart` for a complete classic MP4 index at the front. Older video references are checked or repaired on demand. Catalog alias writes use one SQL transaction. File and history writes retain unique-key upserts. Tests cover adoption of an existing database and concurrent migration attempts.
 
-Redis is an optional, evictable accelerator. PostgreSQL is authoritative for files, admission, conversations and menus. This provides the reference's durable, non-expiring conversation semantics without introducing a third Docker database or relying on Redis availability for state. `REDIS_CACHE_URL` can select an independent cache endpoint; blank uses the existing URL derived from `.env` ports.
+PostgreSQL is authoritative for files, admission, conversations, menus and operational jobs. Redis CACHE is an optional evictable accelerator; Redis STATE is a separate persistent, non-evicting activity/retry stream and publication budget. FSM remains durable in SQL. `REDIS_CACHE_URL` selects an independent cache endpoint; `REDIS_STATE_PORT`/`REDIS_STATE_URL` select STATE. Without STATE, activity commits immediately in SQL. See [administration and cache contracts](ADMINISTRATION.md).
 
 Groups follow the same layer direction with a framework-independent `GroupChange`,
 `GroupService` and a UoW-bound group repository. Raw self-membership and service
@@ -120,8 +120,7 @@ behavior is preserved across every provider.
 
 The native asyncpg/additive-migration and frozen-dataclass stack remains intentional:
 the reference's transaction, type, ownership and recovery contracts do not require
-a second ORM or a replacement migration ledger. Product-specific couples, profiles,
-member crawling, broadcasts and admin panels are not downloader requirements.
+a second ORM or a replacement migration ledger. Couple selection, crush/VIP logic and full member crawling remain source-product features. The private administration panel, human membership ledger, durable operations and split cache/state infrastructure are now implemented for this downloader in revision 10. See [administration](ADMINISTRATION.md).
 
 Link handlers have their own `MAX_CONCURRENT_REQUESTS` cap, reserved before SQL
 admission. Excess requests do not consume the user's quota. Rejection replies have

@@ -30,7 +30,7 @@ Direct Telegram URL fetching and already indexed progressive MP4 avoid full loca
 
 ## Requirements
 
-The bot runs directly on the host with `python main.py`. Docker Compose runs **only PostgreSQL and Redis**.
+The bot runs directly on the host with `python main.py`. Docker Compose runs **only PostgreSQL, Redis CACHE and Redis STATE**.
 
 - Python **3.12 or newer**, with a virtual environment.
 - Docker Engine/Desktop and Docker Compose v2 with support for `up --wait`.
@@ -81,6 +81,7 @@ MAIN_ADMIN_ID=your_numeric_telegram_user_id
 DEV_DB_PASSWORD='your_database_password'
 POSTGRES_PORT=
 REDIS_PORT=
+REDIS_STATE_PORT=
 ```
 
 If a database already exists, keep its current password. PostgreSQL applies `POSTGRES_PASSWORD` when initializing a new data directory; editing `.env` does not change a password stored in an existing database.
@@ -100,16 +101,16 @@ python tools/setup_services.py
 python main.py
 ```
 
-The setup command chooses a free localhost port for each blank port setting, then saves the exact `POSTGRES_PORT` and `REDIS_PORT` in `.env`. Subsequent runs keep those numbers. You can enter your own free port numbers before setup. Existing localhost connection URLs also supply their previous ports during migration. Docker binds both services to `127.0.0.1` using the saved ports.
+The setup command chooses a free localhost port for each blank port setting, then saves the exact `POSTGRES_PORT`, `REDIS_PORT` and `REDIS_STATE_PORT` in `.env`. Subsequent runs keep those numbers. You can enter your own free port numbers before setup. Existing localhost connection URLs also supply their previous ports during migration. Docker binds all three services to `127.0.0.1` using the saved ports.
 
-You do not need to enter `DATABASE_URL` or `REDIS_URL`. When `POSTGRES_PORT` is set, the bot builds its PostgreSQL URL from that port and `DEV_DB_PASSWORD`; when `REDIS_PORT` is set, it builds the Redis URL automatically. Configured ports take precedence over saved URLs, so changing a port cannot leave the bot using a stale address. Password characters such as `@`, `/`, `#`, `?` and dollar signs are percent-encoded without changing the actual password. This happens in memory at every startup, without rewriting `.env`.
+You do not need to enter `DATABASE_URL`, `REDIS_URL` or `REDIS_STATE_URL`. When `POSTGRES_PORT` is set, the bot builds its PostgreSQL URL from that port and `DEV_DB_PASSWORD`; when `REDIS_PORT` is set, it builds the CACHE URL automatically; `REDIS_STATE_PORT` builds the separate STATE URL. Configured ports take precedence over saved URLs, so changing a port cannot leave the bot using a stale address. Password characters such as `@`, `/`, `#`, `?` and dollar signs are percent-encoded without changing the actual password. This happens in memory at every startup, without rewriting `.env`.
 
-The setup command also saves the generated URLs in `.env` for standalone tools and starts the database containers. PostgreSQL's Docker container reads `DEV_DB_PASSWORD` from `.env`. If the password is blank or still `YOUR_PASSWORD`, setup generates a random hex password; the bot itself requires the existing password and never generates a replacement. Setup waits for both database health checks and prints only their addresses, not credentials.
+The setup command also saves the generated URLs in `.env` for standalone tools and starts the database containers. PostgreSQL's Docker container reads `DEV_DB_PASSWORD` from `.env`. If the password is blank or still `YOUR_PASSWORD`, setup generates a random hex password; the bot itself requires the existing password and never generates a replacement. Setup waits for all three service health checks and prints only their addresses, not credentials.
 
-If you already set both ports and the database password in `.env`, you can start directly without the setup tool:
+If you already set all three ports and the database password in `.env`, you can start directly without the setup tool:
 
 ```bash
-docker compose --env-file .env -p saintcrispy up -d --remove-orphans --wait postgres redis
+docker compose --env-file .env -p saintcrispy up -d --remove-orphans --wait postgres redis redis-state
 python main.py
 ```
 
@@ -125,6 +126,26 @@ python main.py
 
 The foreground bot follows the terminal session's lifetime. To keep a manually launched process through SSH disconnections, run it in a persistent terminal session or configure a process supervisor separately.
 
+## Private administration and persistent STATE
+
+Set `MAIN_ADMIN_ID` to your positive numeric Telegram user ID in `.env`, restart
+Python, wait for `bot_ready`, then send `/admin` in the bot's private chat. The panel
+provides users/groups, observed memberships, lifecycle statistics, health checks,
+owned job progress and main-admin controls for roles, bans, group quota, broadcasts,
+forwarding, maintenance and bounded CSV reports/import. Sensitive actions use fresh
+SQL authorization and persistent, owner-bound confirmations where applicable.
+
+Setup now starts three Docker services: PostgreSQL, evictable `redis` CACHE and
+persistent `redis-state`. `REDIS_STATE_PORT` is saved in `.env`; Python derives the
+localhost STATE URL from it. CACHE TTL defaults to 300 seconds, activity flush to
+45 seconds; menus/FSM/jobs remain durable in PostgreSQL. Existing installations
+receive additive migration 10. Stop the old receiver and back up the database
+before upgrading; keep all existing volumes/passwords/session files.
+
+See [complete server upgrade and STATE commands](docs/OPERATIONS.md#administration-upgrade-revision-10),
+[panel permissions and recovery](docs/ADMINISTRATION.md), and
+[database tables](docs/DATABASE.md). Python continues to run with `python main.py`.
+
 ## Updating an existing server
 
 From the existing repository, keeping its `.env` and Compose project name:
@@ -138,24 +159,25 @@ python tools/setup_services.py
 python main.py
 ```
 
-Stop the current native bot before replacing it. Setup uses project `saintcrispy` by default, keeps its PostgreSQL named volume, and removes obsolete bot/helper containers belonging to that same project. It runs only the two database services. No application image is built.
+Stop the current native bot before replacing it. Setup uses project `saintcrispy` by default, keeps its PostgreSQL named volume, and removes obsolete bot/helper containers belonging to that same project. It runs only the three database/cache/state services. No application image is built.
 
 ## Database service management
 
-Once `POSTGRES_PORT`, `REDIS_PORT` and `DEV_DB_PASSWORD` are set in `.env`:
+Once `POSTGRES_PORT`, `REDIS_PORT`, `REDIS_STATE_PORT` and `DEV_DB_PASSWORD` are set in `.env`:
 
 ```bash
-docker compose -p saintcrispy up -d --wait postgres redis
+docker compose -p saintcrispy up -d --wait postgres redis redis-state
 docker compose -p saintcrispy ps
-docker compose -p saintcrispy logs --tail 100 postgres redis
+docker compose -p saintcrispy logs --tail 100 postgres redis redis-state
 docker compose -p saintcrispy port postgres 5432
 docker compose -p saintcrispy port redis 6379
-docker compose -p saintcrispy stop postgres redis
+docker compose -p saintcrispy port redis-state 6379
+docker compose -p saintcrispy stop postgres redis redis-state
 ```
 
-Internal container ports remain 5432 and 6379; the native Python bot uses the published localhost ports in `.env`. PostgreSQL data lives in `saintcrispy_postgres_data`. `docker compose -p saintcrispy down` preserves the volume; `down -v` deletes it. Redis is a disposable cache with persistence disabled. Back up PostgreSQL separately before upgrades.
+Internal container ports remain 5432 and 6379; the native Python bot uses the published localhost ports in `.env`. PostgreSQL data lives in `saintcrispy_postgres_data`. `docker compose -p saintcrispy down` preserves the volume; `down -v` deletes it. Redis CACHE is disposable with persistence disabled; Redis STATE uses AOF/noeviction and the `saintcrispy_redis_state_data` volume. Keep STATE separate from CACHE. Back up PostgreSQL separately before upgrades; never delete named volumes to upgrade.
 
-After changing a port, recreate the database containers with `docker compose -p saintcrispy up -d --wait postgres redis`; `python main.py` automatically uses the new ports. Rerun `python tools/setup_services.py` if standalone tools also need the saved URLs refreshed. Setup manages a local database named `downloader` and user `downloader`. For an externally managed database/cache, leave the corresponding `POSTGRES_PORT`/`REDIS_PORT` blank, supply your own `DATABASE_URL`/`REDIS_URL` and run `python main.py` directly without the local setup command. Leaving both `REDIS_PORT` and `REDIS_URL` blank disables Redis; PostgreSQL remains required.
+After changing a port, recreate the database containers with `docker compose -p saintcrispy up -d --wait postgres redis redis-state`; `python main.py` automatically uses the new ports. Rerun `python tools/setup_services.py` if standalone tools also need the saved URLs refreshed. Setup manages a local database named `downloader` and user `downloader`. For an externally managed database/cache, leave the corresponding `POSTGRES_PORT`/`REDIS_PORT` blank, supply your own `DATABASE_URL`/`REDIS_URL` and run `python main.py` directly without the local setup command. Leaving both `REDIS_PORT` and `REDIS_URL` blank disables the default CACHE; blank `REDIS_STATE_PORT` and `REDIS_STATE_URL` select immediate SQL activity. PostgreSQL remains required.
 
 ## Windows development
 
@@ -420,7 +442,7 @@ db/postgres/
   base.py                  # Immutable PostgreSQL model descriptors
   models/                  # Domain table definitions and constraints
   engine.py                # Async connection pool and Database lifecycle
-  migrations.py            # Existing six additive revisions
+  migrations.py            # Ten additive revisions; existing ledger preserved
 db/redis/pool.py            # Bounded asynchronous cache pool
 schemas/                   # Immutable media, quality and transfer DTOs
 repositories/
@@ -455,7 +477,7 @@ src/downloader_bot/
 scripts/                  # Native migration CLI and Windows setup
 tests/                    # Behavior, architecture, async I/O and real database tests
 tools/                    # Service setup, diagnostics and load tests
-compose.yaml              # PostgreSQL and Redis only
+compose.yaml              # PostgreSQL, Redis CACHE and Redis STATE
 ```
 
 Each provider owns those six files. Providers do not import another provider, a shared concrete extractor or the generic transfer implementation. Shared models and the abstract contract are deliberately small. Similar extraction/HLS code is kept inside its owning provider because site behavior can diverge. DRY applies within each provider and to generic infrastructure; it does not override this isolation rule. Storage and delivery are injected through structural interfaces so the service can be tested independently.
