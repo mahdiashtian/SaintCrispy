@@ -199,6 +199,7 @@ async def test_storage_dedupe_independent_routes_and_fresh_settings_revocation(s
     app = sql_app
     management = ManagementService(app.admin, app.groups, app.bot)
     await app.admin.channels.update(999, "storage", CHANNEL)
+    await app.admin.channels.update(999, "storage_kinds", ["text"])
     await app.admin.channels.upsert_watch(
         999, {"chat_id": -10, "channel": CHANNEL, "kinds": ["text"]}
     )
@@ -261,7 +262,7 @@ async def test_scheduler_periods_are_durable_across_restart_and_settings_disable
     await ManagementService(app.admin, app.groups, app.bot).tick(now)
     await ManagementService(app.admin, app.groups, app.bot).tick(now)
     rows = await app.pool.fetch("SELECT kind FROM admin_jobs WHERE telegram_account_id=$1", app.bot)
-    assert sorted(row["kind"] for row in rows) == ["broadcast", "nudge_admin", "report"]
+    assert sorted(row["kind"] for row in rows) == ["broadcast", "nudge_admin", "report", "report"]
     await app.admin.channels.update(
         999, "promo", {"enabled": False, "hours": 6, "text": "Download media"}
     )

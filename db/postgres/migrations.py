@@ -6,11 +6,14 @@ from .models import (
     GROUP_SCHEMA,
     ROSTER_TABLES,
     SCHEMA,
+    SOURCE_MANAGEMENT_TABLES,
     WORKFLOW_SCHEMA,
 )
 from .models.administration import UPGRADE
 from .models.group import INVARIANTS_SCHEMA
 from .models.roster_crawl import UPGRADE as ROSTER_UPGRADE
+from .models.source_management import BACKFILL
+from .models.source_management import UPGRADE as SOURCE_UPGRADE
 
 MIGRATIONS = (
     (1, "existing_media_schema", SCHEMA),
@@ -53,5 +56,10 @@ MIGRATIONS = (
         11,
         "couplyo_roster_crawl_and_membership_fences",
         ROSTER_UPGRADE + "\n".join(t.schema for t in ROSTER_TABLES),
+    ),
+    (
+        12,
+        "source_channel_storage_and_daily_history",
+        SOURCE_UPGRADE + "\n".join(t.schema for t in SOURCE_MANAGEMENT_TABLES) + BACKFILL,
     ),
 )

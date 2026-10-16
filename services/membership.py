@@ -44,6 +44,12 @@ class MembershipService:
                 user_id, username, first_name, last_name, deleted=deleted, bot=bot
             )
 
+    async def purge_invalid(self, user_id, *, deleted=False, bot=False, root_id=None):
+        if not (deleted or bot) or user_id == root_id:
+            return False
+        async with self.uow_factory() as uow:
+            return await uow.memberships.purge_invalid(user_id, deleted=deleted, bot=bot)
+
     async def profile(self, user_id, username, first_name, last_name):
         if (
             type(user_id) is not int
@@ -125,6 +131,28 @@ class MembershipService:
             log.warning({"event": "membership_stream_fallback", **error_fields(error)})
         return await self.persist(event)
 
+    async def apply_batch(self, uow, valid):
+        batched = await uow.memberships.apply_messages([event for _, event in valid])
+        if batched is not None:
+            return batched, [identity for identity, _ in valid]
+        changed_count, acknowledged = 0, []
+        for identity, event in valid:
+            if event.kind == "left":
+                await uow.memberships.departure(
+                    event.chat_id, event.user_id, event.occurred_at, event.event_key
+                )
+            changed = await uow.memberships.apply(event)
+            if (
+                not changed
+                and self.lifecycle_stream is not None
+                and await uow.groups.get(event.chat_id) is None
+                and await self.parent_pending(event.chat_id)
+            ):
+                continue
+            changed_count += bool(changed)
+            acknowledged.append(identity)
+        return changed_count, acknowledged
+
     async def flush(self):
         if self.stream is None:
             return 0
@@ -149,22 +177,8 @@ class MembershipService:
                     log.warning({"event": "membership_activity_quarantined", "shard": shard})
             if not valid:
                 continue
-            acknowledged = []
             async with self.uow_factory() as uow:
-                for identity, event in valid:
-                    if event.kind == "left":
-                        await uow.memberships.departure(
-                            event.chat_id, event.user_id, event.occurred_at, event.event_key
-                        )
-                    changed = await uow.memberships.apply(event)
-                    if (
-                        not changed
-                        and self.lifecycle_stream is not None
-                        and await uow.groups.get(event.chat_id) is None
-                        and await self.parent_pending(event.chat_id)
-                    ):
-                        continue
-                    applied += bool(changed)
-                    acknowledged.append(identity)
+                changed, acknowledged = await self.apply_batch(uow, valid)
+                applied += changed
             await self.stream.acknowledge(shard, acknowledged)
         return applied

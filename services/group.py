@@ -3,6 +3,7 @@
 import json
 import logging
 import uuid
+from dataclasses import asdict
 from datetime import UTC, datetime
 
 from repositories.interfaces.control import ObjectCache
@@ -197,12 +198,62 @@ class GroupService(TransactionalService):
             ):
                 await uow.roster_crawls.suspend(change.chat_id, result["is_active"] is False)
             cached = await uow.groups.get(change.chat_id) if result and self.cache else None
+            notice = None
+            recent = abs((datetime.now(UTC) - change.occurred_at).total_seconds()) <= 600
+            if (
+                result
+                and result["applied"]
+                and result.get("transition")
+                and recent
+                and (self.main_admin_id or self.management_enabled)
+            ):
+                snapshot = cached or await uow.groups.get(change.chat_id)
+                data = asdict(snapshot)
+                data = {
+                    key: value.isoformat() if isinstance(value, datetime) else value
+                    for key, value in data.items()
+                }
+                lazy = change.kind in {"observed", "standing_refreshed"}
+                kind = result["kind"]
+                if kind == "promoted" or (
+                    kind in {"added", "readded"} and result["is_admin"] is True
+                ):
+                    kind = "admin_lazy" if lazy else "admin"
+                elif kind == "readded":
+                    kind = "reactivated" if lazy else "added"
+                elif kind in {"removed", "demoted"} and lazy:
+                    kind += "_lazy"
+                if result["is_active"] is False:
+                    data["is_admin"] = result.get("previous_admin")
+                    data["can_send"] = result.get("previous_can_send")
+                    data["members_in_db"] = await uow.groups.member_count(change.chat_id)
+                notice = {"kind": kind, "group": data}
+                if (
+                    self.management_enabled
+                    and result["is_active"] is True
+                    and kind in {"added", "admin", "admin_lazy", "demoted", "demoted_lazy"}
+                ):
+                    await uow.outbox.enqueue(
+                        f"group-welcome:{result['event_id']}",
+                        "message",
+                        change.chat_id,
+                        {
+                            "group_announcement": "admin"
+                            if kind.startswith("admin")
+                            else "demoted"
+                            if kind.startswith("demoted")
+                            else "added",
+                            "source_peer": change.chat_id,
+                            "policy": "management",
+                            "management": {"feature": "group_lifecycle"},
+                        },
+                    )
             if (
                 result
                 and result["applied"]
                 and result.get("transition")
                 and self.main_admin_id
-                and abs((datetime.now(UTC) - change.occurred_at).total_seconds()) <= 600
+                and notice is not None
             ):
                 if await uow.admin.setting("lifecycle_notifications", True) is True:
                     await uow.outbox.enqueue(
@@ -210,7 +261,7 @@ class GroupService(TransactionalService):
                         "message",
                         self.main_admin_id,
                         {
-                            "text": f"📌 تغییر وضعیت گروه\n{change.title or 'گروه'}\nشناسه: {change.chat_id}\nرویداد: {result['kind']}\nعضویت: {result['is_active']} · ادمینی: {result['is_admin']}"
+                            "group_event": notice,
                         },
                     )
         if management_changed and self.management_changed:
@@ -289,6 +340,23 @@ class GroupService(TransactionalService):
                 if self.roster_enabled:
                     await uow.roster_crawls.suspend(old_id, True, reason="migrated")
                     await uow.roster_crawls.enqueue(new_id)
+                if (
+                    result
+                    and self.main_admin_id
+                    and abs((datetime.now(UTC) - occurred_at).total_seconds()) <= 600
+                    and await uow.admin.setting("lifecycle_notifications", True)
+                ):
+                    snapshot = asdict(await uow.groups.get(new_id))
+                    snapshot = {
+                        key: value.isoformat() if isinstance(value, datetime) else value
+                        for key, value in snapshot.items()
+                    }
+                    await uow.outbox.enqueue(
+                        f"group-migration:{old_id}:{new_id}",
+                        "message",
+                        self.main_admin_id,
+                        {"group_event": {"kind": "migrated", "group": snapshot}},
+                    )
         except Exception as error:
             if (
                 replaying

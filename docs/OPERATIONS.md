@@ -1,7 +1,8 @@
 # Deployment, logging and recovery
 
-The October 16 source-parity follow-up adds migration 11, resumable member crawling
-and the Couplyo administration flow. The prior migration 10 added separate Redis
+The October 16 source-parity follow-up adds migrations 11–12, resumable member crawling,
+normalized channel/watch data, daily history and the Couplyo administration flow.
+The prior migration 10 added separate Redis
 STATE and operational jobs. Follow the stopped-bot backup/upgrade procedure below;
 existing data and migration history are preserved. [Database ownership](DATABASE.md) lists every table, key, index and
 migration. `python scripts/export_schema.py --check` verifies the offline reference
@@ -11,7 +12,7 @@ The Python bot and Node runtime run on the host. Docker runs PostgreSQL, Redis C
 
 ## Administration upgrade (revision 10)
 
-This same procedure upgrades an existing installation through revision **11**.
+This same procedure upgrades an existing installation through revision **12**.
 Create a fresh pre-upgrade backup; never overwrite your only tested backup.
 New roster settings default to enabled
 with one worker, three passes, 400 requests and a one-second minimum page delay.
@@ -25,7 +26,7 @@ database backup on the server (Linux shell), then check its archive listing:
 cd ~/SaintCrispy
 mkdir -p .runtime/backups
 chmod 700 .runtime/backups
-db_backup_path="$(mktemp .runtime/backups/before-revision-11-XXXXXXXX.dump)"
+db_backup_path="$(mktemp .runtime/backups/before-revision-12-XXXXXXXX.dump)"
 docker compose -p saintcrispy exec -T postgres pg_dump -U downloader -d downloader -Fc > "$db_backup_path"
 docker compose -p saintcrispy exec -T postgres pg_restore --list < "$db_backup_path" > "$db_backup_path.list"
 chmod 600 "$db_backup_path" "$db_backup_path.list"

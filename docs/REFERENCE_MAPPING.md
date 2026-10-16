@@ -3,9 +3,11 @@
 The follow-up against the **actual** copied source, commit
 `e3e073276b489b72b798a3aecc5b3dd3c9361e8b`, supersedes the earlier scope below.
 See [source parity](COUPLYO_PARITY.md) for the file map, full roster, category-based
-panel, migration 11 and deliberate safe backend adaptations. The application
-currently owns 25 domain tables and revisions 1–11; historical results below keep
+panel, migration 12 and deliberate safe backend adaptations. The application
+currently owns 29 domain tables and revisions 1–12; historical results below keep
 their original dates and scope.
+The [Telegram and load follow-up](COUPLYO_TELEGRAM_VERIFICATION.md) records canonical
+copy, normalized source tables, daily history and the limits of live verification.
 
 The current supplied source is Couplyo's `docss/PROJECT_REFERENCE_FA.md`, dated
 October 15, 2026, together with `PORTING_GUIDE_FA.md`, `IMPLEMENTATION_PROMPT_FA.md`,

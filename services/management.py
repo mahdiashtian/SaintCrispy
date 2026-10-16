@@ -3,10 +3,19 @@
 import asyncio
 import base64
 import struct
+import time
 import zlib
+from collections import OrderedDict
 from datetime import UTC, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from core.report_periods import (
+    completed_tehran_week_for_trigger,
+    current_tehran_day,
+    current_tehran_week,
+    latest_completed_tehran_day,
+    latest_weekly_trigger,
+)
 from schemas.media import DownloadError
 
 try:
@@ -22,10 +31,38 @@ class ManagementService:
         self.admin, self.groups, self.bot_id = admin, groups, bot_id
         self.weekly_weekday, self.weekly_hour = weekly_weekday, weekly_hour
         self.render_slots = asyncio.Semaphore(2)
+        self.refused_routes = OrderedDict()
+        self.route_generation = getattr(admin.channels, "generation", 0)
+
+    def route_refused(self, source, target):
+        generation = getattr(self.admin.channels, "generation", 0)
+        if generation != self.route_generation:
+            self.refused_routes.clear()
+            self.route_generation = generation
+        expiry = self.refused_routes.get((source, target))
+        if expiry is None:
+            return False
+        if expiry <= time.monotonic():
+            self.refused_routes.pop((source, target), None)
+            return False
+        return True
+
+    def refuse_route(self, source, target):
+        self.route_refused(source, target)
+        self.refused_routes[(source, target)] = time.monotonic() + 300
+        self.refused_routes.move_to_end((source, target))
+        while len(self.refused_routes) > 10000:
+            self.refused_routes.popitem(last=False)
 
     async def developer_credit(self):
         identity = (await self.admin.channels.cached())["developer_id"]
-        return f"👨‍💻 توسعه‌دهنده: tg://user?id={identity}" if identity else None
+        if not identity:
+            return None
+        return (
+            f"👨‍💻 توسعه‌دهنده: tg://user?id={identity}"
+            if type(identity) is int
+            else f"👨‍💻 توسعه‌دهنده: {identity}"
+        )
 
     async def enqueue_storage(
         self,
@@ -36,14 +73,15 @@ class ManagementService:
         chat_title=None,
         username=None,
         is_private=False,
+        *,
+        sender_name=None,
     ):
         if is_private or (
             type(source_peer) is not int
             or source_peer == 0
             or type(source_id) is not int
             or source_id <= 0
-            or type(sender_id) is not int
-            or sender_id <= 0
+            or (sender_id is not None and (type(sender_id) is not int or sender_id == 0))
         ):
             return 0
         config = await self.admin.channels.cached()
@@ -62,14 +100,42 @@ class ManagementService:
             or source_group.migrated_to is not None
         ):
             return 0
-        footer = (
-            f"📬 {'گفت‌وگوی خصوصی' if is_private else (chat_title or 'گروه')[:120]}\nشناسه گفتگو: {source_peer}\nکاربر: {sender_id}"
-            + (f" · @{username[:64]}" if username else "")
+        from core.jalali import to_persian_digits, to_shamsi
+
+        divider = "➖➖➖➖➖➖➖➖➖➖"
+        names = {
+            "text": "پیام عادی",
+            "photo": "عکس",
+            "video": "فیلم",
+            "voice": "وویس",
+            "gif": "گیف",
+            "sticker": "استیکر",
+            "music": "موزیک",
+        }
+        footer = "\n".join(
+            (
+                "🗂 پیام ذخیره‌شده",
+                divider,
+                f"📨 نوع پیام: {names.get(kind, kind)}",
+                f"🕐 زمان: {to_shamsi(datetime.now(UTC))}",
+                divider,
+                "",
+                "🔹 فرستنده",
+                f"👤 نام: {(sender_name or 'نامشخص')[:256]}",
+                f"🔗 آیدی: {'@' + username[:64] if username else 'ندارد'}",
+                f"🆔 آیدی عددی: {sender_id if sender_id is not None else 'نامشخص'}",
+                "",
+                "🔹 گپ",
+                f"📛 اسم: {(source_group.title or chat_title or 'نامشخص')[:512]}",
+                f"🆔 آیدی عددی: {source_peer}",
+                f"👥 تعداد اعضا: {to_persian_digits(f'{source_group.member_count:,}').replace(',', '٬') if source_group.member_count is not None else 'نامشخص'}",
+                f"🔗 لینک: {source_group.link or 'نامشخص'}",
+            )
         )
         count = 0
         async with self.admin.uow_factory() as uow:
             for target, feature in destinations.items():
-                if target == source_peer:
+                if target == source_peer or self.route_refused(source_peer, target):
                     continue
                 result = await uow.outbox.enqueue(
                     f"management:storage:{source_peer}:{source_id}:{target}",
@@ -176,6 +242,20 @@ class ManagementService:
         config = await self.admin.channels.get()
         data = effect.payload.get("management", {})
         feature, target = data.get("feature"), effect.target_id
+        if feature in {"group_lifecycle", "manual_report"}:
+            group = await self.groups.get(target, fresh=True)
+            if not group or group.is_active is not True or group.can_send is False:
+                return False
+            if feature == "group_lifecycle" and effect.payload.get("group_announcement") == "admin":
+                return group.is_admin is True
+            if (
+                feature == "group_lifecycle"
+                and effect.payload.get("group_announcement") == "demoted"
+            ):
+                return group.is_admin is False
+            if feature == "group_lifecycle" and effect.payload.get("group_announcement") == "added":
+                return group.is_admin is not True
+            return True
         if feature in {"promo", "admin_nudge", "weekly_report"}:
             if not config[feature]["enabled"]:
                 return False
@@ -189,6 +269,8 @@ class ManagementService:
         if feature == "archive":
             return bool(config["archive"] and config["archive"]["id"] == target)
         if feature in {"storage", "watch"}:
+            if self.route_refused(data.get("source_peer"), target):
+                return False
             group = await self.groups.get(data.get("source_peer"), fresh=True)
             global_enabled = bool(
                 config["storage"]
@@ -234,6 +316,7 @@ class ManagementService:
         now = now or datetime.now(UTC)
         config = await self.admin.channels.get()
         candidates = []
+        await self.rollover(now)
         for feature, kind in (("promo", "broadcast"), ("admin_nudge", "nudge_admin")):
             item = config[feature]
             if item["enabled"]:
@@ -248,25 +331,42 @@ class ManagementService:
                     payload["text"] = item["text"]
                 candidates.append((feature, kind, period, payload))
         if config["weekly_report"]["enabled"]:
-            local = now.astimezone(TEHRAN)
-            anchor = (local - timedelta(days=(local.weekday() - self.weekly_weekday) % 7)).replace(
-                hour=self.weekly_hour, minute=0, second=0, microsecond=0
+            anchor, week_key = latest_weekly_trigger(
+                now, weekday=self.weekly_weekday, hour=self.weekly_hour
             )
-            if anchor > local:
-                anchor -= timedelta(days=7)
+            week = completed_tehran_week_for_trigger(anchor)
+            day = latest_completed_tehran_day(now)
             candidates.append(
                 (
                     "weekly_report",
                     "report",
-                    anchor.date().isoformat(),
+                    week_key,
                     {
                         "audience": "groups",
                         "source_peer": owner,
+                        "report_start": week.start.isoformat(),
+                        "report_end": week.end.isoformat(),
                         "policy": "management",
                         "management": {
                             "feature": "weekly_report",
                             "period": anchor.date().isoformat(),
                         },
+                    },
+                )
+            )
+            candidates.append(
+                (
+                    "daily_report",
+                    "report",
+                    day.key,
+                    {
+                        "audience": "groups",
+                        "source_peer": owner,
+                        "policy": "management",
+                        "management": {"feature": "weekly_report"},
+                        "report_period": "day",
+                        "report_start": day.start.isoformat(),
+                        "report_end": day.end.isoformat(),
                     },
                 )
             )
@@ -276,24 +376,100 @@ class ManagementService:
                 await uow.admin.enqueue_job(owner, kind, payload, f"management:{feature}:{period}")
         return bool(candidates)
 
-    async def report(self, chat_id):
+    async def rollover(self, now):
+        local = now.astimezone(TEHRAN)
+        day = local.date() - timedelta(days=1)
+        if (local.hour == 0 and local.minute < 2) or getattr(self, "_sealed_day", None) == day:
+            return
+        async with self.admin.uow_factory() as uow:
+            started = await uow.admin.setting("daily_statistics_started_at")
+            if not started:
+                await uow.admin.set_setting("daily_statistics_started_at", now.isoformat())
+                return
+            if day < datetime.fromisoformat(started).astimezone(TEHRAN).date():
+                return
+            existing = await uow.admin.connection.fetchval(
+                "SELECT 1 FROM daily_stats WHERE telegram_account_id=$1 AND stat_date=$2",
+                self.bot_id,
+                day,
+            )
+            if not existing:
+                await uow.daily_stats.save(day)
+        self._sealed_day = day
+
+    async def report(self, chat_id, *, period="week", start=None, end=None):
+        if period not in {"day", "week"}:
+            raise ValueError("Invalid report period")
+        window = current_tehran_day() if period == "day" else current_tehran_week()
+        since = datetime.fromisoformat(start) if start else window.start
+        until = datetime.fromisoformat(end) if end else window.end
+        if (
+            since.tzinfo is None
+            or until.tzinfo is None
+            or not since < until
+            or until - since > timedelta(days=8)
+        ):
+            raise ValueError("Invalid report window")
         group = await self.groups.get(chat_id, fresh=True)
         if not group or group.is_active is not True:
             raise DownloadError("گروه برای گزارش در دسترس نیست.")
         row = await self.admin.repository.connection.fetchrow(
             """SELECT count(*) FILTER(WHERE is_active) members,
             COALESCE(sum(message_count),0)::bigint messages,
-            count(DISTINCT user_id) FILTER(WHERE is_active AND last_seen_at>=now()-interval '7 days') weekly_active,
-            (SELECT count(*) FROM membership_events e WHERE e.telegram_account_id=$1 AND e.chat_id=$2 AND e.kind='message' AND e.occurred_at>=now()-interval '7 days') weekly_messages
+            (SELECT count(DISTINCT e.user_id) FROM membership_events e WHERE e.telegram_account_id=$1 AND e.chat_id=$2 AND e.kind='message' AND e.occurred_at>=$3 AND e.occurred_at<$4) weekly_active,
+            (SELECT count(*) FROM membership_events e WHERE e.telegram_account_id=$1 AND e.chat_id=$2 AND e.kind='message' AND e.occurred_at>=$3 AND e.occurred_at<$4) weekly_messages
             FROM group_memberships WHERE telegram_account_id=$1 AND chat_id=$2""",
             self.bot_id,
             chat_id,
+            since,
+            until,
         )
         values = dict(row)
+        values["period"] = period
         async with self.render_slots:
             data = await asyncio.to_thread(render_report, values)
-        caption = f"📊 گزارش هفت روز اخیر · {(group.title or str(chat_id))[:160]}\nاعضای فعال ثبت‌شده: {values['members']}\nکاربران پیام‌دهنده: {values['weekly_active']}\nپیام‌های هفته: {values['weekly_messages']}\nکل پیام‌های ثبت‌شده: {values['messages']}\nآمار بر اساس داده‌های قابل مشاهدهٔ ربات است."
+        label = "امروز" if period == "day" else "هفته"
+        caption = f"📊 گزارش {label} · {(group.title or str(chat_id))[:160]}\nاعضای فعال ثبت‌شده: {values['members']}\nکاربران پیام‌دهنده: {values['weekly_active']}\nپیام‌های {label}: {values['weekly_messages']}\nکل پیام‌های ثبت‌شده: {values['messages']}\nآمار بر اساس داده‌های قابل مشاهدهٔ ربات است."
+        from core.jalali import to_shamsi
+
+        caption += "\nبازه: " + to_shamsi(since) + " تا " + to_shamsi(until)
         return data, caption
+
+    async def request_report(self, user_id, chat_id, period, reply_to=None):
+        import uuid
+
+        if period not in {"day", "week"} or type(chat_id) is not int or chat_id >= 0:
+            raise ValueError("Invalid group report")
+        async with self.admin.uow_factory() as uow:
+            root = user_id == self.admin.main_admin_id
+            if not root:
+                granted = await uow.admin.connection.fetchval(
+                    """INSERT INTO request_limits(telegram_account_id,user_id,scope,requested_at)
+                VALUES($1,$2,$3,clock_timestamp()) ON CONFLICT(telegram_account_id,user_id,scope) DO UPDATE SET requested_at=EXCLUDED.requested_at
+                WHERE request_limits.requested_at<clock_timestamp()-interval '24 hours' RETURNING 1""",
+                    self.bot_id,
+                    chat_id,
+                    "manual-report:" + period,
+                )
+                if not granted:
+                    return False
+            await uow.outbox.enqueue(
+                "manual-report:" + uuid.uuid4().hex,
+                "report",
+                chat_id,
+                {
+                    "report_period": period,
+                    "report_start": (
+                        current_tehran_day() if period == "day" else current_tehran_week()
+                    ).start.isoformat(),
+                    "report_end": datetime.now(UTC).isoformat(),
+                    "requested_by": user_id,
+                    "reply_to": reply_to,
+                    "policy": "management",
+                    "management": {"feature": "manual_report"},
+                },
+            )
+        return True
 
 
 FONT = {
@@ -350,11 +526,12 @@ def render_report(values):
                         rectangle(x + column * scale, y + row * scale, scale, scale, color)
             x += 6 * scale
 
-    text("WEEKLY GROUP REPORT", 36, 28, 4)
+    daily = values.get("period") == "day"
+    text("DAILY GROUP REPORT" if daily else "WEEKLY GROUP REPORT", 36, 28, 4)
     entries = (
         ("MEMBERS", values["members"]),
         ("ACTIVE", values["weekly_active"]),
-        ("WEEK MESSAGES", values["weekly_messages"]),
+        ("DAY MESSAGES" if daily else "WEEK MESSAGES", values["weekly_messages"]),
         ("ALL MESSAGES", values["messages"]),
     )
     ceiling = max(1, *(int(value) for _, value in entries))

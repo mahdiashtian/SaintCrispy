@@ -90,6 +90,7 @@ class OperationsService:
                         "nudge_owners": "nudge_owners",
                         "refresh_users": "refresh_users",
                         "report": "report",
+                        "purge_users": "purge_users",
                     }[job["kind"]]
                     await uow.outbox.enqueue(
                         f"job:{job['id']}:{target}", kind, target, job["payload"], job["id"]

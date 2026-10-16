@@ -568,12 +568,13 @@ async def test_cleanup_retires_only_selected_groups_watches_atomically_and_inval
     assert config["storage"] == channel
 
 
-async def test_admin_panel_consumes_configured_developer_credit():
+async def test_admin_panel_uses_source_greeting_without_false_saved_confirmation():
     admin, conversation = admin_fake(), ConversationService(MemoryStateStorage())
     admin.channels.get.return_value = {"developer_id": 12345}
     actual = event()
     await reference.panel(actual, admin, conversation)
-    assert "tg://user?id=12345" in actual.respond.call_args.args[0]
+    assert "ذخیره شد" not in actual.respond.call_args.args[0]
+    assert "tg://user?id=12345" not in actual.respond.call_args.args[0]
 
 
 async def test_start_and_help_render_optional_developer_credit_without_changing_groups():
@@ -585,6 +586,7 @@ async def test_start_and_help_render_optional_developer_credit_without_changing_
     )
     actual = event(id=5)
     await handle_start(actual, management=management)
+    assert "ذخیره شد" not in actual.respond.call_args.args[0]
     assert "tg://user?id=12345" in actual.respond.call_args.args[0]
     actual.pattern_match = (None, b"999", b"help")
     await handle_home(actual, management=management)

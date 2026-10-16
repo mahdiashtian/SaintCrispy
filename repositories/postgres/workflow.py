@@ -17,18 +17,27 @@ class WorkflowRepository:
         self.pool = pool
         self.bot_id = bot_id
 
-    async def touch_user(self, user_id: int, *, started: bool = False) -> None:
+    async def touch_user(
+        self, user_id: int, *, started: bool = False, start_source="plain", start_chat_id=None
+    ) -> None:
         await self.pool.execute(
-            """INSERT INTO bot_users (telegram_account_id,user_id,is_started,started_at)
-            VALUES ($1,$2,$3,CASE WHEN $3 THEN now() ELSE NULL END)
+            """INSERT INTO bot_users (telegram_account_id,user_id,is_started,started_at,start_source,start_chat_id)
+            VALUES ($1,$2,$3,CASE WHEN $3 THEN now() ELSE NULL END,CASE WHEN $3 THEN $4::text ELSE NULL END,CASE WHEN $3 THEN $5::bigint ELSE NULL END)
             ON CONFLICT (telegram_account_id,user_id) DO UPDATE SET
             is_started=bot_users.is_started OR EXCLUDED.is_started,
             started_at=CASE WHEN $3 THEN COALESCE(bot_users.started_at,now()) ELSE bot_users.started_at END,
+            start_source=CASE WHEN $3 AND NOT bot_users.is_started THEN $4 ELSE bot_users.start_source END,
+            start_chat_id=CASE WHEN $3 AND NOT bot_users.is_started THEN $5 ELSE bot_users.start_chat_id END,
             last_seen_at=now(),updated_at=now()""",
             self.bot_id,
             user_id,
             started,
+            start_source,
+            start_chat_id,
         )
+        from repositories.postgres.user_tombstone import remove_tombstoned
+
+        await remove_tombstoned(self.pool, self.bot_id, [user_id])
 
     async def get_state(self, user_id: int, chat_id: int):
         return await self.pool.fetchrow(
@@ -71,6 +80,10 @@ class WorkflowRepository:
             interval,
         )
         # An older statement snapshot after a conflict must never turn denial into a grant.
+        from repositories.postgres.user_tombstone import remove_tombstoned
+
+        if await remove_tombstoned(self.pool, self.bot_id, [user_id]):
+            return int(interval)
         return int(remaining)
 
     async def set_state(self, user_id: int, chat_id: int, state: str, data: dict) -> None:

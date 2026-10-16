@@ -7,6 +7,32 @@ rather than rewriting historical failures as successes.
 
 ## Administration and group reference alignment (October 16)
 
+The [later Telegram/copy/load follow-up](COUPLYO_TELEGRAM_VERIFICATION.md) extends
+the source port through migration 12: normalized channels/watch flags, immutable
+daily history, canonical applicable panel/lifecycle copy and fixed report windows.
+The workstation authenticated a fresh read-only Telegram bot session. There was no
+authorized human session or controlled group, so live lifecycle/panel testing
+remains unverified. Zero-retry authentication failed on a DC migration; two bounded
+retries succeeded without changing credentials. Retry only on a bounded new probe
+or newly available controlled-group evidence; do not run destructive live actions
+against unrelated groups.
+
+New failures reproduced: single-event SQL draining lagged sustained 1,000/s input;
+an old queued message/crawl/profile/CSV/backup could recreate a purged invalid
+account; membership/user delete locks could invert; current group rights could
+misclassify old activity; report retries could drift to a later window; protected
+forwarding could keep retrying one refused destination. These now have batch,
+fence, fixed-window and bounded-route regressions. Full suite: 1,630 passed with
+zero skips on real isolated PostgreSQL/Redis; no provider extraction changes.
+Do not generalize activity-ingest load results to media throughput or Telegram
+API limits. The final 60-second run offered/accepted/committed/counted 60,000 at
+1,000/s, drained in 60.324 seconds, and lost/rejected/failed zero events. Ingest
+p99 was 1.819 ms, loop-lag p99 11.943 ms and concurrent admin-statistics p95
+5.233 ms; replay left counts unchanged. The single-event 10-second baseline
+required 31.448 seconds to drain; the bounded batch equivalent took 10.433.
+The evidence guide records source-specific exclusions and actual
+physical-schema differences; do not describe it as a byte-identical ORM clone.
+
 The later **actual-source** review supersedes the observed-members-only scope.
 Source commit `e3e073276b489b72b798a3aecc5b3dd3c9361e8b` is mapped in
 [source parity and dated evidence](COUPLYO_PARITY.md). Revision 11 implements the

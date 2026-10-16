@@ -107,6 +107,22 @@ class AdminService:
         await self.authorize(owner)
         return await self.repository.daily()
 
+    async def daily_summary(self, owner):
+        from datetime import datetime, timedelta, timezone
+
+        await self.authorize(owner)
+        return await self.repository.daily_summary(
+            datetime.now(timezone(timedelta(hours=3, minutes=30))).date()
+        )
+
+    async def history(self, owner, limit=14, offset=0):
+        await self.authorize(owner)
+        return await self.repository.stats_history(limit, offset)
+
+    async def history_count(self, owner):
+        await self.authorize(owner)
+        return await self.repository.history_count()
+
     async def users(self, owner, cursor=0):
         await self.authorize(owner)
         return await self.repository.users(cursor)
@@ -124,6 +140,10 @@ class AdminService:
     async def trace(self, owner, identity):
         await self.authorize(owner)
         return await self.repository.user_trace(identity)
+
+    async def public_trace(self, owner, identity):
+        await self.authorize(owner)
+        return await self.repository.public_trace(identity)
 
     async def group(self, owner, identity):
         await self.authorize(owner)
@@ -144,7 +164,12 @@ class AdminService:
                 if type(target) is not int or target <= 0 or target == self.main_admin_id:
                     raise DownloadError("شناسه معتبرِ غیر از مدیر اصلی را بفرست.")
                 field = "is_admin" if action in {"grant", "revoke"} else "is_banned"
-                await uow.admin.change_user(target, field, action in {"grant", "ban"})
+                try:
+                    await uow.admin.change_user(target, field, action in {"grant", "ban"})
+                except ValueError as error:
+                    raise DownloadError(
+                        "این حساب قبلاً ربات یا حذف‌شده تشخیص داده شده است."
+                    ) from error
             elif action == "limit":
                 if (
                     type(target) is not int
@@ -229,6 +254,7 @@ class AdminService:
             "nudge_owners",
             "refresh_users",
             "report",
+            "purge_users",
         } or not isinstance(payload, dict):
             raise DownloadError("درخواست مدیریت معتبر نیست.")
         if kind == "nudge_owners" and (
@@ -237,6 +263,15 @@ class AdminService:
         ):
             raise DownloadError("گزینه یادآوری معتبر نیست.")
         if kind in {"broadcast", "forward"}:
+            if payload.get("group_audience", "both") not in {"both", "admin", "non_admin"}:
+                raise DownloadError("مخاطبان معتبر نیستند.")
+            excluded_members = payload.get("exclude_members", [])
+            if (
+                not isinstance(excluded_members, list)
+                or len(excluded_members) > 1000
+                or any(type(i) is not int or not 0 < i < 2**63 for i in excluded_members)
+            ):
+                raise DownloadError("فهرست کاربران مستثنا معتبر نیست.")
             target = payload.get("target_id")
             if target is not None and (
                 type(target) is not int or target == 0 or not -(2**63) < target < 2**63

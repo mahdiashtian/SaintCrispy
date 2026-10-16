@@ -5,7 +5,7 @@ import logging
 import time
 from collections import OrderedDict
 
-from telethon import Button, errors, functions, types
+from telethon import Button, errors, functions, types, utils
 
 from core.locks import KeyedLocks
 from schemas.media import DownloadError
@@ -48,20 +48,33 @@ class ManagementHooks:
         if getattr(event, "out", False) or not getattr(event, "is_group", False):
             return
         sender = getattr(event, "sender", None)
-        if not isinstance(sender, types.User) or sender.bot or sender.deleted or sender.is_self:
+        if isinstance(sender, types.User) and sender.is_self:
             return
         chat = getattr(event, "chat", None)
         kind = message_kind(event)
         if kind is None:
             return
+        sender_id = getattr(event, "sender_id", None)
+        if sender_id is None and isinstance(sender, (types.User, types.Channel, types.Chat)):
+            sender_id = utils.get_peer_id(sender)
         await self.management.enqueue_storage(
             event.chat_id,
             event.id,
             kind,
-            sender.id,
+            sender_id,
             getattr(chat, "title", None),
-            sender.username,
+            getattr(sender, "username", None),
             bool(getattr(event, "is_private", False)),
+            sender_name=(
+                getattr(sender, "title", None)
+                or " ".join(
+                    filter(
+                        None,
+                        (getattr(sender, "first_name", None), getattr(sender, "last_name", None)),
+                    )
+                )
+                or None
+            ),
         )
 
     async def check_download(self, user_id):

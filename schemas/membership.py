@@ -16,8 +16,11 @@ class MembershipEvent:
     first_name: str | None = None
     last_name: str | None = None
     stream: str = "message"
+    observed_admin: bool | None = None
 
     def __post_init__(self):
+        if self.observed_admin is not None and type(self.observed_admin) is not bool:
+            raise ValueError("Invalid activity eligibility")
         if type(self.chat_id) is not int or not -(2**63) < self.chat_id < 0:
             raise ValueError("Membership requires a group")
         if type(self.user_id) is not int or not 0 < self.user_id < 2**63:

@@ -71,7 +71,8 @@ class MembershipTracker:
         if not getattr(event, "is_group", False):
             return
         user = await self.human(getattr(event, "sender_id", None), event)
-        if user is None or await self.groups.get(event.chat_id) is None:
+        group = await self.groups.get(event.chat_id) if user is not None else None
+        if user is None or group is None:
             return
         await self.memberships.observe(
             MembershipEvent(
@@ -84,6 +85,7 @@ class MembershipTracker:
                 user.username,
                 user.first_name,
                 user.last_name,
+                observed_admin=getattr(group, "is_admin", None) is True,
             )
         )
 

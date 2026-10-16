@@ -3,8 +3,11 @@
 The current source-based implementation is described in [Couplyo parity](COUPLYO_PARITY.md).
 It supersedes the earlier revision-10 observed-only scope below: the category-based
 reply-keyboard panel, full resumable roster crawl, channel management, reminders,
-reports and guarded data operations are implemented in revision 11. The historical
+reports and guarded data operations are implemented through revision 12. The historical
 verification figures at the end of this document describe revision 10 only.
+The [October 16 verification follow-up](COUPLYO_TELEGRAM_VERIFICATION.md) adds exact
+applicable source copy, normalized channels/watch storage, daily history, fixed
+report windows and protection against resurrecting purged accounts.
 
 October 16, 2026 implementation of the supplied local `docss/` reference. This is
 the downloader-domain continuation of [reference mapping](REFERENCE_MAPPING.md).

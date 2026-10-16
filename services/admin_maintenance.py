@@ -156,6 +156,11 @@ class AdminMaintenance:
                         )
                     if values:
                         insertion = f"INSERT INTO {table} ({names}) VALUES ({parameters}) ON CONFLICT DO NOTHING"
+                        if table == "bot_users":
+                            positions = {
+                                column["name"]: index for index, column in enumerate(columns, 1)
+                            }
+                            insertion = f"INSERT INTO {table} ({names}) SELECT {parameters} WHERE NOT EXISTS(SELECT 1 FROM user_account_tombstones WHERE telegram_account_id=${positions['telegram_account_id']} AND user_id=${positions['user_id']}) ON CONFLICT DO NOTHING"
                         if table in {"group_memberships", "membership_events"}:
                             positions = {
                                 column["name"]: index for index, column in enumerate(columns, 1)
@@ -165,7 +170,7 @@ class AdminMaintenance:
                                 for key in ("telegram_account_id", "chat_id", "user_id")
                             )
                             condition = (
-                                f"NOT EXISTS (SELECT 1 FROM membership_departures WHERE telegram_account_id={account} AND chat_id={chat} AND user_id={user})"
+                                f"EXISTS(SELECT 1 FROM bot_users WHERE telegram_account_id={account} AND user_id={user}) AND NOT EXISTS (SELECT 1 FROM membership_departures WHERE telegram_account_id={account} AND chat_id={chat} AND user_id={user})"
                                 if table == "group_memberships"
                                 else f"EXISTS (SELECT 1 FROM group_memberships WHERE telegram_account_id={account} AND chat_id={chat} AND user_id={user})"
                             )
@@ -425,6 +430,15 @@ def validate_payload(payload, metadata, account):
         raise ValueError("Backup tables")
     for table, rows in tables.items():
         for row in rows:
+            optional = {
+                "bot_users": {"last_active_at", "start_source", "start_chat_id"},
+                "membership_events": {"observed_admin"},
+            }.get(table, set())
+            if isinstance(row, dict):
+                expected = {column["name"] for column in metadata[table]}
+                missing = expected - set(row)
+                if missing <= optional:
+                    row.update({key: None for key in missing})
             decode_row(row, metadata[table], account)
     users = {row["user_id"] for row in tables["bot_users"]}
     groups = {row["chat_id"] for row in tables["bot_groups"]}

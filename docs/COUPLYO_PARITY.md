@@ -10,6 +10,10 @@ crawling is now part of this application's runtime. Matching, shipping, crush,
 VIP and other couple-product features are excluded. Site providers retain their
 independent implementations and existing extraction behavior.
 
+The later [Telegram, copy and load verification](COUPLYO_TELEGRAM_VERIFICATION.md)
+extends this implementation through revision 12. It records normalized source
+tables, immutable daily history and the precise scope of live testing.
+
 ## Source-to-implementation map
 
 | Couplyo source | Downloader implementation and behavior |
@@ -61,9 +65,11 @@ private recipients must have started the bot and remain contactable. Removing a
 group retires its watch configuration in the lifecycle transaction; migration
 preserves the old watch only if the new identity has no configured watch.
 
-Promotion, non-admin reminders and weekly reports default to disabled. Reports
-use a rolling seven-day observed-message ledger and identify that period in the
-caption. They do not invent activity before installation. Every side effect
+Promotion, non-admin reminders and reports default to disabled. Manual reports
+use the current Tehran day or Saturday-based week. Scheduled reports use the
+completed day/week, with immutable bounds persisted for retries. Distinct speakers
+come from the message ledger, including speakers who later left the group.
+They do not invent activity before installation. Every side effect
 rechecks current configuration before sending, so disabling a feature also stops
 queued effects that are no longer eligible.
 

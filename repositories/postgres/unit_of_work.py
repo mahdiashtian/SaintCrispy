@@ -4,6 +4,7 @@ import sys
 from contextlib import AsyncExitStack
 
 from .admin import AdminRepository
+from .daily_stat import DailyStatsRepository
 from .group import GroupRepository
 from .media import PostgresMediaRepository
 from .membership import MembershipRepository
@@ -29,6 +30,7 @@ class PostgresUnitOfWork:
             self.groups = GroupRepository(connection, self.bot_id)
             self.memberships = MembershipRepository(connection, self.bot_id)
             self.admin = AdminRepository(connection, self.bot_id)
+            self.daily_stats = DailyStatsRepository(connection, self.bot_id)
             self.outbox = OutboxRepository(connection, self.bot_id)
             self.roster_crawls = RosterCrawlRepository(connection, self.bot_id)
         except BaseException:

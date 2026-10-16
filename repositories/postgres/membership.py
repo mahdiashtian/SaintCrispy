@@ -7,6 +7,11 @@ class MembershipRepository:
     def __init__(self, connection, bot_id):
         self.connection, self.bot_id = connection, bot_id
 
+    async def apply_messages(self, events):
+        from repositories.postgres.activity_batch import apply_messages
+
+        return await apply_messages(self.connection, self.bot_id, events)
+
     async def known_member(self, chat_id, user_id):
         return bool(
             await self.connection.fetchval(
@@ -54,6 +59,9 @@ class MembershipRepository:
             first_name,
             last_name,
         )
+        from repositories.postgres.user_tombstone import remove_tombstoned
+
+        await remove_tombstoned(self.connection, self.bot_id, [user_id])
 
     async def refresh_profile(
         self, user_id, username, first_name, last_name, *, deleted=False, bot=False
@@ -69,9 +77,35 @@ class MembershipRepository:
             "deleted" if deleted else "bot" if bot else "real",
         )
 
+    async def purge_invalid(self, user_id, *, deleted=False, bot=False):
+        if not (deleted or bot):
+            return False
+        eligible = await self.connection.fetchval(
+            "SELECT NOT is_admin FROM bot_users WHERE telegram_account_id=$1 AND user_id=$2 FOR UPDATE",
+            self.bot_id,
+            user_id,
+        )
+        if not eligible:
+            return False
+        await self.connection.execute(
+            """INSERT INTO user_account_tombstones(telegram_account_id,user_id,account_kind)
+        SELECT $1,$2,$3 FROM bot_users WHERE telegram_account_id=$1 AND user_id=$2 AND NOT is_admin
+        ON CONFLICT(telegram_account_id,user_id) DO NOTHING""",
+            self.bot_id,
+            user_id,
+            "deleted" if deleted else "bot",
+        )
+        return bool(
+            await self.connection.fetchval(
+                "DELETE FROM bot_users WHERE telegram_account_id=$1 AND user_id=$2 AND NOT is_admin RETURNING user_id",
+                self.bot_id,
+                user_id,
+            )
+        )
+
     async def apply(self, event: MembershipEvent):
         group = await self.connection.fetchrow(
-            """SELECT is_active,migrated_to FROM bot_groups WHERE telegram_account_id=$1
+            """SELECT is_active,is_admin,migrated_to FROM bot_groups WHERE telegram_account_id=$1
             AND chat_id=$2 FOR KEY SHARE""",
             self.bot_id,
             event.chat_id,
@@ -99,6 +133,10 @@ class MembershipRepository:
             event.last_name,
             event.occurred_at,
         )
+        from repositories.postgres.user_tombstone import remove_tombstoned
+
+        if await remove_tombstoned(self.connection, self.bot_id, [event.user_id]):
+            return False
         await self.connection.execute(
             """INSERT INTO group_memberships (telegram_account_id,chat_id,user_id,is_active,
             state_changed_at,state_event_stream,state_revision)
@@ -121,13 +159,14 @@ class MembershipRepository:
         )
         inserted = await self.connection.fetchval(
             """INSERT INTO membership_events (telegram_account_id,chat_id,event_key,user_id,
-            kind,occurred_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING 1""",
+            kind,occurred_at,observed_admin) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING 1""",
             self.bot_id,
             event.chat_id,
             event.event_key,
             event.user_id,
             event.kind,
             event.occurred_at,
+            event.observed_admin,
         )
         if inserted is None:
             return False
@@ -190,6 +229,12 @@ class MembershipRepository:
             int(event.occurred_at.timestamp()) // 604800,
         )
         if event.kind == "message":
+            await self.connection.execute(
+                "UPDATE bot_users SET last_active_at=GREATEST(last_active_at,$3) WHERE telegram_account_id=$1 AND user_id=$2",
+                self.bot_id,
+                event.user_id,
+                event.occurred_at,
+            )
             await self.connection.execute(
                 """UPDATE bot_groups SET last_activity_at=GREATEST(last_activity_at,$3)
                 WHERE telegram_account_id=$1 AND chat_id=$2""",

@@ -25,7 +25,12 @@ async def handle_start(
         combined = False
         if users:
             if (start := getattr(users, "start", None)) and not in_group:
-                combined = await start(event.sender_id, event.chat_id)
+                payload = (getattr(event, "raw_text", "") or "").partition(" ")[2].strip()
+                combined = (
+                    await start(event.sender_id, event.chat_id, source="unknown")
+                    if payload
+                    else await start(event.sender_id, event.chat_id)
+                )
             else:
                 await users.touch_user(event.sender_id, started=not in_group)
         if conversations and not combined:

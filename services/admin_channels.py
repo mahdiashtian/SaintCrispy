@@ -11,17 +11,20 @@ DEFAULTS = {
     "join_points": ["start", "usage", "recheck"],
     "archive": None,
     "storage": None,
-    "storage_kinds": ["text", "photo", "video", "voice", "gif", "sticker", "music"],
+    "storage_kinds": [],
     "watches": [],
     "promo": {
         "enabled": False,
         "hours": 6,
         "text": "لینک رسانه را در همین گروه بفرست تا فایل را دریافت کنی. 📥",
     },
-    "admin_nudge": {"enabled": False, "hours": 24},
+    "admin_nudge": {"enabled": False, "hours": 6},
     "weekly_report": {"enabled": False},
     "developer_id": None,
 }
+
+
+STORAGE_KINDS = ("text", "photo", "video", "voice", "gif", "sticker", "music")
 
 
 class ChannelSettings:
@@ -29,6 +32,7 @@ class ChannelSettings:
 
     def __init__(self, admin):
         self.admin = admin
+        self.generation = 0
         self._cached = None
         self._expires = 0
         self._lock = asyncio.Lock()
@@ -45,6 +49,7 @@ class ChannelSettings:
             return self._cached
 
     def invalidate(self):
+        self.generation += 1
         self._cached = None
         self._expires = 0
 
@@ -123,7 +128,7 @@ class ChannelSettings:
             ):
                 raise invalid
         elif key in {"join_points", "storage_kinds"}:
-            choices = DEFAULTS[key]
+            choices = STORAGE_KINDS if key == "storage_kinds" else DEFAULTS[key]
             if (
                 not isinstance(value, list)
                 or any(item not in choices for item in value)
@@ -159,12 +164,17 @@ class ChannelSettings:
                 not isinstance(value.get("text"), str) or not 1 <= len(value["text"]) <= 3500
             ):
                 raise invalid
-        elif (
-            key == "developer_id"
-            and value is not None
-            and (type(value) is not int or not 0 < value < 2**63)
-        ):
-            raise invalid
+        elif key == "developer_id" and value is not None:
+            if type(value) is int:
+                if not 0 < value < 2**63:
+                    raise invalid
+            elif (
+                not isinstance(value, str)
+                or not value.strip()
+                or len(value) > 512
+                or "\x00" in value
+            ):
+                raise invalid
 
 
 def valid_channel(value):

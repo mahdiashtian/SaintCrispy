@@ -2,10 +2,14 @@
 
 This document describes the downloader repository, reviewed against the October
 15, 2026 Couplyo porting reference supplied in `docss`. Couplyo's 25-table SQL
-snapshot belongs to a different product. This application owns **25 domain tables
-and one migration ledger**, uses native asyncpg and applies revisions 1–11.
+snapshot belongs to a different product. This application owns **29 domain tables
+and one migration ledger**, uses native asyncpg and applies revisions 1–12.
 Revision 10 implements administration; revision 11 adds the actual source's
 [resumable member crawling and administration flow](COUPLYO_PARITY.md).
+Revision 12 adds source-shaped `channels`, `group_watches`, immutable `daily_stats`,
+and a downloader safety table, `user_account_tombstones`. It preserves existing
+physical names, bot scoping and asyncpg; the SQL schema is not byte-identical to
+the single-bot reference. See [the follow-up evidence](COUPLYO_TELEGRAM_VERIFICATION.md).
 
 ## Physical layout and ownership
 
@@ -51,7 +55,7 @@ SQL-enforced relationships.
 | `user_media_history` | bot, user_id, site, content_id, quality | Delivery count, method and first/last successful delivery timestamps. File expiry preserves history. |
 | `media_catalog` | bot, site, content_id | Durable public metadata and quality snapshots; authorization and signed transport URLs are excluded. |
 | `media_aliases` | bot, alias | Stable submitted alias to provider/content identity. Written atomically with its catalog entry. |
-| `bot_users` | bot, user_id | First/last observation and private `/start` flag. Group requests do not grant private subscriber status. |
+| `bot_users` | bot, user_id | Names, account kind, roles/ban/block status, first/last observation, first private start time/source/chat and actual group-message `last_active_at`. Group requests do not grant private subscriber status. |
 | `bot_conversations` | bot, user_id, chat_id | FSM state, operation-owned JSON data and revision. No arbitrary TTL; interrupted operations are recovered at startup. |
 | `download_menus` | bot, token | Owning user/chat, original submitted message ID and safe media snapshot. Owner and chat are checked on every callback. |
 | `bot_groups` | bot, chat_id | Verified group kind, title/username, nullable active/admin/send standing, first adder and lifecycle timestamps, ordering cursors and migration destination. Negative chat-ID check. |
@@ -59,7 +63,11 @@ SQL-enforced relationships.
 | `group_request_limits` | bot, chat_id | Recent accepted timestamps for a rolling 60-second group quota. FK to the same bot/group. |
 | `file_message_expiry` | bot, chat_id, message_id | Serialized peer, original 30-second deadline, retry time/attempts and completion timestamp. Only confirmed user-facing file sends; completion tombstones live two days. |
 | `group_memberships` | generated id; unique bot, chat_id, user_id | Observed human presence, state ordering, last activity and exact message count; composite group/user foreign keys. |
-| `membership_events` | bot, chat_id, event_key | Unique processed message/join/leave ledger; no message contents; composite membership FK. |
+| `membership_events` | bot, chat_id, event_key | Unique processed message/join/leave ledger and nullable administrator eligibility observed at receipt; no message contents; composite membership FK. |
+| `channels` | generated id; unique bot, channel_telegram_id | Shared destination with independent mandatory/archive/storage flags; one archive and storage destination per bot. |
+| `group_watches` | generated id; unique bot, chat_id | Independent observed-group destination, link/title and enabled source media classes. |
+| `daily_stats` | bot, stat_date | Sealed Tehran-day first starts, acquisition source, group transitions, eligible active senders and totals. No retroactive invention of pre-instrumentation history. |
+| `user_account_tombstones` | bot, user_id | Definitive bot/deleted Telegram evidence, retained after deletion to reject stale STATE, roster, CSV and backup resurrection. Protected administrators are excluded. |
 | `app_settings` | bot, key | Versioned installation settings and updated timestamps. |
 | `admin_actions` | generated id | Bot, actor, action, target and safe audit details. |
 | `admin_requests` | bot, token | Owner-bound prompt/confirmation, reply ID, payload, expiry and single-use timestamp. |

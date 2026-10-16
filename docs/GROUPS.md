@@ -5,6 +5,10 @@ unknown-standing rules in the October 15 Couplyo `docss/PROJECT_REFERENCE_FA.md`
 The actual local Couplyo source is also mapped in [the parity guide](COUPLYO_PARITY.md).
 Full member-roster crawling is now explicitly required and implemented; couple
 selection remains excluded.
+See [the Telegram verification follow-up](COUPLYO_TELEGRAM_VERIFICATION.md) for
+source lifecycle copy, normalized storage, report windows and measured activity
+throughput. Message contents are forwarded only to configured destinations;
+SQL records membership/activity metadata, as in the source.
 
 ## User flow and Telegram configuration
 

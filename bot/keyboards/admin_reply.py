@@ -101,7 +101,7 @@ EXCLUSIONS = keyboard([[b.SKIP], [b.BACK, b.CANCEL]])
 
 
 def toggles(labels, enabled):
-    values = [f"{'✅' if key in enabled else '☐'} {label}" for key, label in labels.items()]
+    values = [f"{'✅' if key in enabled else '⬜'} {label}" for key, label in labels.items()]
     return keyboard(
         [values[index : index + 2] for index in range(0, len(values), 2)]
         + [[b.ALL_ON, b.ALL_OFF], [b.BACK]]

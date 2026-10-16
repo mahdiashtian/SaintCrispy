@@ -42,9 +42,26 @@ class AdminRepository:
             self.bot_id,
             key,
         )
-        return json.loads(value) if value is not None else default
+        decoded = json.loads(value) if value is not None else default
+        if key == "channel_management":
+            from repositories.postgres.channels import ChannelRepository
+
+            return {
+                **(decoded if isinstance(decoded, dict) else {}),
+                **await ChannelRepository(self.connection, self.bot_id).get(),
+            }
+        return decoded
 
     async def set_setting(self, key, value):
+        if key == "channel_management":
+            from repositories.postgres.channels import ChannelRepository
+
+            await ChannelRepository(self.connection, self.bot_id).replace(value)
+            value = {
+                k: v
+                for k, v in value.items()
+                if k not in {"forced_channels", "archive", "storage", "watches"}
+            }
         await self.connection.execute(
             """INSERT INTO app_settings (telegram_account_id,key,value) VALUES ($1,$2,$3::jsonb)
             ON CONFLICT (telegram_account_id,key) DO UPDATE SET value=EXCLUDED.value,
@@ -136,6 +153,27 @@ class AdminRepository:
         )
         return tuple(dict(row) for row in rows)
 
+    async def public_trace(self, user_id):
+        profile = await self.connection.fetchrow(
+            "SELECT user_id,username,first_name,is_started,is_admin,is_banned,is_blocked,account_kind,first_seen_at,started_at,last_seen_at,last_active_at,start_source,start_chat_id FROM bot_users WHERE telegram_account_id=$1 AND user_id=$2",
+            self.bot_id,
+            user_id,
+        )
+        rows = await self.connection.fetch(
+            """SELECT m.chat_id,g.title,m.is_active,m.last_seen_at,m.message_count,
+            count(*) OVER() AS total_groups,count(*) FILTER(WHERE m.is_active) OVER() AS active_groups
+            FROM group_memberships m JOIN bot_groups g USING(telegram_account_id,chat_id)
+            WHERE m.telegram_account_id=$1 AND m.user_id=$2
+            ORDER BY m.is_active DESC,m.last_seen_at DESC,m.chat_id LIMIT 25""",
+            self.bot_id,
+            user_id,
+        )
+        return {
+            "profile": dict(profile) if profile else None,
+            "groups": [dict(row) for row in rows],
+            "downloads": await self.user_trace(user_id),
+        }
+
     async def members(self, chat_id, cursor=0, limit=20):
         rows = await self.connection.fetch(
             """SELECT m.user_id,u.username,u.first_name,m.is_active,m.last_seen_at,m.message_count
@@ -215,15 +253,43 @@ class AdminRepository:
         )
         return tuple(dict(row) for row in rows)
 
+    async def daily_summary(self, day):
+        from repositories.postgres.daily_stat import DailyStatsRepository
+
+        return await DailyStatsRepository(self.connection, self.bot_id).snapshot(day)
+
+    async def stats_history(self, limit=14, offset=0):
+        from repositories.postgres.daily_stat import DailyStatsRepository
+
+        return await DailyStatsRepository(self.connection, self.bot_id).history(limit, offset)
+
+    async def history_count(self):
+        return await self.connection.fetchval(
+            "SELECT count(*) FROM daily_stats WHERE telegram_account_id=$1", self.bot_id
+        )
+
     async def change_user(self, user_id, field, value):
         if field not in {"is_admin", "is_banned"} or type(value) is not bool:
             raise ValueError("Invalid administrator write")
+        # Definitive invalid-account evidence needs explicit revalidation before a role edit.
+        if await self.connection.fetchval(
+            "SELECT 1 FROM user_account_tombstones WHERE telegram_account_id=$1 AND user_id=$2",
+            self.bot_id,
+            user_id,
+        ):
+            raise ValueError("Telegram account was verified as deleted or a bot")
         await self.connection.execute(
             f"INSERT INTO bot_users (telegram_account_id,user_id,{field}) VALUES ($1,$2,$3) ON CONFLICT (telegram_account_id,user_id) DO UPDATE SET {field}=EXCLUDED.{field}",
             self.bot_id,
             user_id,
             value,
         )
+        if await self.connection.fetchval(
+            "SELECT 1 FROM user_account_tombstones WHERE telegram_account_id=$1 AND user_id=$2",
+            self.bot_id,
+            user_id,
+        ):
+            raise ValueError("Telegram account was verified as deleted or a bot")
 
     async def group_limit(self, chat_id, value):
         return await self.connection.fetchval(
@@ -345,6 +411,7 @@ class AdminRepository:
         )
 
     async def import_users(self, rows):
+        rows = list(rows)
         await self.connection.executemany(
             """INSERT INTO bot_users (telegram_account_id,user_id,username,first_name,last_name)
             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (telegram_account_id,user_id) DO UPDATE SET
@@ -353,3 +420,6 @@ class AdminRepository:
             last_name=COALESCE(bot_users.last_name,EXCLUDED.last_name),updated_at=now()""",
             [(self.bot_id, *row) for row in rows],
         )
+        from repositories.postgres.user_tombstone import remove_tombstoned
+
+        await remove_tombstoned(self.connection, self.bot_id, [row[0] for row in rows])

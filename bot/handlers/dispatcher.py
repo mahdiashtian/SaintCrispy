@@ -118,6 +118,17 @@ def register_handlers(
         else None
     )
     client = Dispatcher(client, groups, gate)
+    if getattr(policy, "management", None) is not None:
+        from .reports import handle_report
+
+        client.add_event_handler(
+            partial(handle_report, management=policy.management, client=policy.client),
+            events.NewMessage(
+                incoming=True,
+                pattern=r"^/(?:dailyreport|weeklyreport)(?:@\w+)?$",
+                func=lambda event: event.is_group,
+            ),
+        )
     if tracker:
         client.add_system_handler(tracker.handle_update, events.Raw(GROUP_UPDATES))
         client.add_system_handler(

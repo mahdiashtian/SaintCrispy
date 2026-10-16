@@ -42,14 +42,24 @@ class EffectDelivery:
                     raise PermanentEffect("crawl_disabled")
                 await self.roster.enqueue(effect.target_id)
                 return
-            if effect.kind == "refresh_users":
+            if effect.kind in {"refresh_users", "purge_users"}:
                 if self.rate:
                     delay = await self.rate.reserve()
                     if delay > 0:
                         raise RetryEffect(delay, "flood_wait")
                 user = await self.client.get_entity(effect.target_id)
-                if not isinstance(user, types.User):
+                if not isinstance(user, types.User) or user.id!=effect.target_id:
                     raise PermanentEffect("not_a_human")
+                if effect.kind == "purge_users":
+                    await self.memberships.purge_invalid(
+                        user.id,
+                        deleted=bool(user.deleted),
+                        bot=bool(user.bot),
+                        root_id=self.admin.main_admin_id,
+                    )
+                    if self.admin.cache:
+                        await self.admin.cache.invalidate("user", user.id)
+                    return
                 await self.memberships.refresh_profile(
                     user.id,
                     user.username,
@@ -129,7 +139,20 @@ class EffectDelivery:
             if effect.kind == "report":
                 if self.management is None:
                     raise PermanentEffect("reports_unavailable")
-                data, caption = await self.management.report(effect.target_id)
+                owner = effect.payload.get("requested_by")
+                if owner and owner != self.admin.main_admin_id:
+                    try:
+                        permissions = await self.client.get_permissions(effect.target_id, owner)
+                        if not (permissions.is_admin or permissions.is_creator):
+                            raise PermanentEffect("report_requester_no_longer_admin")
+                    except (errors.RPCError, ValueError) as error:
+                        raise PermanentEffect("report_requester_unverifiable") from error
+                data, caption = await self.management.report(
+                    effect.target_id,
+                    period=effect.payload.get("report_period", "week"),
+                    start=effect.payload.get("report_start"),
+                    end=effect.payload.get("report_end"),
+                )
                 data_file = io.BytesIO(data)
                 data_file.name = "weekly-report.png"
                 uploaded = await self.client.upload_file(data_file)
@@ -139,6 +162,9 @@ class EffectDelivery:
                         media=types.InputMediaUploadedPhoto(uploaded),
                         message=caption,
                         random_id=effect.random_id,
+                        reply_to=types.InputReplyToMessage(effect.payload["reply_to"])
+                        if effect.payload.get("reply_to")
+                        else None,
                     )
                 )
             elif effect.kind == "archive_document":
@@ -157,7 +183,25 @@ class EffectDelivery:
                     )
                 )
             elif effect.kind == "message" and not effect.payload.get("copy"):
-                text = effect.payload["text"]
+                markup = None
+                if effect.payload.get("management", {}).get("feature") == "promo":
+                    from bot.texts.promos import promo
+
+                    markup = promo(
+                        await self.groups.get(effect.target_id, fresh=True), effect.random_id
+                    )
+                elif effect.payload.get("group_event"):
+                    from bot.texts.group_lifecycle import admin_event
+
+                    markup = admin_event(effect.payload["group_event"])
+                elif effect.payload.get("group_announcement"):
+                    from dataclasses import asdict
+
+                    from bot.texts.group_lifecycle import announcement
+
+                    group = await self.groups.get(effect.target_id, fresh=True)
+                    markup = announcement(effect.payload["group_announcement"], asdict(group))
+                text = markup if markup is not None else effect.payload["text"]
 
                 async def send(text, **options):
                     return await self.client(
@@ -173,7 +217,15 @@ class EffectDelivery:
                         )
                     )
 
-                if self.presentation:
+                if markup is not None:
+                    from types import SimpleNamespace
+
+                    from bot.handlers.admin_render import source_reply
+
+                    await source_reply(
+                        SimpleNamespace(respond=send), markup, presentation=self.presentation
+                    )
+                elif self.presentation:
                     await self.presentation._send(send, text, {"parse_mode": None})
                 else:
                     await send(text)
@@ -208,6 +260,7 @@ class EffectDelivery:
             else:
                 raise PermanentEffect("unknown_effect_kind")
         except (errors.UserNotParticipantError, errors.ChatForbiddenError) as error:
+            self.refuse_storage_route(effect, error)
             if effect.kind == "leave":
                 await self.mark_left(effect)
                 return
@@ -223,6 +276,7 @@ class EffectDelivery:
             errors.InputUserDeactivatedError,
             errors.ChatWriteForbiddenError,
         ) as error:
+            self.refuse_storage_route(effect, error)
             if effect.target_id < 0:
                 await self.tracker.send_failure(effect.target_id, error)
             elif self.admin and isinstance(
@@ -231,11 +285,31 @@ class EffectDelivery:
                 await self.admin.recipient_unavailable(effect.target_id, type(error).__name__)
             raise PermanentEffect(type(error).__name__) from error
         except errors.RPCError as error:
+            self.refuse_storage_route(effect, error)
             if effect.target_id < 0:
                 await self.tracker.send_failure(effect.target_id, error)
             if isinstance(error, (errors.BadRequestError, errors.ForbiddenError)):
                 raise PermanentEffect(type(error).__name__) from error
             raise RetryEffect(5, type(error).__name__) from error
+
+    def refuse_storage_route(self, effect, error):
+        data = effect.payload.get("management", {})
+        if (
+            self.management
+            and data.get("feature") in {"storage", "watch"}
+            and type(error).__name__
+            in {
+                "ChatForwardsRestrictedError",
+                "ChatWriteForbiddenError",
+                "ChatAdminRequiredError",
+                "UserNotParticipantError",
+                "ChatForbiddenError",
+                "ChannelPrivateError",
+                "ChannelInvalidError",
+                "PeerIdInvalidError",
+            }
+        ):
+            self.management.refuse_route(data.get("source_peer"), effect.target_id)
 
     async def resolve_peer(self, target_id):
         try:

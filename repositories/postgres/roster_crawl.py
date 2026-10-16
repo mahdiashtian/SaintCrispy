@@ -195,6 +195,12 @@ class RosterCrawlRepository:
                 [u.first_name for u in users],
                 [u.last_name for u in users],
             )
+            from repositories.postgres.user_tombstone import remove_tombstoned
+
+            rejected = await remove_tombstoned(self.connection, self.bot_id, identities)
+            if rejected:
+                skipped = sorted(set(skipped) | rejected)
+                identities = [identity for identity in identities if identity not in rejected]
             stored = await self.connection.fetchval(
                 """WITH added AS(INSERT INTO group_memberships
             (telegram_account_id,chat_id,user_id,is_active,last_seen_at,state_changed_at,state_revision,state_event_stream)

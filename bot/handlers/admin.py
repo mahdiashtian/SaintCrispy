@@ -71,6 +71,28 @@ async def callback(event, admin, presentation=None, conversations=None):
                 return
             text = HOME
             buttons = home(owner, root)
+        elif action == "audience":
+            from bot.handlers.admin_reference import ask
+            from core.enums import ConversationState
+
+            encoded, scope = value.split("_", 1)
+            if (
+                encoded not in {"b", "f"}
+                or scope not in {"both", "admin", "non_admin"}
+                or conversations is None
+            ):
+                raise DownloadError("مخاطبان معتبر نیستند.")
+            await ask(
+                event,
+                admin,
+                conversations,
+                "exclusions",
+                ConversationState.ADMIN_CAT_MSG_PANEL,
+                mode="broadcast" if encoded == "b" else "forward",
+                audience="groups",
+                group_audience=scope,
+            )
+            return
         elif action == "dir":
             from bot.handlers.admin_reference import directory
 
@@ -91,13 +113,18 @@ async def callback(event, admin, presentation=None, conversations=None):
             await admin.authorize(owner, root=True)
             if value not in {"owner", "admins", "both"}:
                 raise DownloadError("مخاطب یادآوری معتبر نیست.")
-            text = "نام گروه در پیام یادآوری نوشته شود؟"
+            from bot.handlers.admin_render import source_reply
+            from bot.texts.couplyo_admin import admin_nudge_owners_ask_name
+
             buttons = [
-                [
-                    button(owner, "با نام گروه", "nudge_go", value + "_yes"),
-                    button(owner, "بدون نام گروه", "nudge_go", value + "_no"),
-                ]
+                [button(owner, "🏷 با ذکرِ نامِ گروه", "nudge_go", value + "_yes")],
+                [button(owner, "🙈 بدونِ نامِ گروه", "nudge_go", value + "_no")],
+                [button(owner, "✖️ بی‌خیال", "home")],
             ]
+            await source_reply(
+                event, admin_nudge_owners_ask_name(value), buttons=buttons, edit=True
+            )
+            return
         elif action == "nudge_go":
             target, with_name = value.split("_")
             if target not in {"owner", "admins", "both"} or with_name not in {"yes", "no"}:
@@ -132,8 +159,15 @@ async def callback(event, admin, presentation=None, conversations=None):
                     f"{key}: {count} ردیف بررسی شد" for key, count in counts.items()
                 )
         elif action == "watchdel":
+            from bot.handlers.admin_reference import watch_detail
+
+            await watch_detail(event, admin, int(value), confirm=True)
+            return
+        elif action == "watchconfirm":
+            from bot.texts.couplyo_admin import WATCH_REMOVED
+
             await admin.channels.remove_watch(owner, int(value))
-            text = "✅ رصد حذف شد."
+            text = WATCH_REMOVED
         elif action in {"watchpage", "watch", "wkind"}:
             from bot.handlers.admin_reference import watch_detail, watch_page
             from bot.texts.admin_buttons import KINDS
@@ -189,6 +223,26 @@ async def callback(event, admin, presentation=None, conversations=None):
                 f"{row['day']}: ورود {row['joined']} · خروج {row['removed']} · ارتقا {row['admin_gained']} · تنزل {row['admin_lost']}"
                 for row in rows
             )
+        elif action in {"daily_summary", "stats_history"}:
+            from bot.handlers.admin_render import source_reply
+            from bot.texts import couplyo_admin as copy
+
+            if action == "daily_summary":
+                text = copy.downloader_daily_stats(await admin.daily_summary(owner))
+            else:
+                total = await admin.history_count(owner)
+                pages = max(1, (total + 13) // 14)
+                page = min(max(0, int(value)), pages - 1)
+                rows = await admin.history(owner, limit=14, offset=page * 14)
+                text = copy.downloader_daily_history(rows, page=page, pages=pages)
+                nav = []
+                if page:
+                    nav.append(button(owner, "◀️ قبلی", "stats_history", page - 1))
+                if page + 1 < pages:
+                    nav.append(button(owner, "بعدی ▶️", "stats_history", page + 1))
+                buttons = ([nav] if nav else []) + buttons
+            await source_reply(event, text, buttons=buttons, presentation=presentation, edit=True)
+            return
         elif action == "cache":
             status = await admin.cache_status(owner)
             text = f"🗄 کش قابل بازسازی\nفعال: {status['enabled']}\nدر دسترس: {status['reachable']}\nکلیدهای نیازمند ترمیم: {status['dirty']}\nوضعیت گفتگو و مجوزهای حساس از SQL خوانده می‌شوند."
@@ -219,16 +273,25 @@ async def callback(event, admin, presentation=None, conversations=None):
             text = user_text(user)
             buttons = [[button(owner, "📜 فایل‌های دریافت‌شده", "trace", user.user_id)]] + buttons
         elif action == "trace":
-            rows = await admin.trace(owner, int(value))
-            text = "📜 ده دریافت اخیر\n" + "\n".join(
-                f"{row['site']} · {row['content_id']} · {row['quality']} · {row['delivery_count']} بار"
-                for row in rows
+            from bot.handlers.admin_render import source_reply
+            from bot.texts.couplyo_admin import downloader_user_trace
+
+            await source_reply(
+                event,
+                downloader_user_trace(await admin.public_trace(owner, int(value))),
+                buttons=buttons,
+                presentation=presentation,
+                edit=True,
             )
+            return
         elif action == "group":
             group = await admin.group(owner, int(value))
             if not group:
                 raise DownloadError("این گروه ثبت نشده است.")
-            text = group_text(group)
+            from bot.handlers.admin_render import source_reply
+            from bot.texts.couplyo_admin import group_card, group_info_page
+
+            text = group_info_page(group_card(group))
             buttons = [
                 [
                     button(
@@ -245,6 +308,8 @@ async def callback(event, admin, presentation=None, conversations=None):
                     ]
                 )
             buttons += back(owner)
+            await source_reply(event, text, buttons=buttons, presentation=presentation, edit=True)
+            return
         elif action == "members":
             chat, cursor = (int(part, 36) for part in value.split("_"))
             rows = await admin.members(owner, chat, cursor)

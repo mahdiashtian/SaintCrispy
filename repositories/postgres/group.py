@@ -51,6 +51,13 @@ class GroupRepository:
         )
         return SavedGroupPeer(**dict(row)) if row else None
 
+    async def member_count(self, chat_id):
+        return await self.connection.fetchval(
+            "SELECT count(*) FROM group_memberships WHERE telegram_account_id=$1 AND chat_id=$2",
+            self.bot_id,
+            chat_id,
+        )
+
     async def remember_peer(self, chat_id, raw_id, chat_kind, access_hash):
         await self.connection.execute(
             """INSERT INTO telegram_group_peers (telegram_account_id,chat_id,raw_id,chat_kind,access_hash)
@@ -203,6 +210,8 @@ class GroupRepository:
             )
         return {
             "event_id": event["id"],
+            "previous_admin": row["is_admin"],
+            "previous_can_send": row["can_send"],
             "kind": kind,
             "applied": newer,
             "is_active": active if newer else row["is_active"],

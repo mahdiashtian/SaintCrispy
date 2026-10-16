@@ -100,7 +100,15 @@ class OutboxRepository:
     async def targets(self, job, limit=50):
         audience = job["payload"].get("audience", "groups")
         cursor = job["cursor"]
-        if audience == "users" or job["kind"] == "refresh_users":
+        if job["kind"] == "purge_users":
+            rows = await self.connection.fetch(
+                "SELECT user_id id FROM bot_users WHERE telegram_account_id=$1 AND user_id>COALESCE($2::bigint,0) AND first_seen_at<=$3 ORDER BY user_id LIMIT $4",
+                self.bot_id,
+                cursor,
+                job["created_at"],
+                limit,
+            )
+        elif audience == "users" or job["kind"] == "refresh_users":
             rows = await self.connection.fetch(
                 """SELECT user_id id FROM bot_users WHERE telegram_account_id=$1
                 AND user_id>COALESCE($2::bigint,0) AND (is_started OR $5) AND NOT is_blocked AND NOT is_banned
@@ -118,7 +126,9 @@ class OutboxRepository:
                 AND (is_active IS TRUE OR $5 OR $8) AND (can_send IS DISTINCT FROM FALSE OR $5 OR $8)
                 AND created_at<=$3 AND NOT COALESCE(added_by_user_id=ANY($6::bigint[]),FALSE)
                 AND (NOT $7 OR is_admin IS DISTINCT FROM TRUE)
-                AND (NOT $8 OR is_active IS FALSE) AND (NOT $9 OR is_admin IS TRUE) ORDER BY chat_id LIMIT $4""",
+                AND (NOT $8 OR is_active IS FALSE) AND (NOT $9 OR is_admin IS TRUE)
+                AND ($10='both' OR ($10='admin' AND is_admin IS TRUE) OR ($10='non_admin' AND is_admin IS FALSE))
+                AND NOT EXISTS(SELECT 1 FROM group_memberships m WHERE m.telegram_account_id=$1 AND m.chat_id=bot_groups.chat_id AND m.is_active AND m.user_id=ANY($11::bigint[])) ORDER BY chat_id LIMIT $4""",
                 self.bot_id,
                 cursor,
                 job["created_at"],
@@ -128,6 +138,8 @@ class OutboxRepository:
                 job["kind"] in {"nudge_admin", "nudge_owners"},
                 job["kind"] == "nudge_owners",
                 job["kind"] == "crawl",
+                job["payload"].get("group_audience", "both"),
+                job["payload"].get("exclude_members", []),
             )
         return [row["id"] for row in rows]
 

@@ -1,13 +1,17 @@
 """State-routed private administration, adapted from the local Couplyo panel."""
 
 import io
+import re
+from types import SimpleNamespace
 
 from telethon import events, types, utils
 
+from bot.handlers.admin_render import source_reply
 from bot.keyboards import admin_reply as keys
 from bot.keyboards.admin import button, compact_id, confirmation
 from bot.texts import admin_buttons as b
-from bot.texts.admin import HOME, PROMPTS
+from bot.texts import couplyo_admin as copy
+from bot.texts.admin import PROMPTS
 from core.enums import ConversationState as CS
 from schemas.media import DownloadError
 
@@ -57,21 +61,22 @@ async def panel(event, admin, conversations, state=CS.ADMIN_PANEL, presentation=
     await admin.authorize(event.sender_id)
     await conversations.set_state(event.sender_id, event.chat_id, state)
     title = (
-        HOME
+        copy.admin_panel(getattr(getattr(event, "sender", None), "first_name", None))
         if state is CS.ADMIN_PANEL
-        else next(
-            (label for label, value in CATEGORIES.items() | SUBMENUS.items() if value is state),
-            "مدیریت ربات",
-        )
+        else {
+            CS.ADMIN_CAT_ADMINS_PANEL: copy.ADMIN_CAT_ADMINS_PANEL,
+            CS.ADMIN_CAT_MSG_PANEL: copy.ADMIN_CAT_MSG_PANEL,
+            CS.ADMIN_GROUPS_PANEL: copy.ADMIN_GROUPS_PANEL,
+            CS.ADMIN_CAT_CHANNELS_PANEL: copy.ADMIN_CAT_CHANNELS_PANEL,
+            CS.ADMIN_CAT_DATA_PANEL: copy.ADMIN_CAT_DATA_PANEL,
+            CS.ADMIN_JOIN_PANEL: copy.ADMIN_JOIN_PANEL,
+            CS.ADMIN_ARCHIVE_PANEL: copy.ADMIN_ARCHIVE_PANEL,
+            CS.ADMIN_STORAGE_PANEL: copy.ADMIN_STORAGE_PANEL,
+            CS.ADMIN_WATCH_PANEL: copy.ADMIN_WATCH_PANEL,
+            CS.ADMIN_CAT_CLEANUP_PANEL: "<b>🧹 پاکسازی دیتابیس</b> ⚠️\nهمه‌ی حذف‌های خطرناک اینجان. فقط ادمینِ اصلی بهشون دسترسی داره و هیچ‌کدوم برنمی‌گرده.\n\nقبل از هر حذفی دقیقاً بهت می‌گم چی حذف می‌شه، چی دست‌نخورده می‌مونه و چند مورد شامل می‌شه، بعد ازت تأیید می‌گیرم. تا تأیید نکنی هیچی حذف نمی‌شه ✅\n\nقبل از هر کاری بهتره بک‌آپ بگیری 💾",
+        }.get(state, copy.CHOOSE_FROM_LIST)
     )
-    if state is CS.ADMIN_PANEL:
-        identity = (await admin.channels.get(event.sender_id))["developer_id"]
-        if identity:
-            title += f"\n\n👨‍💻 توسعه‌دهنده: tg://user?id={identity}"
-    if presentation:
-        await presentation.respond(event, title, buttons=keys.menu(state), parse_mode=None)
-    else:
-        await event.respond(title, buttons=keys.menu(state), parse_mode=None)
+    await source_reply(event, title, buttons=keys.menu(state), presentation=presentation)
 
 
 async def ask(event, admin, conversations, action, parent, **data):
@@ -82,28 +87,75 @@ async def ask(event, admin, conversations, action, parent, **data):
     await conversations.set_state(
         event.sender_id, event.chat_id, CS.ADMIN_INPUT, action=action, parent=parent.value, **data
     )
-    text = PROMPTS.get(action) or {
-        "trace": "شناسه عددی یا نام کاربری را بفرست.",
-        "members": "شناسه منفی گروه را بفرست.",
-        "leave": "شناسه منفی گروهی که ربات از آن خارج شود را بفرست.",
-        "crawl_status": "شناسه منفی گروه را بفرست.",
-        "developer_id": "شناسه عددی توسعه‌دهنده را بفرست؛ برای حذف، صفر بفرست.",
-        "target": "شناسه عددی مقصد را بفرست.",
-        "exclusions": "شناسه‌های گروه‌های مستثنا را با فاصله یا کاما بفرست، یا «بدون استثنا» را بزن.",
-        "exclude_adders": "شناسه کاربران آورندهٔ گروه را برای استثنا بفرست، یا «بدون استثنا» را بزن.",
-        "channel_add": "آیدی عمومی کانال یا شناسه عددی و لینک دعوتش را بفرست؛ ربات باید به کانال دسترسی داشته باشد.",
-        "channel_remove": "شناسه عددی کانال را بفرست.",
-        "archive": "آیدی کانال آرشیو را بفرست.",
-        "storage": "آیدی کانال ذخیره‌سازی را بفرست.",
-        "watch_group": "شناسه منفی گروه مورد رصد را بفرست.",
-        "watch_channel": "آیدی کانال مقصد رصد را بفرست.",
-        "promo_text": "متن پیام تبلیغی گروه‌ها را بفرست (حداکثر ۳۵۰۰ نویسه).",
-        "restore": "فایل JSON بک‌آپ داده‌های همین ربات را بفرست؛ پس از بررسی، تأیید جدا می‌گیری.",
-    }.get(action, "ورودی را بفرست.")
-    await event.respond(
+    text = (
+        {
+            "grant": copy.ADMIN_ADD_PROMPT,
+            "revoke": copy.ADMIN_REMOVE_PROMPT,
+            "lookup": copy.ADMIN_USER_LOOKUP_PROMPT,
+            "group_lookup": copy.ADMIN_GROUPS_INFO_PROMPT,
+            "members": copy.ADMIN_GROUPS_MEMBERS_PROMPT,
+            "channel_add": copy.CHANNEL_ADD_PROMPT,
+            "channel_remove": copy.CHANNEL_REMOVE_PROMPT,
+            "archive": copy.ARCHIVE_SET_PROMPT,
+            "storage": copy.STORAGE_SET_PROMPT,
+            "watch_group": copy.WATCH_ADD_GROUP_PROMPT,
+            "watch_channel": copy.WATCH_ADD_CHANNEL_PROMPT,
+            "exclusions": copy.ADMIN_GROUP_EXCLUDE_CHATS_PROMPT,
+            "exclude_adders": copy.ADMIN_GROUP_EXCLUDE_USERS_PROMPT,
+            "forward": copy.ADMIN_FORWARD_PROMPT,
+            "broadcast": copy.ADMIN_BROADCAST_PROMPT,
+        }.get(action)
+        or PROMPTS.get(action)
+        or {
+            "trace": "شناسه عددی یا نام کاربری را بفرست.",
+            "members": "شناسه منفی گروه را بفرست.",
+            "leave": "شناسه منفی گروهی که ربات از آن خارج شود را بفرست.",
+            "crawl_status": "شناسه منفی گروه را بفرست.",
+            "developer_id": "شناسه عددی توسعه‌دهنده را بفرست؛ برای حذف، صفر بفرست.",
+            "target": "شناسه عددی مقصد را بفرست.",
+            "exclusions": "شناسه‌های گروه‌های مستثنا را با فاصله یا کاما بفرست، یا «بدون استثنا» را بزن.",
+            "exclude_adders": "شناسه کاربران آورندهٔ گروه را برای استثنا بفرست، یا «بدون استثنا» را بزن.",
+            "channel_add": "آیدی عمومی کانال یا شناسه عددی و لینک دعوتش را بفرست؛ ربات باید به کانال دسترسی داشته باشد.",
+            "channel_remove": "شناسه عددی کانال را بفرست.",
+            "archive": "آیدی کانال آرشیو را بفرست.",
+            "storage": "آیدی کانال ذخیره‌سازی را بفرست.",
+            "watch_group": "شناسه منفی گروه مورد رصد را بفرست.",
+            "watch_channel": "آیدی کانال مقصد رصد را بفرست.",
+            "promo_text": "متن پیام تبلیغی گروه‌ها را بفرست (حداکثر ۳۵۰۰ نویسه).",
+            "restore": "فایل JSON بک‌آپ داده‌های همین ربات را بفرست؛ پس از بررسی، تأیید جدا می‌گیری.",
+        }.get(action, "ورودی را بفرست.")
+    )
+    if action == "trace":
+        text = "آیدیِ عددی یا یوزرنیمِ کاربر رو بفرست (یا روی پیامش ریپلای کن) تا کلِ ردِ پاش رو بدم: گروه‌هاش، پروفایلش و فعالیتش 🕵️"
+    if action == "developer_id":
+        text = copy.admin_developer_prompt(
+            str((await admin.channels.get(event.sender_id))["developer_id"] or "") or None
+        )
+    if action == "target":
+        text = (
+            copy.ADMIN_TARGET_USER_ID_PROMPT
+            if data.get("audience") == "users"
+            else copy.ADMIN_TARGET_GROUP_ID_PROMPT
+        )
+    if action in {"broadcast", "forward"} and data.get("target_id"):
+        text = (
+            copy.ADMIN_TARGET_SEND_PROMPT if action == "broadcast" else copy.ADMIN_TARGET_FWD_PROMPT
+        )
+    elif action in {"broadcast", "forward"} and data.get("audience") == "groups":
+        text = copy.admin_group_broadcast_prompt(
+            "copy" if action == "broadcast" else "forward",
+            data.get("group_audience"),
+            chat_count=len(data.get("exclude", [])),
+            user_count=len(data.get("exclude_members", [])),
+        )
+    await source_reply(
+        event,
         text,
-        buttons=keys.EXCLUSIONS if action in {"exclusions", "exclude_adders"} else keys.BACK_MENU,
-        parse_mode=None,
+        buttons=keys.keyboard([[b.DEV_CLEAR], [b.BACK]])
+        if action == "developer_id"
+        else keys.EXCLUSIONS
+        if action in {"exclusions", "exclude_adders"}
+        else keys.BACK_MENU,
     )
 
 
@@ -116,13 +168,23 @@ async def invoke(event, admin, action, value="0", presentation=None):
 def parse_ids(raw, *, positive=None):
     if raw == b.SKIP:
         return []
-    values = raw.replace(",", " ").split()
+    normalized = raw.translate(
+        str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+    ).translate(dict.fromkeys((0x200E, 0x200F, *range(0x202A, 0x202F), *range(0x2066, 0x206A))))
+    values = [line.strip() for line in normalized.splitlines() if line.strip()]
+    invalid = (
+        copy.ADMIN_GROUP_EXCLUDE_USERS_INVALID
+        if positive
+        else copy.ADMIN_GROUP_EXCLUDE_CHATS_INVALID
+    )
+    if not values or any(re.fullmatch(r"-?[0-9]{1,19}", value) is None for value in values):
+        raise DownloadError(invalid)
     if len(values) > 1000:
         raise DownloadError("حداکثر هزار استثنا وارد کن.")
     try:
         result = list(dict.fromkeys(int(value) for value in values))
     except ValueError as error:
-        raise DownloadError("شناسه‌ها باید عددی باشند.") from error
+        raise DownloadError(invalid) from error
     if any(
         value == 0
         or not -(2**63) < value < 2**63
@@ -130,15 +192,21 @@ def parse_ids(raw, *, positive=None):
         or (positive is False and value > 0)
         for value in result
     ):
-        raise DownloadError("شناسه‌ها معتبر نیستند.")
-    return result
+        raise DownloadError(invalid)
+    return sorted(result)
 
 
 async def parse_channel(event):
     pieces = (event.raw_text or "").strip().split()
     if not pieces:
         raise DownloadError("کانال را مشخص کن.")
-    query = int(pieces[0]) if pieces[0].lstrip("-").isdigit() else pieces[0]
+    query = (
+        int(pieces[0])
+        if pieces[0].lstrip("-").isdigit()
+        else int(pieces[1])
+        if len(pieces) > 1 and pieces[1].lstrip("-").isdigit()
+        else pieces[0]
+    )
     client = event.client
     entity = await client.get_entity(query)
     if not isinstance(entity, types.Channel) or not entity.broadcast or entity.megagroup:
@@ -149,7 +217,13 @@ async def parse_channel(event):
     link = (
         f"https://t.me/{entity.username}"
         if entity.username
-        else (pieces[1] if len(pieces) > 1 else "")
+        else (
+            pieces[0]
+            if pieces[0].startswith("https://t.me/")
+            else pieces[1]
+            if len(pieces) > 1
+            else ""
+        )
     )
     if not link.startswith("https://t.me/"):
         raise DownloadError("برای کانال خصوصی، شناسه عددی و لینک دعوت را با فاصله بفرست.")
@@ -161,42 +235,52 @@ async def directory(event, admin, page=0, active="all", order="date", *, edit=Fa
         event.sender_id, page, {"all": None, "in": True, "out": False}[active], order
     )
     pages = max(1, (total + 9) // 10)
-    lines = [f"📋 گروه‌ها · صفحه {page + 1} از {pages} · مجموع {total}"]
+    text = copy.groups_list_page(
+        [copy.group_card(row) for row in rows],
+        page,
+        pages,
+        total,
+        active,
+        {"members": "mem", "members_asc": "mem_asc"}.get(order, order),
+    )
     buttons = []
     for row in rows:
-        lines.append(
-            f"\n{(row.title or 'بدون عنوان')[:90]}\n{row.chat_id} · {'فعال' if row.is_active else 'خارج‌شده' if row.is_active is False else 'نامعلوم'} · ادمین {'بله' if row.is_admin else 'خیر' if row.is_admin is False else 'نامعلوم'}\nاعضا: {row.member_count if row.member_count is not None else 'نامعلوم'}"
-        )
         buttons.append(
             [button(event.sender_id, (row.title or str(row.chat_id))[:45], "group", row.chat_id)]
         )
     buttons.append(
         [
-            button(event.sender_id, label, "dir", f"0_{flt}_{order}")
-            for flt, label in (("all", "همه"), ("in", "داخل"), ("out", "خارج"))
+            button(
+                event.sender_id, ("✅ " if flt == active else "") + label, "dir", f"0_{flt}_{order}"
+            )
+            for flt, label in (("all", "همه"), ("in", "عضو"), ("out", "خارج‌شده"))
         ]
     )
     buttons.append(
         [
-            button(event.sender_id, label, "dir", f"0_{active}_{sort}")
+            button(
+                event.sender_id,
+                ("✅ " if sort == order else "") + label,
+                "dir",
+                f"0_{active}_{sort}",
+            )
             for sort, label in (
-                ("date", "تاریخ"),
-                ("members", "اعضای بیشتر"),
-                ("members_asc", "اعضای کمتر"),
+                ("date", "جدیدترین"),
+                ("members", "بیشترین عضو"),
+                ("members_asc", "کمترین عضو"),
                 ("activity", "فعالیت"),
             )
         ]
     )
     nav = []
     if page:
-        nav.append(button(event.sender_id, "قبلی", "dir", f"{page - 1}_{active}_{order}"))
+        nav.append(button(event.sender_id, "◀️ قبلی", "dir", f"{page - 1}_{active}_{order}"))
     if page + 1 < pages:
-        nav.append(button(event.sender_id, "بعدی", "dir", f"{page + 1}_{active}_{order}"))
+        nav.append(button(event.sender_id, "بعدی ▶️", "dir", f"{page + 1}_{active}_{order}"))
     if nav:
         buttons.append(nav)
-    from bot.handlers.admin import show
-
-    await show(event, "\n".join(lines), buttons)
+    buttons.append([button(event.sender_id, "🔄 بروزرسانی (فچِ دوباره)", "health")])
+    await source_reply(event, text, buttons=buttons, edit=getattr(event, "data", None) is not None)
 
 
 async def schedule_panel(event, admin, conversations, state):
@@ -207,17 +291,19 @@ async def schedule_panel(event, admin, conversations, state):
     }[state]
     config = (await admin.channels.get(event.sender_id))[name]
     await conversations.set_state(event.sender_id, event.chat_id, state)
-    text = f"{'فعال' if config['enabled'] else 'غیرفعال'}" + (
-        f" · هر {config['hours']} ساعت" if "hours" in config else " · گزارش هفتگی"
-    )
     if name == "promo":
-        text += "\n" + config["text"]
+        text = copy.promo_panel(interval_hours=config["hours"], enabled=config["enabled"])
+    elif name == "admin_nudge":
+        text = copy.admin_nudge_panel(interval_hours=config["hours"], enabled=config["enabled"])
+    else:
+        status = "فعاله 🟢" if config["enabled"] else "خاموشه 🔴"
+        text = f"<b>گزارش‌های روزانه و هفتگی تصویری</b> 📊\n\nوضعیت: <b>{status}</b>\nگزارش روزانه: <b>هر شب ساعت ۰۰:۰۰</b> به وقت تهران\nگزارش هفتگی: <b>شنبه‌ها، ساعت ۱۲</b> به وقت تهران\n\nآمارِ پیام‌ها و اعضای قابل‌مشاهدهٔ ربات گزارش می‌شود.\nادمین‌های هر گروه روزی یک‌بار می‌تونن با <code>/weeklyreport</code> گزارش شنبه تا الان و با <code>/dailyreport</code> گزارش امروز رو بگیرن؛ دو لیمیت از هم جدا هستن و ادمین اصلی ربات محدودیت نداره."
     markup = (
         keys.keyboard([[b.DISABLE if config["enabled"] else b.ENABLE], [b.BACK]])
         if name == "weekly_report"
         else keys.schedule(config["enabled"], text=name == "promo")
     )
-    await event.respond(text, buttons=markup, parse_mode=None)
+    await source_reply(event, text, buttons=markup)
 
 
 async def handle_message(event, admin, conversations, presentation=None):
@@ -226,6 +312,7 @@ async def handle_message(event, admin, conversations, presentation=None):
     if not private(event) or conversations is None:
         return
     raw = (getattr(event, "raw_text", "") or "").strip()
+    raw = {"انصراف": b.CANCEL, "بازگشت": b.BACK}.get(raw, raw)
     state, data = await conversations.get(event.sender_id, event.chat_id)
     if not state.value.startswith("ADMIN_"):
         return
@@ -247,6 +334,18 @@ async def handle_message(event, admin, conversations, presentation=None):
             )
         elif raw == b.BACK:
             await admin.clear_prompts(event.sender_id)
+            if state is CS.ADMIN_INPUT and data.get("action") == "exclude_adders":
+                await ask(
+                    event,
+                    admin,
+                    conversations,
+                    "exclusions",
+                    CS(data["parent"]),
+                    **{
+                        key: value for key, value in data.items() if key not in {"action", "parent"}
+                    },
+                )
+                return
             parent = (
                 CS(data.get("parent", CS.ADMIN_PANEL.value))
                 if state is CS.ADMIN_INPUT
@@ -290,17 +389,24 @@ async def menu_action(event, admin, conversations, state, raw, presentation):
             )
         elif raw == b.LIST_ADMINS:
             rows = await admin.administrators(event.sender_id)
-            await event.respond(
-                "🛡 مدیر اصلی: " + str(admin.main_admin_id or "تنظیم نشده"), parse_mode=None
+            lines = (
+                [f"👑 <code>{copy.pd(admin.main_admin_id)}</code> (ادمین اصلی)"]
+                if admin.main_admin_id
+                else []
             )
-            for start in range(0, len(rows), 30):
-                await event.respond(
-                    "\n".join(
-                        f"{row.user_id} · {(row.first_name or row.username or 'مدیر')[:70]}"
-                        for row in rows[start : start + 30]
-                    ),
-                    parse_mode=None,
-                )
+            import html
+
+            lines.extend(
+                f"👤 <a href='tg://user?id={row.user_id}'>{html.escape(row.first_name or row.username or 'یه کاربر ناشناس')}</a> — <code>{copy.pd(row.user_id)}</code>"
+                for row in rows
+                if row.user_id != admin.main_admin_id
+            )
+            await source_reply(
+                event,
+                copy.ADMIN_LIST_HEADER + ("\n".join(lines) if lines else copy.ADMIN_LIST_EMPTY),
+                buttons=keys.menu(state),
+                presentation=presentation,
+            )
         else:
             return False
     elif state is CS.ADMIN_CAT_MSG_PANEL:
@@ -318,9 +424,24 @@ async def menu_action(event, admin, conversations, state, raw, presentation):
         }
         if raw in forms:
             mode, audience = forms[raw]
-            await ask(
-                event, admin, conversations, "exclusions", state, mode=mode, audience=audience
-            )
+            if audience == "groups":
+                await admin.authorize(event.sender_id, root=True)
+                encoded = "b" if mode == "broadcast" else "f"
+                await source_reply(
+                    event,
+                    copy.admin_group_audience_ask("copy" if mode == "broadcast" else "forward"),
+                    buttons=[
+                        [button(event.sender_id, label, "audience", f"{encoded}_{scope}")]
+                        for scope, label in (
+                            ("both", "👥 همه‌ی گروه‌های فعال"),
+                            ("admin", "🛡 فقط جایی که ادمینیم"),
+                            ("non_admin", "👤 فقط جایی که ادمین نیستیم"),
+                        )
+                    ]
+                    + [[button(event.sender_id, "✖️ بی‌خیال", "home")]],
+                )
+            else:
+                await ask(event, admin, conversations, mode, state, mode=mode, audience=audience)
         elif raw in targeted:
             mode, audience = targeted[raw]
             await ask(event, admin, conversations, "target", state, mode=mode, audience=audience)
@@ -361,9 +482,9 @@ async def menu_action(event, admin, conversations, state, raw, presentation):
                     buttons=[
                         [button(event.sender_id, label, "nudge_target", target)]
                         for target, label in (
-                            ("owner", "فقط مالک"),
-                            ("admins", "فقط مدیران"),
-                            ("both", "مالک و مدیران"),
+                            ("owner", "👑 فقط مالکِ گروه"),
+                            ("admins", "🛡 فقط مدیرا"),
+                            ("both", "👥 هم مالک، هم مدیرا"),
                         )
                     ],
                     parse_mode=None,
@@ -381,8 +502,8 @@ async def menu_action(event, admin, conversations, state, raw, presentation):
     elif state is CS.ADMIN_CAT_DATA_PANEL:
         reads = {
             b.STATS: "stats",
-            b.DAILY: "daily",
-            b.HISTORY: "daily",
+            b.DAILY: "daily_summary",
+            b.HISTORY: "stats_history",
             b.USERS: "users",
             b.CACHE: "cache",
             b.EXPORT_USERS: "exportu",
@@ -422,10 +543,17 @@ async def menu_action(event, admin, conversations, state, raw, presentation):
         else:
             return False
     elif state is CS.ADMIN_CAT_CLEANUP_PANEL:
-        if raw in {b.FILTER_CLEANUP, b.PURGE_USERS}:
+        if raw == b.PURGE_USERS:
+            token = await admin.prepare(event.sender_id, "purge_users", {})
+            await source_reply(
+                event,
+                "کاربرها رو از تلگرام بررسی کنم و بات‌ها و اکانت‌های حذف‌شده رو پاک کنم؟\nکاربرهای محافظت‌شده و مواردی که قابل بررسی نباشن حفظ می‌شن.",
+                buttons=confirmation(event.sender_id, token),
+            )
+        elif raw == b.FILTER_CLEANUP:
             from bot.handlers.admin_maintenance import open_cleanup
 
-            await open_cleanup(event, admin, deleted_only=raw == b.PURGE_USERS)
+            await open_cleanup(event, admin)
         else:
             return False
     elif state in {
@@ -445,11 +573,30 @@ async def handle_input(event, admin, conversations, data, presentation):
     action, owner, raw = data["action"], event.sender_id, (event.raw_text or "").strip()
     parent = CS(data["parent"])
     if action in {"lookup", "trace"}:
-        user = await admin.user(owner, int(raw) if raw.isdigit() else raw)
+        query = raw
+        if getattr(event, "is_reply", False):
+            replied = await event.get_reply_message()
+            forwarded = getattr(replied, "fwd_from", None)
+            peer = getattr(forwarded, "from_id", None)
+            identity = (
+                peer.user_id
+                if isinstance(peer, types.PeerUser)
+                else getattr(replied, "sender_id", None)
+            )
+            if type(identity) is int and identity > 0:
+                query = identity
+        user = await admin.user(
+            owner, int(query) if isinstance(query, str) and query.isdigit() else query
+        )
         if not user:
-            raise DownloadError("کاربر پیدا نشد.")
-        await invoke(
-            event, admin, "trace" if action == "trace" else "user", user.user_id, presentation
+            raise DownloadError(copy.ADMIN_USER_LOOKUP_INVALID)
+        result = await admin.public_trace(owner, user.user_id)
+        await source_reply(
+            event,
+            copy.downloader_user_trace(result, with_history=action == "trace")
+            + copy.ADMIN_LOOKUP_AGAIN_HINT,
+            buttons=keys.BACK_MENU,
+            presentation=presentation,
         )
         return
     if action in {"group_lookup", "members", "leave", "crawl_status"}:
@@ -483,9 +630,26 @@ async def handle_input(event, admin, conversations, data, presentation):
         await admin.mutate(
             owner, action, int(values[0]), int(values[1]) if action == "limit" else None
         )
+        if action in {"grant", "revoke"}:
+            await conversations.set_state(owner, event.chat_id, parent)
+            await source_reply(
+                event,
+                copy.ADMIN_ADDED if action == "grant" else copy.ADMIN_REMOVED,
+                buttons=keys.menu(parent),
+            )
+            return
     elif action == "developer_id":
-        identity = int(raw)
-        await admin.channels.update(owner, "developer_id", identity or None)
+        if not raw:
+            raise DownloadError(copy.ADMIN_DEV_INVALID)
+        cleared = raw == b.DEV_CLEAR
+        await admin.channels.update(owner, "developer_id", None if cleared else raw)
+        await source_reply(
+            event,
+            copy.ADMIN_DEV_CLEARED if cleared else copy.admin_developer_set(raw),
+            buttons=keys.menu(CS.ADMIN_CAT_ADMINS_PANEL),
+        )
+        await conversations.set_state(owner, event.chat_id, CS.ADMIN_CAT_ADMINS_PANEL)
+        return
     elif action in {"exclusions", "exclude_adders", "target"}:
         if action == "target":
             identity = int(raw)
@@ -512,7 +676,7 @@ async def handle_input(event, admin, conversations, data, presentation):
                 )
                 return
         else:
-            extra = {"exclude_adders": parse_ids(raw, positive=True)}
+            extra = {"exclude_members": parse_ids(raw, positive=True)}
         payload = {key: value for key, value in data.items() if key not in {"action", "parent"}}
         await ask(event, admin, conversations, data["mode"], parent, **(payload | extra))
         return
@@ -529,7 +693,13 @@ async def handle_input(event, admin, conversations, data, presentation):
         token = await admin.prepare(owner, action, payload)
         await conversations.set_state(owner, event.chat_id, parent)
         await event.respond(
-            f"📨 مخاطبان: {payload['audience']}\nاستثنا: {len(payload.get('exclude', []))} مقصد، {len(payload.get('exclude_adders', []))} آورنده\nشروع ارسال را تأیید می‌کنی؟",
+            copy.admin_group_audience_label(payload.get("group_audience"))
+            + "\n"
+            + copy.admin_group_exclusions_summary(
+                len(payload.get("exclude", [])), len(payload.get("exclude_members", []))
+            )
+            if payload["audience"] == "groups"
+            else "شروع ارسال را تأیید می‌کنی؟",
             buttons=confirmation(owner, token),
             parse_mode=None,
         )
@@ -562,7 +732,12 @@ async def handle_input(event, admin, conversations, data, presentation):
             )
         else:
             key = next(
-                (key for key, label in labels.items() if raw in {f"✅ {label}", f"☐ {label}"}), None
+                (
+                    key
+                    for key, label in labels.items()
+                    if raw in {f"✅ {label}", f"☐ {label}", f"⬜ {label}"}
+                ),
+                None,
             )
             if key is None:
                 raise DownloadError("یکی از دکمه‌های همین بخش را انتخاب کن.")
@@ -592,39 +767,51 @@ async def handle_input(event, admin, conversations, data, presentation):
 async def member_directory(event, admin, chat, page=0, active="all", started="all"):
     rows, total, page = await admin.member_directory(event.sender_id, chat, page, active, started)
     pages = max(1, (total + 9) // 10)
-    text = (
-        f"👥 اعضای گروه {chat} · {total} نفر\nصفحه {page + 1} از {pages}\nفقط اعضای قابل مشاهدهٔ تلگرام و کاربران مشاهده‌شده ثبت می‌شوند.\n"
-        + "\n".join(
-            f"{row['user_id']} · {(row['first_name'] or row['username'] or 'کاربر')[:55]} · {'داخل' if row['is_active'] else 'خارج'} · {'استارت زده' if row['is_started'] else 'بدون استارت'} · {row['message_count']} پیام"
-            for row in rows
-        )
+    group = await admin.group(event.sender_id, chat)
+    text = copy.group_members_page(
+        [SimpleNamespace(**row) for row in rows],
+        page,
+        pages,
+        total,
+        chat,
+        group.title if group else None,
+        active=active,
+        started=started,
     )
     prefix = compact_id(chat)
     buttons = [
         [
-            button(event.sender_id, label, "mdir", f"{prefix}_0_{value}_{started}")
-            for value, label in (("all", "همه اعضا"), ("in", "داخل"), ("out", "خارج"))
+            button(
+                event.sender_id,
+                ("✅ " if value == active else "") + label,
+                "mdir",
+                f"{prefix}_0_{value}_{started}",
+            )
+            for value, label in (("all", "همه"), ("in", "عضو"), ("out", "خارج‌شده"))
         ],
         [
-            button(event.sender_id, label, "mdir", f"{prefix}_0_{active}_{value}")
-            for value, label in (("all", "همه"), ("yes", "استارت زده"), ("no", "بدون استارت"))
+            button(
+                event.sender_id,
+                ("✅ " if value == started else "") + label,
+                "mdir",
+                f"{prefix}_0_{active}_{value}",
+            )
+            for value, label in (("all", "همه"), ("yes", "استارت‌زده"), ("no", "استارت‌نزده"))
         ],
     ]
     nav = []
     if page:
         nav.append(
-            button(event.sender_id, "قبلی", "mdir", f"{prefix}_{page - 1}_{active}_{started}")
+            button(event.sender_id, "◀️ قبلی", "mdir", f"{prefix}_{page - 1}_{active}_{started}")
         )
     if page + 1 < pages:
         nav.append(
-            button(event.sender_id, "بعدی", "mdir", f"{prefix}_{page + 1}_{active}_{started}")
+            button(event.sender_id, "بعدی ▶️", "mdir", f"{prefix}_{page + 1}_{active}_{started}")
         )
     if nav:
         buttons.append(nav)
     buttons.append([button(event.sender_id, "🕷 خزش همین گروه", "crawl", chat)])
-    from bot.handlers.admin import show
-
-    await show(event, text, buttons)
+    await source_reply(event, text, buttons=buttons, edit=getattr(event, "data", None) is not None)
 
 
 async def channel_action(event, admin, conversations, state, raw):
@@ -648,21 +835,26 @@ async def channel_action(event, admin, conversations, state, raw):
         }[raw]
         values = config[name]
         rows = values if isinstance(values, list) else [values] if values else []
-        if not rows:
-            await event.respond("موردی تنظیم نشده است.", parse_mode=None)
-        for start in range(0, len(rows), 5):
-            await event.respond(
-                "\n".join(
-                    f"{row['id']} · {row['title'][:90]}\n{row['link']}"
-                    for row in rows[start : start + 5]
-                ),
-                parse_mode=None,
-            )
-    elif raw in {b.REMOVE_ARCHIVE, b.REMOVE_STORAGE}:
-        await admin.channels.update(
-            event.sender_id, "archive" if raw == b.REMOVE_ARCHIVE else "storage", None
+        header, empty = {
+            "forced_channels": (copy.CHANNEL_LIST_HEADER, copy.CHANNEL_LIST_EMPTY),
+            "archive": (copy.ARCHIVE_HEADER, copy.ARCHIVE_NONE),
+            "storage": (copy.STORAGE_HEADER, copy.STORAGE_NONE),
+        }[name]
+        await source_reply(
+            event,
+            header + "".join(copy.channel_list_item(row["link"], row["id"]) for row in rows)
+            if rows
+            else empty,
+            buttons=keys.menu(state),
         )
-        await event.respond("✅ کانال حذف شد.", parse_mode=None)
+    elif raw in {b.REMOVE_ARCHIVE, b.REMOVE_STORAGE}:
+        name = "archive" if raw == b.REMOVE_ARCHIVE else "storage"
+        if config[name]:
+            await admin.channels.update(event.sender_id, name, None)
+            text = copy.ARCHIVE_REMOVED if name == "archive" else copy.STORAGE_REMOVED
+        else:
+            text = copy.ARCHIVE_NONE if name == "archive" else copy.STORAGE_NONE
+        await source_reply(event, text, buttons=keys.menu(state))
     elif raw in {b.STORAGE_KINDS, b.JOIN_POINTS}:
         name = "storage_kinds" if raw == b.STORAGE_KINDS else "join_points"
         await conversations.set_state(
@@ -673,12 +865,15 @@ async def channel_action(event, admin, conversations, state, raw):
             parent=state.value,
             key=name,
         )
-        await event.respond(
-            "محل‌های بررسی را انتخاب کن."
+        text = (
+            copy.join_points_panel(set(config[name]), has_channels=bool(config["forced_channels"]))
             if name == "join_points"
-            else "نوع پیام‌های قابل ذخیره را انتخاب کن.",
+            else copy.storage_kinds_panel(set(config[name]), has_channel=bool(config["storage"]))
+        )
+        await source_reply(
+            event,
+            text,
             buttons=keys.toggles(b.POINTS if name == "join_points" else b.KINDS, config[name]),
-            parse_mode=None,
         )
     elif raw in {b.PROMO, b.AUTO_NUDGE, b.WEEKLY}:
         await schedule_panel(
@@ -700,14 +895,28 @@ async def channel_input(event, admin, conversations, data):
     action, owner = data["action"], event.sender_id
     config = await admin.channels.get(owner)
     if action == "watch_group":
-        chat = int(event.raw_text)
+        try:
+            chat = int(event.raw_text)
+        except ValueError as error:
+            raise DownloadError(copy.WATCH_BAD_GROUP) from error
         if chat >= 0 or await admin.group(owner, chat) is None:
-            raise DownloadError("شناسه یک گروه ثبت‌شده را بفرست.")
+            raise DownloadError(copy.WATCH_BAD_GROUP)
         await ask(event, admin, conversations, "watch_channel", CS(data["parent"]), chat_id=chat)
         return
     if action == "channel_remove":
-        identity = int(event.raw_text)
-        await admin.channels.remove_channel(owner, identity)
+        raw = event.raw_text.strip().rstrip("/")
+        found = next(
+            (
+                row
+                for row in config["forced_channels"]
+                if str(row["id"]) == raw or row["link"].rstrip("/") == raw
+            ),
+            None,
+        )
+        if found is None:
+            raise DownloadError(copy.CHANNEL_NOT_FOUND)
+        await admin.channels.remove_channel(owner, found["id"])
+        text = copy.CHANNEL_REMOVED
     elif action == "promo_text":
         await admin.channels.modify(
             owner, "promo", lambda previous: {**previous, "text": event.raw_text}
@@ -718,15 +927,20 @@ async def channel_input(event, admin, conversations, data):
         channel = await parse_channel(event)
         if action == "channel_add":
             await admin.channels.upsert_channel(owner, "forced_channels", channel)
+            text = copy.CHANNEL_ADDED
         elif action == "watch_channel":
             await admin.channels.upsert_watch(
-                owner,
-                {"chat_id": data["chat_id"], "channel": channel, "kinds": config["storage_kinds"]},
+                owner, {"chat_id": data["chat_id"], "channel": channel, "kinds": []}
+            )
+            group = await admin.group(owner, data["chat_id"])
+            text = copy.watch_added(
+                data["chat_id"], group.title if group else None, channel["link"]
             )
         else:
             await admin.channels.update(owner, action, channel)
-    await event.respond("✅ تنظیم ذخیره شد.", parse_mode=None)
-    await panel(event, admin, conversations, CS(data["parent"]))
+            text = copy.ARCHIVE_SET_DONE if action == "archive" else copy.STORAGE_SET_DONE
+    await conversations.set_state(owner, event.chat_id, CS(data["parent"]))
+    await source_reply(event, text, buttons=keys.menu(CS(data["parent"])))
 
 
 async def handle_schedule(event, admin, conversations, state, raw):
@@ -750,61 +964,83 @@ async def handle_schedule(event, admin, conversations, state, raw):
 
 async def watch_page(event, admin, page=0):
     rows = (await admin.channels.get(event.sender_id))["watches"]
-    page = min(max(0, page), max(0, (len(rows) - 1) // 8))
+    pages = max(1, (len(rows) + 7) // 8)
+    page = min(max(0, page), pages - 1)
     subset = rows[page * 8 : page * 8 + 8]
-    buttons = [
-        [
-            button(
-                event.sender_id,
-                f"{row['chat_id']} · {row['channel']['title'][:40]}",
-                "watch",
-                row["chat_id"],
-            )
-        ]
-        for row in subset
-    ]
+    buttons, lines = [], []
+    for row in subset:
+        group = await admin.group(event.sender_id, row["chat_id"])
+        title = group.title if group else None
+        buttons.append(
+            [
+                button(
+                    event.sender_id,
+                    copy.watch_button_label(row["chat_id"], title),
+                    "watch",
+                    row["chat_id"],
+                )
+            ]
+        )
+        lines.append(copy.watch_list_row(row["chat_id"], title, len(row["kinds"])))
     nav = []
     if page:
-        nav.append(button(event.sender_id, "قبلی", "watchpage", page - 1))
-    if (page + 1) * 8 < len(rows):
-        nav.append(button(event.sender_id, "بعدی", "watchpage", page + 1))
+        nav.append(button(event.sender_id, "◀️ قبلی", "watchpage", page - 1))
+    if page + 1 < pages:
+        nav.append(button(event.sender_id, "بعدی ▶️", "watchpage", page + 1))
     if nav:
         buttons.append(nav)
-    from bot.handlers.admin import show
+    await source_reply(
+        event,
+        copy.watch_list_header(len(rows), page, pages) + "\n\n" + "".join(lines)
+        if rows
+        else copy.WATCH_EMPTY,
+        buttons=buttons,
+        edit=getattr(event, "data", None) is not None,
+    )
 
-    await show(event, f"👁️ رصدها · {len(rows)} مورد · صفحه {page + 1}", buttons)
 
-
-async def watch_detail(event, admin, identity):
+async def watch_detail(event, admin, identity, *, confirm=False):
     rows = (await admin.channels.get(event.sender_id))["watches"]
     row = next((row for row in rows if row["chat_id"] == identity), None)
     if row is None:
-        raise DownloadError("رصد پیدا نشد.")
-    buttons = [
-        [
+        raise DownloadError(copy.WATCH_GONE)
+    group = await admin.group(event.sender_id, identity)
+    title = group.title if group else None
+    if confirm:
+        text = copy.watch_delete_confirm(identity, title)
+        buttons = [
+            [
+                button(event.sender_id, "✅ آره، حذف کن", "watchconfirm", identity),
+                button(event.sender_id, "↩️ بی‌خیال", "watch", identity),
+            ]
+        ]
+    else:
+        kinds = [
             button(
                 event.sender_id,
-                f"{'✅' if key in row['kinds'] else '☐'} {label}",
+                f"{'✅' if key in row['kinds'] else '⬜'} {label}",
                 "wkind",
                 f"{compact_id(identity)}_{key}",
             )
+            for key, label in b.KINDS.items()
         ]
-        for key, label in b.KINDS.items()
-    ]
-    buttons.append(
-        [
-            button(event.sender_id, b.ALL_ON, "wkind", f"{compact_id(identity)}_all"),
-            button(event.sender_id, b.ALL_OFF, "wkind", f"{compact_id(identity)}_none"),
+        buttons = [kinds[index : index + 2] for index in range(0, len(kinds), 2)]
+        buttons += [
+            [
+                button(event.sender_id, b.ALL_ON, "wkind", f"{compact_id(identity)}_all"),
+                button(event.sender_id, b.ALL_OFF, "wkind", f"{compact_id(identity)}_none"),
+            ],
+            [
+                button(event.sender_id, "🗑️ حذف رصد", "watchdel", identity),
+                button(event.sender_id, "↩️ لیست رصدها", "watchpage"),
+            ],
         ]
-    )
-    buttons.append(
-        [
-            button(event.sender_id, "حذف رصد", "watchdel", identity),
-            button(event.sender_id, b.BACK, "watchpage"),
-        ]
-    )
-    from bot.handlers.admin import show
-
-    await show(
-        event, f"👁️ گروه {identity}\nمقصد: {row['channel']['id']}\n{row['channel']['link']}", buttons
-    )
+        text = copy.watch_detail(
+            identity,
+            title,
+            row["channel"]["link"],
+            row["channel"]["id"],
+            row["kinds"],
+            member_count=group.member_count if group else None,
+        )
+    await source_reply(event, text, buttons=buttons, edit=getattr(event, "data", None) is not None)
