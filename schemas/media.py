@@ -82,3 +82,13 @@ class SiteHTTPError(DownloadError):
     def __init__(self, status: int, message: str):
         super().__init__(message)
         self.status = status
+
+
+class CachedFileUnavailable(DownloadError):
+    """A cached source is no longer reusable and no file was published."""
+
+    def __init__(self):
+        super().__init__(
+            "مرجع ذخیره‌شدهٔ فایل در تلگرام قابل استفاده نیست؛ درخواست را دوباره امتحان کن.",
+            code="cached_file_unavailable",
+        )

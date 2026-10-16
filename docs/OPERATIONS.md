@@ -612,6 +612,15 @@ request can download the source again. Metadata/history remain stored. An intern
 `MEDIA_STORAGE_CHAT` copy is not expired and does not show the expiry notice;
 recipient copies still expire, keeping the internal refresh anchor usable.
 
+The worker also verifies both stored deadlines against the application clock;
+SQL's due query alone is insufficient when database and application clocks differ.
+Keep the hosts synchronized. If Telegram explicitly rejects a cached reference
+and refreshing its origin cannot recover it, the request invalidates only that
+old anchor and rebuilds once under the existing content lock. A missing original
+message therefore no longer leaves subsequent requests stuck on that cached file.
+An ambiguous publication timeout or a write-permission error never starts this
+repair, avoiding duplicate sends after uncertain RPC outcomes.
+
 ## Transfer status messages
 
 All providers use the same progress reporter. Successful publication ends with

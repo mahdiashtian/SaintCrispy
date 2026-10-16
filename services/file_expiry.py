@@ -85,6 +85,10 @@ class FileExpiryService:
             log.warning({"event": "file_expiry_read_failed", **error_fields(error)})
         groups = defaultdict(list)
         for row in rows.values():
+            # SQL selects with its own clock. Confirm the application deadline as
+            # well so an ahead-of-application database cannot delete a fresh send.
+            if row["delete_at"] > now or row["next_attempt_at"] > now:
+                continue
             groups[bytes(row["peer"])].append(row)
         await asyncio.gather(
             *(

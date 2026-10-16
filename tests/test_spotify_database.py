@@ -1,16 +1,22 @@
 """Spotify menus, stable IDs and duplicate file writes on real SQL/Redis."""
 
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+from telethon import errors
 from test_admin_reference_database import app as app
+from test_spotify_delivery import FRESH, PEER, STALE
 from test_spotify_downloader import PAGE, TRACK, media
 
+from bot.delivery import TelegramDelivery
 from bot.state.menus import PersistentMenuStore
 from repositories.postgres.media import PostgresMediaRepository
 from repositories.postgres.workflow import WorkflowRepository
 from repositories.redis.media import FileRepository
-from schemas.media import DownloadError, TelegramFile
+from schemas.media import DownloadError, Source, TelegramFile
+from services.download import DownloadService
 
 
 async def test_spotify_menu_keeps_sender_and_group_ownership_after_restart(app):
@@ -59,3 +65,37 @@ async def test_spotify_catalog_preserves_track_id_without_signed_sources(app):
     assert restored.requires_refresh and restored.qualities[0].endpoint == ""
     stored = await app.pool.fetchval("SELECT metadata::text FROM media_catalog")
     assert "preview-30-seconds" not in stored and "private-source" not in stored
+
+
+async def test_expired_spotify_reference_repair_updates_sql_and_redis_once(app):
+    repository = FileRepository(app.pool, app.redis, app.bot)
+    value = media()
+    quality = value.qualities[0]
+    await repository.save("spotify", TRACK, quality.key, STALE)
+    arrived, ready = 0, asyncio.Event()
+
+    async def send(peer, file, **options):
+        nonlocal arrived
+        if file.id.id == STALE.document_id:
+            arrived += 1
+            if arrived == 20:
+                ready.set()
+            await asyncio.wait_for(ready.wait(), 5)
+            raise errors.FileReferenceExpiredError(None)
+        return SimpleNamespace(id=903)
+
+    client = SimpleNamespace(send_file=send, get_messages=AsyncMock(return_value=None))
+    delivery = TelegramDelivery(client, None, "ffmpeg")
+    delivery.new_file = AsyncMock(return_value=FRESH)
+    provider = SimpleNamespace(resolve=AsyncMock(return_value=Source("url", "progressive")))
+    service = DownloadService(provider, repository, delivery, cached_concurrency=20)
+    results = await asyncio.gather(*(service.deliver(PEER, value, quality) for _ in range(20)))
+    assert results.count("transferred") == 1 and results.count("reused") == 19
+    delivery.new_file.assert_awaited_once()
+    assert await repository.get("spotify", TRACK, quality.key) == FRESH
+    assert (
+        await FileRepository(app.pool, app.redis, app.bot).get("spotify", TRACK, quality.key)
+        == FRESH
+    )
+    await repository.forget_origin(STALE.origin_peer, STALE.message_id)
+    assert await repository.get("spotify", TRACK, quality.key) == FRESH

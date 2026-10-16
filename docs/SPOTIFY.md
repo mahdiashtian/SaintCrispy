@@ -138,3 +138,61 @@ PostgreSQL 17 and Redis 7.4. Ten existing Windows curl-cffi selector warnings re
 All 322 Python files passed lint/format checks; schema export stayed unchanged.
 The wheel contains all six independent Spotify modules and imports in isolation
 without local reference checkouts, credentials, sessions or research caches.
+
+## October 16 delivery follow-up
+
+The reported symptoms were investigated against upstream `f7ef024`. No production
+host, live Telegram chat or fresh origin/converter request was used. The operator
+clarified that this follow-up should check code only. The original working copy's
+uncommitted administration changes were preserved in place; an isolated checkout
+started from the latest upstream code.
+
+Two failing workstation regressions established these specific defects:
+
+- A verified cached document could receive `FileReferenceExpiredError` after its
+  original message was removed. `resend` attempted refresh, but an absent origin
+  raised a generic download error and left the unusable cache in place. The same
+  problem occurred when a refreshed reference was explicitly rejected again.
+- `FileExpiryService` trusted the rows returned by SQL's clock-based due query.
+  If that clock was ahead of the application, it could delete a newly confirmed
+  message before the application's 30-second deadline. A simulated early SQL row
+  deleted immediately before the correction.
+
+The Telegram adapter now identifies an unusable cached reference with a dedicated
+framework-independent error, after explicit rejection or a failed pre-send origin
+check. The service invalidates that exact origin in SQL/Redis and performs at most
+one repair through the existing content lock. Twenty simultaneous rejected cached
+sends share one new transfer; late invalidations cannot remove the new anchor.
+Network timeouts, write-permission failures and other ambiguous sends do not cause
+another publication. A failed storage-copy resend cannot create an unbounded loop.
+
+Cleanup now requires both `delete_at` and `next_attempt_at` to have elapsed on the
+application clock as well as SQL selecting the row. Every confirmed resend retains
+its own deadline. The 30-second file-only policy remains intentional: users still
+need to save/forward a file before that deadline. This guard addresses database
+clock disagreement; it does not claim protection against arbitrary application
+clock jumps or Telegram's own chat auto-delete policy.
+
+New pipeline tests generate a four-second MP3 with real FFmpeg, serve it over local
+HTTP and exercise the independent Spotify downloader, shared transfer/upload,
+publication, persistence, cached resend and deletion adapter. Telegram and metadata
+are simulated. Private and supergroup cases cover accepted external registration,
+rejected external registration and an incomplete one-second external preview that
+must fall back to complete streamed audio. Each publishes once, preserves the
+original-link reply and keeps a second send alive when the first reaches 30 seconds.
+
+Initial validation: 61 affected unit/pipeline tests passed. Eight real isolated
+PostgreSQL 17/Redis 7.4 tests also passed, including 20 concurrent stale-reference
+repairs and cross-cache persistence. The first database attempt failed because the
+WSL test containers had stopped when their invocation ended; keeping the WSL
+session active and restarting only those disposable containers restored access.
+No production configuration or application service was changed.
+
+Final validation: the ordinary full run passed 1,625 cases and skipped 159 for
+missing test service URLs. The subsequent database-dependent suite passed all
+212 cases with the isolated PostgreSQL/Redis services, including the new repair
+case. Together these runs cover all 1,785 current collected tests; overlapping
+tests are not counted twice. All 323 Python files passed Ruff lint/format checks,
+provider/application architecture checks passed, and `git diff --check` passed.
+The ordinary run retained the ten existing Windows curl-cffi selector warnings.
+No live Telegram, production-host or fresh upstream-access claim follows.

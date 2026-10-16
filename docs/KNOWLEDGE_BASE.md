@@ -140,6 +140,22 @@ private workstation reports remain in ignored `.runtime/`.
 
 ## Spotify addition — October 16, 2026
 
+Delivery follow-up: workstation regressions reproduced an expired Telegram file
+reference whose original message was gone, and a cleanup repository returning a
+fresh file early because its clock was ahead. Cached sends now rebuild once after
+a definite reference rejection and an unavailable/still-rejected refresh. Exact
+origin invalidation preserves a concurrently repaired anchor; the existing content
+lock coalesces the new transfer. Ambiguous send timeouts and permission rejections
+never trigger this fallback. The expiry worker checks both stored deadlines against
+the application clock before deleting, retaining the existing 30-second policy.
+See [dated delivery evidence and limits](SPOTIFY.md#october-16-delivery-follow-up).
+These are reproduced code paths, not a diagnosis from the user's production logs.
+Final validation covered all 1,785 current tests across the ordinary full run
+(1,625 passed, 159 service-dependent skips) and the real isolated SQL/Redis suite
+(212 passed, including the new database repair case). Ruff lint/format passed for
+323 Python files; the ten existing Windows curl-cffi warnings remained. No live
+Telegram send, production connection or new extraction retry was performed.
+
 Read [Spotify research, failed approaches and verified full streams](SPOTIFY.md)
 before changing this provider. It implements public track metadata and a matched
 YouTube MP3, not original Spotify audio. Never promote `audioPreview` to a full

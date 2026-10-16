@@ -27,6 +27,7 @@ from bot.transfers.video import (
 from core.diagnostics import error_fields
 from core.request_context import request_chat, request_message
 from schemas.media import (
+    CachedFileUnavailable,
     DownloadError,
     Media,
     Quality,
@@ -711,13 +712,16 @@ class TelegramDelivery:
                 progress.phase = "reused"
             fresh = await self._refresh(file)
             check_file_size(fresh.size_bytes, self.max_file_bytes)
-            await self._send_file(
-                peer,
-                existing_media(fresh),
-                caption=caption,
-                parse_mode=None,
-                progress=progress,
-            )
+            try:
+                await self._send_file(
+                    peer,
+                    existing_media(fresh),
+                    caption=caption,
+                    parse_mode=None,
+                    progress=progress,
+                )
+            except REFERENCE_FAILURES:
+                raise CachedFileUnavailable() from None
             return fresh
 
     async def _refresh(self, file: TelegramFile) -> TelegramFile:
@@ -725,7 +729,7 @@ class TelegramDelivery:
             origin = reader.tgread_object()
         message = await self._request(lambda: self.client.get_messages(origin, ids=file.message_id))
         if not message or not message.document or message.document.id != file.document_id:
-            raise DownloadError("پیام اصلی فایل در تلگرام در دسترس نیست؛ مرجع قابل بازیابی نیست.")
+            raise CachedFileUnavailable()
         size = getattr(message.document, "size", None)
         if self.max_file_bytes and size is None:
             raise DownloadError("اندازه فایل ذخیره‌شده مشخص نیست؛ امکان ارسال وجود ندارد.")

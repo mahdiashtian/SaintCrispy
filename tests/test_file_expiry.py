@@ -95,6 +95,23 @@ async def test_only_sent_file_id_expires_after_30_seconds_and_recovers_after_res
     assert repository.rows[chat, 901]["delete_at"] == deadline
 
 
+async def test_database_clock_ahead_cannot_expire_a_just_sent_file():
+    clock, repository, client, files, worker = cleanup_fixture()
+    await worker.schedule(PEER, SimpleNamespace(id=901))
+    row = repository.rows[7, 901]
+    # SQL uses its own clock. An ahead-of-application database can return this early.
+    repository.due = AsyncMock(return_value=[row.copy()])
+    await worker.run_once()
+    client.delete_messages.assert_not_awaited()
+    files.forget_origin.assert_not_awaited()
+    clock[0] += timedelta(seconds=29)
+    await worker.run_once()
+    client.delete_messages.assert_not_awaited()
+    clock[0] += timedelta(seconds=1)
+    await worker.run_once()
+    client.delete_messages.assert_awaited_once_with(PEER, [901], revoke=True)
+
+
 @pytest.mark.parametrize("kind", ["video", "audio", "photo", "document", "cached"])
 async def test_user_file_send_schedules_after_confirmation_and_preserves_link_reply(kind):
     clock, repository, client, files, worker = cleanup_fixture()

@@ -9,6 +9,7 @@ from core.request_context import current_inspection_work, media_request, request
 from downloader_bot.downloaders.base import Downloader
 from repositories.interfaces.media import MediaDelivery, MediaRepository
 from schemas.media import (
+    CachedFileUnavailable,
     DownloadError,
     Media,
     Quality,
@@ -245,7 +246,7 @@ class DownloadService:
                         await self.repository.record_delivery(user_id, media, quality, method)
                 return method
 
-    async def _deliver(self, peer, media, quality, progress) -> str:
+    async def _deliver(self, peer, media, quality, progress, *, repair_cache=True) -> str:
         key = self.repository.key(media.site, media.content_id, quality.key)
         produced = False
         with timed("cache_lookup"):
@@ -296,7 +297,15 @@ class DownloadService:
         # All followers send concurrently once the one producer has persisted the file.
         # Holding the creation lock during resend would serialize a thousand recipients.
         if not produced or self.storage_peer is not None:
-            await self._reuse(peer, media, quality, stored, progress)
+            try:
+                await self._reuse(peer, media, quality, stored, progress)
+            except CachedFileUnavailable:
+                if not repair_cache:
+                    raise
+                # Only a definitely rejected send may restart extraction. Invalidate
+                # the exact old anchor so concurrent repairs cannot erase a new one.
+                await self.repository.forget_origin(stored.origin_peer, stored.message_id)
+                return await self._deliver(peer, media, quality, progress, repair_cache=False)
         return "transferred" if produced else "reused"
 
     async def _transfer(self, peer, media, quality, progress) -> TelegramFile:
