@@ -312,6 +312,8 @@ async def handle_message(event, admin, conversations, presentation=None):
     if not private(event) or conversations is None:
         return
     raw = (getattr(event, "raw_text", "") or "").strip()
+    if raw.split("@", 1)[0] == "/help" or raw.removeprefix("📖").strip() == "راهنما":
+        return
     raw = {"انصراف": b.CANCEL, "بازگشت": b.BACK}.get(raw, raw)
     state, data = await conversations.get(event.sender_id, event.chat_id)
     if not state.value.startswith("ADMIN_"):

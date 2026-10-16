@@ -18,6 +18,7 @@ from services.access import ProviderAccess
 
 from . import admin as admin_handlers
 from .groups import GROUP_UPDATES, GroupTracker
+from .help import handle_help, handle_help_topic
 from .home import handle_home
 from .limited import LimitedHandlers
 from .membership import MembershipTracker
@@ -147,6 +148,22 @@ def register_handlers(
                 incoming=True, func=lambda event: getattr(event, "is_private", False)
             ),
         )
+    help_options = dict(
+        bot_username=bot_username,
+        interval=getattr(limits, "interval", 60),
+        group_limit=getattr(groups, "links_per_minute", 5),
+        presentation=presentation,
+        access=access,
+        management=getattr(policy, "management", None),
+    )
+    client.add_event_handler(
+        partial(handle_help, **help_options),
+        events.NewMessage(incoming=True, pattern=r"^(?:/help(?:@\w+)?|(?:📖\s*)?راهنما)\s*$"),
+    )
+    client.add_event_handler(
+        partial(handle_help_topic, **help_options),
+        events.CallbackQuery(pattern=rb"^help:([0-9]+):([a-z_]+)$"),
+    )
     if admin is not None:
         client.add_event_handler(
             partial(
@@ -187,7 +204,11 @@ def register_handlers(
     if policy is not None:
         client.add_event_handler(
             policy.check_start,
-            events.NewMessage(incoming=True, pattern=r"^/start(?:@\w+)?(?:\s.*)?$"),
+            events.NewMessage(
+                incoming=True,
+                pattern=r"^/start(?:@\w+)?(?:\s.*)?$",
+                func=lambda event: event.is_private,
+            ),
         )
         client.add_event_handler(
             policy.recheck, events.CallbackQuery(pattern=rb"^mgjoin:([0-9]+)$")
@@ -204,7 +225,11 @@ def register_handlers(
             access=access,
             management=getattr(policy, "management", None),
         ),
-        events.NewMessage(incoming=True, pattern=r"^/start(?:@\w+)?(?:\s.*)?$"),
+        events.NewMessage(
+            incoming=True,
+            pattern=r"^/start(?:@\w+)?(?:\s.*)?$",
+            func=lambda event: event.is_private,
+        ),
     )
     provider_client = LimitedHandlers(
         client,
@@ -225,6 +250,7 @@ def register_handlers(
             presentation=presentation,
             access=access,
             management=getattr(policy, "management", None),
+            group_limit=getattr(groups, "links_per_minute", 5),
         ),
         events.CallbackQuery(pattern=rb"^home:([0-9]+):(help|sites|active|main)$"),
     )

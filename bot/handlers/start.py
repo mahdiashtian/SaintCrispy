@@ -3,7 +3,6 @@ import logging
 from bot.keyboards.inline import start_buttons as start_buttons
 from bot.state.states import ConversationState
 from bot.texts import start_text
-from bot.texts.messages import group_start_text
 from core.request_context import user_request
 
 log = logging.getLogger("activity")
@@ -20,11 +19,12 @@ async def handle_start(
     access=None,
     management=None,
 ) -> None:
-    in_group = event.chat_id < 0
+    if event.chat_id < 0 or getattr(event, "is_group", False):
+        return
     with user_request(event.sender_id, event.chat_id):
         combined = False
         if users:
-            if (start := getattr(users, "start", None)) and not in_group:
+            if start := getattr(users, "start", None):
                 payload = (getattr(event, "raw_text", "") or "").partition(" ")[2].strip()
                 combined = (
                     await start(event.sender_id, event.chat_id, source="unknown")
@@ -32,7 +32,7 @@ async def handle_start(
                     else await start(event.sender_id, event.chat_id)
                 )
             else:
-                await users.touch_user(event.sender_id, started=not in_group)
+                await users.touch_user(event.sender_id, started=True)
         if conversations and not combined:
             await conversations.set(event.sender_id, event.chat_id, ConversationState.MAIN)
         text = start_text(
@@ -40,9 +40,7 @@ async def handle_start(
             interval,
             youtube_enabled=bool(access and access.allows("youtube", event.sender_id)),
         )
-        if in_group:
-            text = group_start_text(bot_username, interval, group_limit)
-        elif management is not None:
+        if management is not None:
             credit = await management.developer_credit()
             if credit:
                 text += "\n\n" + credit

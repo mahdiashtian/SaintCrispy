@@ -37,3 +37,12 @@ def quality_buttons(
             )
             offset += count
     return rows
+
+
+def help_buttons(owner_id: int, *, topic="home"):
+    from bot.texts.guide import BACK, TOPICS
+
+    if topic != "home":
+        return [[Button.inline(BACK, f"help:{owner_id}:home")]]
+    buttons = [Button.inline(label, f"help:{owner_id}:{key}") for key, label in TOPICS]
+    return [buttons[index : index + 2] for index in range(0, len(buttons), 2)]

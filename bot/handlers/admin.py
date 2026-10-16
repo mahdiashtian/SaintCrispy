@@ -427,6 +427,8 @@ async def input_reply(event, admin, presentation=None):
         return
     raw = (getattr(event, "raw_text", "") or "").strip()
     command = raw.split(maxsplit=1)[0].split("@", 1)[0] if raw else ""
+    if command == "/help" or raw.removeprefix("📖").strip() == "راهنما":
+        return
     if command in {"/start", "/admin"}:
         await admin.clear_prompts(event.sender_id)
         return

@@ -7,6 +7,21 @@ rather than rewriting historical failures as successes.
 
 ## Administration and group reference alignment (October 16)
 
+Help/start follow-up: the actual Couplyo `bot/handlers/about.py` and help-topic
+keyboard were inspected. The downloader now uses the same overview/topic/back
+interaction, with downloader-specific content. `/help`, the private help button
+and the plain guide label share one renderer, including quotas and developer
+credit. `/start` and its membership-policy handler are private-only; direct calls
+also reject groups before onboarding/FSM/settings work. Old group home callbacks
+cannot reopen the private main menu. Lifecycle and promotion copy now points to
+`/help`. Guide commands do not consume outstanding administrator forms. No new
+provider extraction, database migration or production Telegram test was needed.
+Verification: the final full workstation suite passed 1,683 tests with zero
+skips against isolated PostgreSQL 17/Redis 7.4; ten existing Windows curl-cffi
+selector warnings remained. Ruff, offline schema comparison, wheel build and
+isolated imports of the new help modules passed. Keep the README English even
+when documenting Persian UI labels; user-facing strings belong in bot texts.
+
 Quality-button follow-up: sender/chat ownership was already enforced by both
 the in-memory menu and scoped SQL lookup. A cached ownership rejection used to
 fall through to SQL, causing unnecessary I/O and a misleading storage error during

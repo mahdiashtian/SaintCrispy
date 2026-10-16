@@ -66,9 +66,9 @@ def admin_event(data):
 
 def announcement(kind, group):
     if kind == "admin":
-        return "ادمین شدم، ممنون ✅\nاعضای گروه را بررسی می‌کنم.\n\nراهنمای اعضا: /start"
+        return "ادمین شدم، ممنون ✅\nاعضای گروه را بررسی می‌کنم.\n\nراهنمای اعضا: /help"
     if kind == "demoted":
         owner = group.get("owner_id")
         mention = f'<a href="tg://user?id={owner}">مالک گروه</a> ' if owner else ""
         return mention + "از ادمینی برداشته شدم 🙃 برای خواندن فهرست اعضا دوباره ادمینم کنید."
-    return "سلام به همه 👋\nلینک رسانه را همین‌جا بفرست تا فایل را دریافت کنی.\n\nبرای خواندن فهرست اعضا ادمینم کنید.\n\nراهنما: /start"
+    return "سلام به همه 👋\nلینک رسانه را همین‌جا بفرست تا فایل را دریافت کنی.\n\nبرای خواندن فهرست اعضا ادمینم کنید.\n\nراهنما: /help"

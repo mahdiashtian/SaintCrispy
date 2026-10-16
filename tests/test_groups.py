@@ -299,12 +299,13 @@ async def test_group_file_publication_replies_to_original_link():
     assert utils.get_peer_id(client.send_file.call_args.args[0]) == CHAT_ID
 
 
-async def test_start_in_group_does_not_mark_user_as_private_subscriber():
+async def test_start_in_group_is_silent_and_has_no_onboarding_side_effects():
     users = SimpleNamespace(start=AsyncMock(), touch_user=AsyncMock())
     event = SimpleNamespace(sender_id=7, chat_id=CHAT_ID, id=42, is_group=True, respond=AsyncMock())
     await handle_start(event, users=users)
     users.start.assert_not_awaited()
-    users.touch_user.assert_awaited_once_with(7, started=False)
+    users.touch_user.assert_not_awaited()
+    event.respond.assert_not_awaited()
 
 
 async def test_group_rate_warnings_coalesce_across_different_users_and_reply_to_link():

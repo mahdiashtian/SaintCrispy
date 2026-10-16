@@ -21,8 +21,13 @@ Ownership is enforced in the hot cache and bot/user/chat-scoped SQL lookup,
 including after a restart. Rejected clicks leave the owner's menu usable.
 
 Progress, cancellation and the final file stay in that group and reply to the
-original link. No private conversation or `/start` is required. `/start` in a
-group explains the group quota and does not mark the sender as a private subscriber.
+original link. No private conversation or `/start` is required. `/start` is
+private-only: in groups it sends no response and does not run onboarding or reset
+conversation state. `/help`, `راهنما` and `📖 راهنما` open the same interactive guide
+in private chats and groups. Its two-column topics edit one message with a back
+button, following the Couplyo help hub. The private start menu's help button uses
+the identical overview, configuration, developer credit and topic buttons.
+Help is read-only, requires no `/start` and leaves admin forms and quotas intact.
 Callbacks with a cold Telegram entity cache resolve their supergroup kind from
 the bot-scoped SQL snapshot rather than being mistaken for a broadcast channel.
 

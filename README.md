@@ -27,6 +27,11 @@ for the exact live Telegram scope, text parity and schema adaptations.
 
 ## How it works
 
+`/start` opens the main menu only in private chats. `/help` works in private chats
+and groups without prior onboarding, and shows the same topic-based guide as
+the **Help** menu button. Topic buttons edit one message and return to the
+shared overview; group `/start` stays silent. The Persian help label also opens it.
+
 1. A user sends a supported media URL and receives a quality menu. Short choices share rows of three; longer labels use pairs. Audio, video and image choices start separate rows, preserving the provider's preferred order and each selection's identity. `/start` is optional, including after a server restart.
 2. The bot identifies the content using the provider's stable ID and the selected quality.
 3. If that file already exists in Telegram, the saved document reference is reused.

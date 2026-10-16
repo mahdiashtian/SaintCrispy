@@ -3,9 +3,11 @@ import logging
 from telethon import Button, errors
 
 from bot.keyboards.inline import start_buttons
-from bot.texts import help_text, sites_text, start_text
+from bot.texts import sites_text, start_text
 from core.diagnostics import error_fields
 from core.request_context import user_request
+
+from .help import help_view
 
 log = logging.getLogger("activity")
 
@@ -18,18 +20,31 @@ async def handle_home(
     presentation=None,
     access=None,
     management=None,
+    group_limit=5,
 ):
     owner_id = int(event.pattern_match[1])
     if owner_id != event.sender_id:
         await event.answer("این منو برای تو نیست. /start رو بزن تا منوی خودت باز بشه.", alert=True)
         return
     action = event.pattern_match[2].decode("ascii")
+    if event.chat_id < 0 and action != "help":
+        await event.answer(
+            "منوی اصلی فقط در پیوی باز می‌شه؛ برای راهنمای گروه /help رو بفرست.", alert=True
+        )
+        return
     youtube_enabled = bool(access and access.allows("youtube", event.sender_id))
     buttons = [[Button.inline("برگشت", f"home:{owner_id}:main")]]
     with user_request(event.sender_id, event.chat_id):
         log.info({"event": "home_action", "action": action})
         if action == "help":
-            text = help_text(interval)
+            text, buttons = await help_view(
+                owner_id,
+                bot_username=bot_username,
+                interval=interval,
+                group_limit=group_limit,
+                access=access,
+                management=management,
+            )
         elif action == "sites":
             text = sites_text(youtube_enabled=youtube_enabled)
         elif action == "active":
@@ -52,7 +67,7 @@ async def handle_home(
                 start_text(bot_username, interval, youtube_enabled=youtube_enabled),
                 start_buttons(owner_id),
             )
-        if management is not None and action in {"help", "main"}:
+        if management is not None and action == "main":
             credit = await management.developer_credit()
             if credit:
                 text += "\n\n" + credit

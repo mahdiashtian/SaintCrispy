@@ -596,7 +596,7 @@ async def test_start_and_help_render_optional_developer_credit_without_changing_
     management.developer_credit.reset_mock()
     await handle_start(actual, management=management)
     management.developer_credit.assert_not_awaited()
-    assert "tg://user" not in actual.respond.call_args.args[0]
+    actual.respond.assert_not_awaited()
 
 
 async def test_cleanup_never_removes_active_members_or_admins_or_root(sql_app):

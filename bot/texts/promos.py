@@ -66,7 +66,7 @@ GROUP_ADMIN_DETECTED = [
 def promo(group, seed):
     if group.is_admin is True:
         return (
-            GROUP_PROMO[seed % len(GROUP_PROMO)] + "\n\nلینک رسانه را همین‌جا بفرست. راهنما: /start"
+            GROUP_PROMO[seed % len(GROUP_PROMO)] + "\n\nلینک رسانه را همین‌جا بفرست. راهنما: /help"
         )
     owner = group.owner_id
     admins = f'<a href="tg://user?id={owner}">مالک گروه</a>' if owner else "ادمین‌های گروه"
