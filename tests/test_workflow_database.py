@@ -14,7 +14,7 @@ from db.postgres.engine import WORKFLOW_SCHEMA, migrate
 from db.postgres.migrations import MIGRATIONS
 from repositories.postgres.workflow import WorkflowRepository
 from repositories.redis.media import FileRepository
-from schemas.media import Media, Quality, TelegramFile
+from schemas.media import DownloadError, Media, Quality, TelegramFile
 
 
 @pytest.mark.parametrize("already_migrated", [False, True])
@@ -85,6 +85,11 @@ async def test_additive_upgrade_preserves_files_and_recovers_conversations(alrea
         assert (await other_bot.get_state(11, 21))["state"] == "TRANSFERRING"
         recovered = await PersistentMenuStore(workflow).fetch(token, 10, 20)
         assert recovered.message_id == 77 and recovered.media.requires_refresh
+        for user, chat in ((11, 20), (10, 21)):
+            with pytest.raises(DownloadError):
+                await PersistentMenuStore(workflow).fetch(token, user, chat)
+        with pytest.raises(DownloadError):
+            await PersistentMenuStore(other_bot).fetch(token, 10, 20)
         payload = await pool.fetchval("SELECT metadata::text FROM download_menus")
         assert "signed-secret" not in payload and "auth-secret" not in payload
         # A later finish writes DONE only for the operation that still owns the state.

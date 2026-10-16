@@ -14,7 +14,12 @@ SQL records membership/activity metadata, as in the source.
 
 Add the bot to a basic group or supergroup. A supported link receives the same
 provider-specific quality menu as a private request, replying to the original
-link message. Only its sender can use that menu; callbacks also verify the chat.
+link message. Only the sender of the original link can use its quality buttons, in
+the original chat. Other users, including group/install administrators, receive
+a private callback alert; no transfer, quota or conversation mutation occurs.
+Ownership is enforced in the hot cache and bot/user/chat-scoped SQL lookup,
+including after a restart. Rejected clicks leave the owner's menu usable.
+
 Progress, cancellation and the final file stay in that group and reply to the
 original link. No private conversation or `/start` is required. `/start` in a
 group explains the group quota and does not mark the sender as a private subscriber.

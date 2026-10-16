@@ -36,10 +36,15 @@ class MenuStore:
 
     def get(self, token: str, owner_id: int, chat_id: int) -> Menu:
         menu = self._menus.get(token)
-        if menu is None or menu.expires_at <= time.monotonic():
+        if menu is None:
             raise DownloadError("این انتخاب منقضی شده است؛ لینک را دوباره بفرست.")
         if menu.owner_id != owner_id or menu.chat_id != chat_id:
-            raise DownloadError("این دکمه مربوط به درخواست تو نیست.")
+            raise DownloadError(
+                "⛔️ این دکمه فقط برای فرستندهٔ لینک است؛ لینک را خودت بفرست.",
+                code="menu_not_owned",
+            )
+        if menu.expires_at <= time.monotonic():
+            raise DownloadError("این انتخاب منقضی شده است؛ لینک را دوباره بفرست.")
         return menu
 
     async def create(self, owner_id, chat_id, media, message_id=None) -> str:
@@ -100,7 +105,9 @@ class PersistentMenuStore(MenuStore):
 
         try:
             return self.get(token, owner_id, chat_id)
-        except DownloadError:
+        except DownloadError as error:
+            if error.code == "menu_not_owned":
+                raise
             row = await self.repository.get_menu(token, owner_id, chat_id)
             if row is None:
                 raise DownloadError(

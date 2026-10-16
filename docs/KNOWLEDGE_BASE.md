@@ -7,6 +7,17 @@ rather than rewriting historical failures as successes.
 
 ## Administration and group reference alignment (October 16)
 
+Quality-button follow-up: sender/chat ownership was already enforced by both
+the in-memory menu and scoped SQL lookup. A cached ownership rejection used to
+fall through to SQL, causing unnecessary I/O and a misleading storage error during
+an outage. `menu_not_owned` now remains a terminal callback alert, even for an
+expired cached menu. Ownership is checked before download policy/quotas/jobs/FSM
+writes; the owner's menu is not consumed by rejected clicks. Regression coverage
+includes all seven providers, group administrators/main owners as other senders,
+hot/restarted persistence, cross-chat access and 100 concurrent rejected clicks.
+The affected workflow/group/access/transfer suites and architecture checks passed
+205 tests; PostgreSQL integration used an isolated PostgreSQL 17 container.
+
 The [later Telegram/copy/load follow-up](COUPLYO_TELEGRAM_VERIFICATION.md) extends
 the source port through migration 12: normalized channels/watch flags, immutable
 daily history, canonical applicable panel/lifecycle copy and fixed report windows.

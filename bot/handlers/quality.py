@@ -39,9 +39,9 @@ async def handle_quality(
     token = event.pattern_match[1].decode("ascii")
     index = int(event.pattern_match[2])
     try:
+        menu = await menus.fetch(token, event.sender_id, event.chat_id)
         if policy is not None:
             await policy.check_download(event.sender_id)
-        menu = await menus.fetch(token, event.sender_id, event.chat_id)
         access.require(menu.media.site, event.sender_id)
         if index >= len(menu.media.qualities):
             raise DownloadError("کیفیت انتخاب‌شده معتبر نیست.")
