@@ -140,6 +140,22 @@ private workstation reports remain in ignored `.runtime/`.
 
 ## Spotify addition — October 16, 2026
 
+The later exact-track fix now has a successful workstation full-stream result for
+`1gihuPhrLraKYrJMAEONyc` (Feel So Close - Radio Edit). General video results included
+209-second Radio Edits that correctly fail the 206-second Spotify match guard.
+The Music songs catalog supplied official audio `Nh_bdvA8cVM`, Calvin Harris and
+208 seconds. The independent Spotify client now reads that typed catalog before
+the existing video queries, preserving strict title/artist/version/duration checks,
+bounded responses/candidates, the original deadline and stop-on-429 cooldown.
+Flat Music extraction was tested and rejected because it drops artist/duration;
+do not infer those fields from the search query or loosen checks to fill them.
+After correcting only the diagnostic's missing FFmpeg PATH, the exact track passed
+complete EOF/audio validation: **3,326,802 bytes**, **207.912 seconds**, **17.2988
+seconds total**. This supersedes the earlier unverified workstation recovery claim
+below; Telegram delivery and production deployment remain untested. **345 affected
+tests passed with zero skips**, including provider boundaries; changed-file lint
+and formatting passed. See [dated catalog and full-stream evidence](SPOTIFY.md#october-16-verified-radio-edit-catalog-recovery).
+
 Later operator logs identify the actual disappearing-start-status chain:
 `spotify_no_matching_audio` during `resolve`, zero transferred/uploaded bytes,
 then terminal-edit `ReplyMarkupInvalidError` and `transfer_status_removed`.

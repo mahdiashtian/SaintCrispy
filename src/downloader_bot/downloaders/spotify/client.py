@@ -17,7 +17,14 @@ from core.config import ConfigurationError
 from core.source_http import CurlTransport
 from schemas.media import DownloadError, SiteHTTPError, Source
 
-from .parser import conversion_url, is_mp3, match_recording, read_object, read_track
+from .parser import (
+    conversion_url,
+    is_mp3,
+    match_recording,
+    music_recordings,
+    read_object,
+    read_track,
+)
 from .urls import DEFAULT_RESOLVER, RESOLVER_ORIGIN, content_id, normalize_url, resolver_url
 
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept-Language": "en-US,en;q=0.9"}
@@ -164,9 +171,21 @@ class SpotifyClient:
             f"ytsearch10:{media.artist} {media.title} official audio",
             f"ytsearch10:{media.artist} {media.title}",
         )
-        # Catalog versions can be displaced by music videos in the broad query.
-        # Both attempts share the original deadline and the same strict matcher.
+        # Prefer the songs catalog before broad video queries displace radio edits.
+        # Every search shares the original deadline and the same strict matcher.
         async with asyncio.timeout(self.search_timeout):
+            try:
+                return await self._music_search(media)
+            except SiteHTTPError:
+                raise
+            except (DownloadError, httpx.HTTPError) as error:
+                log.info(
+                    {
+                        "event": "spotify_music_search_unavailable",
+                        "track_id": media.content_id,
+                        "error_code": getattr(error, "code", "spotify_music_connection_failed"),
+                    }
+                )
             for index, query in enumerate(queries):
                 try:
                     return await self._search_query(media, query)
@@ -180,6 +199,45 @@ class SpotifyClient:
                             "query_index": index,
                         }
                     )
+
+    async def _music_search(self, media):
+        # The pinned extractor's flat Music results omit artist and duration.
+        # Read the songs shelf directly; never infer them from the query or album.
+        _, body = await self.request(
+            self.http,
+            "search",
+            "POST",
+            "https://music.youtube.com/youtubei/v1/search",
+            headers={
+                **HEADERS,
+                "Origin": "https://music.youtube.com",
+                "Referer": "https://music.youtube.com/",
+            },
+            json={
+                "context": {
+                    "client": {
+                        "clientName": "WEB_REMIX",
+                        "clientVersion": "1.20260707.12.00",
+                        "hl": "en",
+                        "gl": "US",
+                    }
+                },
+                "query": f"{media.artist} {media.title}",
+                "params": "EgWKAQIIAWoKEAoQAxAEEAkQBQ==",
+            },
+        )
+        result = match_recording(music_recordings(read_object(body)), media)
+        log.info(
+            {
+                "event": "spotify_recording_matched",
+                "search_kind": "music_songs",
+                "track_id": media.content_id,
+                "video_id": result[0],
+                "spotify_seconds": media.duration,
+                "source_seconds": result[1],
+            }
+        )
+        return result
 
     async def _search_query(self, media, query):
         arguments = [

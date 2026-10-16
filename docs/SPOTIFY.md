@@ -43,9 +43,11 @@ universal ranking of all downloader services or a production-server diagnosis.
   output choice: matched MP3 128 kbps. It does not imply that Spotify offers MP3.
   Searching/conversion runs only after selection; a missing valid match returns a
   clear error rather than substituting a random result.
-- Each query reads at most ten yt-dlp flat results. A no-match result permits one
-  artist/title-only query (at most twenty candidates overall), within the same
-  search deadline. Other failures, rate limits and timeouts do not trigger it.
+- Search first reads at most ten YouTube Music song-catalog entries, preserving
+  typed artist metadata and displayed duration. An unavailable or unmatched catalog
+  falls back to the existing two bounded yt-dlp video queries (at most thirty
+  candidates overall). A first video no-match permits one artist/title-only query.
+  All three paths share the same search deadline; HTTP 429 stops all search paths.
   The title and primary artist must
   match, duration must be within **two seconds**, and differing live/remix/cover/
   instrumental/acoustic/slowed/sped/mashup/edit/remaster markers are rejected.
@@ -248,3 +250,64 @@ Validation: 411 affected progress, Stop, Spotify, handler, presentation, file-ex
 ownership, concurrency, architecture and code-language tests passed with zero skips.
 All 323 Python files passed Ruff lint/format checks. No dependency, migration,
 production session or file-expiry policy changed, and no real chat was messaged.
+
+## October 16 verified Radio Edit catalog recovery
+
+Started from upstream `8998d1c` in an isolated checkout, preserving the original
+working copy's pending administration changes. Unlike the preceding failed access
+state, a new Music songs query succeeded on this Windows workstation. That new
+connection evidence justified one subsequent metadata/general-video comparison.
+No Spotify account, account cookies, proxy or production connection was used.
+
+The reported Spotify identity `1gihuPhrLraKYrJMAEONyc` returned **Feel So Close -
+Radio Edit**, **Calvin Harris**, rounded duration **206 seconds**. The first general
+video query returned Radio Edit uploads at **209 seconds**, outside the existing
+two-second guard, and music videos at **247/249 seconds**. Its **208-second** lyric
+upload lacked the Radio Edit title marker. Those concrete candidates correctly
+fail the existing matcher; another general query alone cannot guarantee coverage.
+This is a workstation reproduction, not the operator's production candidate trace.
+
+The Music songs catalog returned the official audio identity `Nh_bdvA8cVM`, title
+**Feel So Close (Radio Edit)**, a typed **Calvin Harris** artist endpoint and displayed
+duration **3:28**. The installed pinned extractor's flat Music search returned that
+same ID/title but omitted both artist and duration; feeding those flat results to
+the matcher cannot work. Do not infer missing identity/duration from the query,
+relax the duration/version guard, or repeat that flat approach unchanged.
+
+The Spotify-owned client now reads one bounded Music songs response before the
+existing video search paths. Its parser accepts only song shelves, audio-track
+watch endpoints with agreeing IDs, typed artist links and an explicit duration.
+Album text, query text and play counts cannot supply missing artist/duration.
+Parsing stops at ten candidates / 5,000 visited nodes; HTTP response size remains
+capped at 1 MiB. All matching rules, the original search deadline, two resolution
+slots, rate-limit cooldown and existing video-worker cleanup remain in force.
+An unavailable/schema-changed catalog falls back to the existing video queries;
+a search HTTP 429 stops further attempts. All implementation remains within the
+six-file Spotify provider, with no new dependency, setting or migration.
+
+The first updated full-stream invocation resolved the source successfully but
+could not start FFmpeg because it was absent from PATH. After explicitly selecting
+the already-installed imageio-ffmpeg binary, one corrected invocation completed:
+
+| Stage | Workstation result |
+| --- | --- |
+| Spotify metadata | 3.4931 seconds; 206-second track |
+| Match, conversion and source probe | 8.0771 seconds; 208-second selected recording |
+| Complete application audio stream | 5.7285 seconds; **3,326,802 bytes**, EOF and duration validation passed |
+| Observed media duration | **207.912 seconds** |
+| Total | 17.2988 seconds |
+| Output SHA-256 | `5e5573fffd56e3dde4f6da85fd213b68fe0c7728d29c61d08d4c6a7d2d38f451` |
+
+This checks the exact submitted track through the actual provider and generic
+FFmpeg audio transfer path. It does not establish bit-identical Spotify audio,
+Telegram publication or production deployment. Signed URLs and private reports
+remain ignored under `.runtime/`. Retry a later failed route only after changed
+connection/session/schema/cooldown evidence, rather than repeating it in a loop.
+
+Validation: **345 affected tests passed, zero skips**, covering song-schema replay,
+the reported general-video rejection and catalog match, complete provider source
+resolution, rejected artists/versions/previews, malformed endpoints, candidate and
+response bounds, catalog failure fallback, shared search deadline, HTTP 429,
+subprocess cancellation/reaping, actual-FFmpeg simulated delivery, ownership,
+inspection replies, transfer statuses, concurrency and provider/application
+architecture. Lint/format checks passed for the changed Python files.

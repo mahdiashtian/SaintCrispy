@@ -365,13 +365,21 @@ def subprocess_result(payload, *, returncode=0, stderr=b""):
     return process
 
 
+def video_search_client():
+    client = SpotifyClient(None, None)
+    client._music_search = AsyncMock(
+        side_effect=DownloadError("No music match", code="spotify_no_matching_audio")
+    )
+    return client
+
+
 async def test_actual_search_worker_arguments_are_bounded_and_do_not_use_other_provider_credentials(
     monkeypatch,
 ):
     process = subprocess_result(json.dumps({"entries": [entry()]}).encode())
     spawn = AsyncMock(return_value=process)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    client = SpotifyClient(None, None)
+    client = video_search_client()
     assert await client.search(media()) == (VIDEO, 201)
     args = spawn.call_args.args
     assert "--ignore-config" in args and "--no-plugin-dirs" in args
@@ -383,7 +391,7 @@ async def test_search_response_limit_kills_and_reaps_worker(monkeypatch):
     process = subprocess_result(b"x" * (513 * 1024), returncode=None)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
     with pytest.raises(DownloadError):
-        await SpotifyClient(None, None).search(media())
+        await video_search_client().search(media())
     assert process.returncode == -9
     process.communicate.assert_awaited_once()
 
@@ -398,7 +406,7 @@ async def test_cancelled_search_kills_and_reaps_worker(monkeypatch):
         return process
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    task = asyncio.create_task(SpotifyClient(None, None).search(media()))
+    task = asyncio.create_task(video_search_client().search(media()))
     await started.wait()
     await asyncio.sleep(0)
     task.cancel()
@@ -412,7 +420,7 @@ async def test_search_rate_limit_is_preserved_and_prevents_next_worker(monkeypat
     process = subprocess_result(b"", returncode=1, stderr=b"HTTP Error 429")
     spawn = AsyncMock(return_value=process)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    client = SpotifyClient(None, None)
+    client = video_search_client()
     for _ in range(2):
         with pytest.raises(SiteHTTPError):
             await client.search(media())
@@ -437,7 +445,7 @@ async def test_reported_radio_edit_uses_one_alternate_query_without_weakening_ma
     ]
     spawn = AsyncMock(side_effect=workers)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    assert await SpotifyClient(None, None).search(value) == ("Nh_bdvA8cVM", 207)
+    assert await video_search_client().search(value) == ("Nh_bdvA8cVM", 207)
     assert spawn.await_count == 2
     assert spawn.await_args_list[0].args[-1].endswith("official audio")
     assert spawn.await_args_list[1].args[-1] == f"ytsearch10:{value.artist} {value.title}"
@@ -458,7 +466,7 @@ async def test_two_rejected_searches_remain_bounded_and_do_not_accept_the_wrong_
     spawn = AsyncMock(side_effect=workers)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
     with pytest.raises(DownloadError) as error:
-        await SpotifyClient(None, None).search(value)
+        await video_search_client().search(value)
     assert error.value.code == "spotify_no_matching_audio" and spawn.await_count == 2
 
 
@@ -468,7 +476,7 @@ async def test_alternate_search_shares_deadline_and_reaps_its_worker(monkeypatch
     second.stdout = asyncio.StreamReader()
     spawn = AsyncMock(side_effect=[first, second])
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    client = SpotifyClient(None, None)
+    client = video_search_client()
     client.search_timeout = 0.02
     with pytest.raises(TimeoutError):
         await client.search(media())

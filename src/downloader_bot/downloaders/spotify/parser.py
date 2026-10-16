@@ -113,6 +113,76 @@ def versions(title):
     }
 
 
+def music_recordings(payload):
+    """Read bounded song shelves, retaining artist and duration lost by flat extraction."""
+    entries, pending = [], [payload]
+    visited = 0
+    while pending and visited < 5000 and len(entries) < 10:
+        node = pending.pop()
+        visited += 1
+        if isinstance(node, list):
+            pending.extend(reversed(node))
+            continue
+        if not isinstance(node, dict):
+            continue
+        shelf = node.get("musicShelfRenderer")
+        if not isinstance(shelf, dict):
+            pending.extend(reversed(list(node.values())))
+            continue
+        contents = shelf.get("contents")
+        for item in contents[:10] if isinstance(contents, list) else []:
+            try:
+                row = item["musicResponsiveListItemRenderer"]
+                identity = row["playlistItemData"]["videoId"]
+                columns = row["flexColumns"]
+                title_runs = columns[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
+                endpoint = title_runs[0]["navigationEndpoint"]["watchEndpoint"]
+                if (
+                    not isinstance(identity, str)
+                    or not VIDEO_ID.fullmatch(identity)
+                    or endpoint["videoId"] != identity
+                    or endpoint["watchEndpointMusicSupportedConfigs"]["watchEndpointMusicConfig"][
+                        "musicVideoType"
+                    ]
+                    != "MUSIC_VIDEO_TYPE_ATV"
+                ):
+                    continue
+                runs = columns[1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
+                artists, duration = [], None
+                for run in runs:
+                    text = run.get("text")
+                    if not isinstance(text, str):
+                        continue
+                    browse = run.get("navigationEndpoint", {}).get("browseEndpoint", {})
+                    context = browse.get("browseEndpointContextSupportedConfigs", {}).get(
+                        "browseEndpointContextMusicConfig", {}
+                    )
+                    if context.get("pageType") == "MUSIC_PAGE_TYPE_ARTIST":
+                        artists.append(text)
+                    elif "navigationEndpoint" not in run and re.fullmatch(
+                        r"(?:\d{1,2}:)?\d{1,2}:[0-5]\d", text
+                    ):
+                        parts = [int(part) for part in text.split(":")]
+                        duration = sum(
+                            part * 60**index for index, part in enumerate(reversed(parts))
+                        )
+                title = "".join(run["text"] for run in title_runs)
+                if artists and duration:
+                    entries.append(
+                        {
+                            "id": identity,
+                            "title": title,
+                            "channel": ", ".join(artists),
+                            "duration": duration,
+                        }
+                    )
+            except (KeyError, TypeError, IndexError, AttributeError):
+                continue
+            if len(entries) >= 10:
+                break
+    return {"entries": entries}
+
+
 def match_recording(payload, media):
     entries = payload.get("entries") if isinstance(payload, dict) else None
     candidates = []
