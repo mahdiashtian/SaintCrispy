@@ -101,8 +101,10 @@ async def apply_messages(connection, bot_id, events):
     )
     ordered = [users[key] for key in sorted(users)]
     await connection.execute(
-        """UPDATE bot_users u SET username=COALESCE(x.username,u.username),first_name=COALESCE(x.first,u.first_name),
-        last_name=COALESCE(x.last,u.last_name),account_kind='real',last_seen_at=GREATEST(u.last_seen_at,x.stamp),last_active_at=GREATEST(u.last_active_at,x.stamp)
+        """UPDATE bot_users u SET username=CASE WHEN x.stamp>=u.last_seen_at THEN COALESCE(x.username,u.username) ELSE u.username END,
+        first_name=CASE WHEN x.stamp>=u.last_seen_at THEN COALESCE(x.first,u.first_name) ELSE u.first_name END,
+        last_name=CASE WHEN x.stamp>=u.last_seen_at THEN COALESCE(x.last,u.last_name) ELSE u.last_name END,
+        account_kind='real',last_seen_at=GREATEST(u.last_seen_at,x.stamp),last_active_at=GREATEST(u.last_active_at,x.stamp)
         FROM unnest($2::bigint[],$3::text[],$4::text[],$5::text[],$6::timestamptz[]) x(user_id,username,first,last,stamp)
         WHERE u.telegram_account_id=$1 AND u.user_id=x.user_id""",
         bot_id,

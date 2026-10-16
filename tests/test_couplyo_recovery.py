@@ -123,6 +123,15 @@ async def test_maintenance_failure_always_restarts_workers_and_unpauses():
         assert len(gate.active) == 1
 
 
+async def test_maintenance_invalidates_private_profile_observation_cache():
+    gate, deps = MaintenanceGate(), resources()
+    gate.ready = True
+    deps["memberships"].profile_seen = {7: 100000000000}
+    async with gate.guard(**deps):
+        pass
+    assert not deps["memberships"].profile_seen
+
+
 async def test_maintenance_waits_for_startup_readiness():
     from schemas.media import DownloadError
 

@@ -1,5 +1,7 @@
 """A membership event and its exact counter commit on one owned connection."""
 
+from datetime import UTC, datetime
+
 from schemas.membership import MembershipEvent
 
 
@@ -47,17 +49,20 @@ class MembershipRepository:
             )
         )
 
-    async def profile(self, user_id, username, first_name, last_name):
+    async def profile(self, user_id, username, first_name, last_name, *, occurred_at=None):
         await self.connection.execute(
-            """INSERT INTO bot_users (telegram_account_id,user_id,username,first_name,last_name,account_kind)
-            VALUES ($1,$2,$3,$4,$5,'real') ON CONFLICT (telegram_account_id,user_id) DO UPDATE
+            """INSERT INTO bot_users (telegram_account_id,user_id,username,first_name,last_name,account_kind,last_seen_at)
+            VALUES ($1,$2,$3,$4,$5,'real',$6) ON CONFLICT (telegram_account_id,user_id) DO UPDATE
             SET username=EXCLUDED.username,first_name=EXCLUDED.first_name,last_name=EXCLUDED.last_name,
-            account_kind='real',is_blocked=FALSE,last_seen_at=now(),updated_at=now()""",
+            account_kind='real',is_blocked=CASE WHEN bot_users.updated_at<=$6 THEN FALSE ELSE bot_users.is_blocked END,
+            last_seen_at=EXCLUDED.last_seen_at,updated_at=now()
+            WHERE bot_users.last_seen_at<=EXCLUDED.last_seen_at""",
             self.bot_id,
             user_id,
             username,
             first_name,
             last_name,
+            occurred_at or datetime.now(UTC),
         )
         from repositories.postgres.user_tombstone import remove_tombstoned
 
@@ -122,9 +127,9 @@ class MembershipRepository:
             """INSERT INTO bot_users (telegram_account_id,user_id,username,first_name,last_name,
             account_kind,last_seen_at) VALUES ($1,$2,$3,$4,$5,'real',$6)
             ON CONFLICT (telegram_account_id,user_id) DO UPDATE SET
-            username=COALESCE(EXCLUDED.username,bot_users.username),
-            first_name=COALESCE(EXCLUDED.first_name,bot_users.first_name),
-            last_name=COALESCE(EXCLUDED.last_name,bot_users.last_name),account_kind='real',
+            username=CASE WHEN EXCLUDED.last_seen_at>=bot_users.last_seen_at THEN COALESCE(EXCLUDED.username,bot_users.username) ELSE bot_users.username END,
+            first_name=CASE WHEN EXCLUDED.last_seen_at>=bot_users.last_seen_at THEN COALESCE(EXCLUDED.first_name,bot_users.first_name) ELSE bot_users.first_name END,
+            last_name=CASE WHEN EXCLUDED.last_seen_at>=bot_users.last_seen_at THEN COALESCE(EXCLUDED.last_name,bot_users.last_name) ELSE bot_users.last_name END,account_kind='real',
             last_seen_at=GREATEST(bot_users.last_seen_at,EXCLUDED.last_seen_at)""",
             self.bot_id,
             event.user_id,

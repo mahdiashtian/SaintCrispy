@@ -49,7 +49,7 @@ class ObjectCache:
                 self.retry_at = time.monotonic() + 5
                 log.warning({"event": "object_cache_read_failed", **error_fields(error)})
                 return await loader()
-            except (ValueError, TypeError, KeyError, UnicodeError):
+            except (ValueError, TypeError, KeyError, UnicodeError, RecursionError):
                 repair = True
             version = self.versions.get(key, 0)
             result = await loader()

@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from schemas.membership import MembershipEvent
+from schemas.membership import HumanProfile, MembershipEvent
 
 
 class MembershipRepository(Protocol):
@@ -14,7 +14,13 @@ class MembershipRepository(Protocol):
         self, user_id, username, first_name, last_name, *, deleted=False, bot=False
     ) -> None: ...
     async def profile(
-        self, user_id: int, username: str | None, first_name: str | None, last_name: str | None
+        self,
+        user_id: int,
+        username: str | None,
+        first_name: str | None,
+        last_name: str | None,
+        *,
+        occurred_at=None,
     ) -> None: ...
 
 
@@ -34,7 +40,7 @@ class ObjectCache(Protocol):
 class ActivityStream(Protocol):
     shards: int
 
-    async def append(self, event: MembershipEvent): ...
+    async def append(self, event: MembershipEvent | HumanProfile): ...
     async def batch(self, shard: int, consumer: str): ...
     async def acknowledge(self, shard: int, ids: list[str]): ...
     async def quarantine(self, shard: int, identity: str): ...

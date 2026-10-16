@@ -111,7 +111,7 @@ class GroupService(TransactionalService):
                     change = GroupChange.load(json.loads(raw))
                     if self.retry_queue.shard(change.chat_id) != shard:
                         raise ValueError("Wrong lifecycle shard")
-                except (ValueError, TypeError, KeyError, UnicodeError):
+                except (ValueError, TypeError, KeyError, UnicodeError, RecursionError):
                     await self.retry_queue.quarantine(shard, identity)
                     await self.retry_queue.acknowledge(shard, [identity])
                     continue

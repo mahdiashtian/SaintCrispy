@@ -57,7 +57,15 @@ class GroupTracker:
                 return await self.client.get_entity(chat_id)
         except (errors.RPCError, ValueError, OSError, TimeoutError):
             if callable(getattr(self.service, "peer", None)):
-                saved = await self.service.peer(chat_id)
+                try:
+                    saved = await self.service.peer(chat_id)
+                except Exception as error:
+                    if not (
+                        isinstance(error, (OSError, TimeoutError))
+                        or type(error).__module__.startswith("asyncpg")
+                    ):
+                        raise
+                    saved = None
                 if saved is not None:
                     try:
                         async with asyncio.timeout(3), self._slots:
@@ -93,46 +101,37 @@ class GroupTracker:
                     return GroupStanding(Standing.UNKNOWN, reason="persist_deferred")
             return report
 
-    async def observe(self, event):
+    async def observe(self, event, *, force=False):
         if not getattr(event, "is_group", False):
             return
         chat_id = event.chat_id
         async with asyncio.timeout(5):
             async with self._locks.hold(str(chat_id)):
-                if self._seen.get(chat_id, 0) > time.monotonic():
+                if not force and self._seen.get(chat_id, 0) > time.monotonic():
                     return
                 entity = getattr(event, "chat", None)
                 if entity is None:
                     entity = await self._entity(chat_id)
                 kind = group_kind(entity)
-                if not kind:
+                if not kind or utils.get_peer_id(entity) != chat_id:
                     return
-                known = await self.service.get(chat_id)
-                if (
-                    known is not None
-                    and not known.migrated_to
-                    and known.is_admin is not True
-                    and self._checked.get(chat_id, 0) <= time.monotonic()
-                    and event_time(getattr(event, "date", None)) > known.last_event_at
-                ):
-                    self._checked[chat_id] = time.monotonic() + 300
-                    self._checked.move_to_end(chat_id)
-                    if len(self._checked) > 2048:
-                        self._checked.popitem(last=False)
-                    await self._refresh_entity(entity, chat_id)
                 admin = None
                 if not getattr(entity, "min", False) and isinstance(
                     entity, (types.Chat, types.Channel)
                 ):
                     admin = bool(entity.creator or entity.admin_rights)
-                await self.service.record(
+                result = await self.service.record(
                     GroupChange(
                         chat_id,
                         "observed",
                         f"message:{event.id}",
                         event_time(getattr(event, "date", None)),
                         kind,
-                        active=not bool(getattr(entity, "left", False)),
+                        active=(
+                            None
+                            if isinstance(entity, (types.ChatForbidden, types.ChannelForbidden))
+                            else not bool(getattr(entity, "left", False))
+                        ),
                         admin=admin,
                         can_send=entity_can_send(entity, admin),
                         title=getattr(entity, "title", None),
@@ -141,6 +140,23 @@ class GroupTracker:
                         priority=0,
                     )
                 )
+                if result is None:
+                    return
+                # Persistence must precede SQL reads, live probes and metadata.
+                known = await self.service.get(chat_id)
+                if (
+                    known is not None
+                    and not known.migrated_to
+                    and known.is_admin is not True
+                    and self._checked.get(chat_id, 0) <= time.monotonic()
+                    and event_time(getattr(event, "date", None)) >= known.last_event_at
+                ):
+                    refreshed = await self._refresh_entity(entity, chat_id)
+                    if refreshed is not None:
+                        self._checked[chat_id] = time.monotonic() + 300
+                        self._checked.move_to_end(chat_id)
+                        if len(self._checked) > 2048:
+                            self._checked.popitem(last=False)
                 self._seen[chat_id] = time.monotonic() + 60
                 await self.remember(entity, chat_id)
                 self._seen.move_to_end(chat_id)
@@ -244,8 +260,6 @@ class GroupTracker:
         entity = await self._entity(chat_id, update)
         kind = group_kind(entity)
         if kind is None:
-            known = await self.service.get(chat_id)
-            kind = known.chat_kind if known else None
             if isinstance(
                 getattr(getattr(update, "message", None), "peer_id", None), types.PeerChat
             ):
@@ -259,6 +273,9 @@ class GroupTracker:
                 ),
             ):
                 kind = "group"
+            if kind is None:
+                known = await self.service.get(chat_id)
+                kind = known.chat_kind if known else None
         if kind is None:
             log.warning({"event": "group_lifecycle_unverified_peer", "chat_id": chat_id})
             return

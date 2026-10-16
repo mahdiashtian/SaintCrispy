@@ -1,5 +1,10 @@
 # Administration and downloader security review
 
+The subsequent [actual-source registration/security audit](REGISTRATION_SECURITY_AUDIT.md)
+adds cold sender resolution, durable private profile recovery, parent/member
+handoff and poison-entry protections, with a matrix of remaining registration
+conditions. Its final verification is recorded in the knowledge base.
+
 October 16, 2026. Reviewed the runtime checkout starting at `3166eae`, including
 Telegram dispatch, installation roles, state/menu ownership, rate admission,
 administrative jobs and confirmations, SQL construction, import/restore,

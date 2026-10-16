@@ -194,8 +194,9 @@ async def test_inactive_group_recovery_needs_definite_current_self_membership():
     tracker = GroupTracker(client, service, BOT_ID)
     chat = types.Chat(77, "Group", types.ChatPhotoEmpty(), 5, NOW, 1)
     await tracker.observe(SimpleNamespace(is_group=True, chat_id=-77, id=42, date=NOW, chat=chat))
-    assert service.record.call_args_list[0].args[0].kind == "standing_refreshed"
-    assert service.record.call_args_list[0].args[0].active is True
+    assert service.record.call_args_list[0].args[0].kind == "observed"
+    assert service.record.call_args_list[1].args[0].kind == "standing_refreshed"
+    assert service.record.call_args_list[1].args[0].active is True
 
 
 async def test_old_activity_with_definitely_left_entity_does_not_discover_active_group():

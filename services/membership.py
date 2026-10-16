@@ -5,10 +5,11 @@ import logging
 import time
 import uuid
 from collections import OrderedDict
+from datetime import UTC, datetime
 
 from core.diagnostics import error_fields
 from repositories.interfaces.control import ActivityStream, MembershipRepository
-from schemas.membership import MembershipEvent
+from schemas.membership import HumanProfile, MembershipEvent
 
 log = logging.getLogger("activity")
 
@@ -20,6 +21,7 @@ class MembershipService:
         self.repository, self.uow_factory, self.stream = repository, uow_factory, stream
         self.consumer = uuid.uuid4().hex
         self.active = OrderedDict()
+        self.profile_seen = OrderedDict()
         self.recover_groups = None
         self.lifecycle_stream = None
 
@@ -51,17 +53,22 @@ class MembershipService:
             return await uow.memberships.purge_invalid(user_id, deleted=deleted, bot=bot)
 
     async def profile(self, user_id, username, first_name, last_name):
-        if (
-            type(user_id) is not int
-            or not 0 < user_id < 2**63
-            or any(
-                value is not None and (not isinstance(value, str) or len(value) > 256)
-                for value in (username, first_name, last_name)
-            )
-        ):
-            raise ValueError("Invalid human profile")
-        async with self.uow_factory() as uow:
-            await uow.memberships.profile(user_id, username, first_name, last_name)
+        event = HumanProfile(user_id, username, first_name, last_name, datetime.now(UTC))
+        try:
+            async with self.uow_factory() as uow:
+                await self.apply_profile(uow, event)
+        except Exception as error:
+            return await self.defer(event, error)
+        return True
+
+    async def apply_profile(self, uow, event):
+        await uow.memberships.profile(
+            event.user_id,
+            event.username,
+            event.first_name,
+            event.last_name,
+            occurred_at=event.occurred_at,
+        )
 
     async def persist(self, event):
         try:
@@ -90,7 +97,8 @@ class MembershipService:
             or type(error).__module__.startswith("asyncpg")
         ):
             raise error
-        self.remember(event, False)
+        if isinstance(event, MembershipEvent):
+            self.remember(event, False)
         if not await self.stream.append(event):
             raise error
         log.error(
@@ -132,10 +140,19 @@ class MembershipService:
         return await self.persist(event)
 
     async def apply_batch(self, uow, valid):
+        profiles = [
+            (identity, event) for identity, event in valid if isinstance(event, HumanProfile)
+        ]
+        valid = [
+            (identity, event) for identity, event in valid if isinstance(event, MembershipEvent)
+        ]
+        for _, event in profiles:
+            await self.apply_profile(uow, event)
+        profile_ids = [identity for identity, _ in profiles]
         batched = await uow.memberships.apply_messages([event for _, event in valid])
         if batched is not None:
-            return batched, [identity for identity, _ in valid]
-        changed_count, acknowledged = 0, []
+            return len(profiles) + batched, profile_ids + [identity for identity, _ in valid]
+        changed_count, acknowledged = len(profiles), profile_ids
         for identity, event in valid:
             if event.kind == "left":
                 await uow.memberships.departure(
@@ -167,11 +184,17 @@ class MembershipService:
                     raw = fields.get(b"event", fields.get("event"))
                     if raw is None or len(raw) > 8192:
                         raise ValueError("Invalid activity record")
-                    event = MembershipEvent.load(json.loads(raw))
+                    data = json.loads(raw)
+                    schema = (
+                        HumanProfile
+                        if isinstance(data, dict) and data.get("kind") == "profile"
+                        else MembershipEvent
+                    )
+                    event = schema.load(data)
                     if self.stream.shard(event.chat_id) != shard:
                         raise ValueError("Wrong activity shard")
                     valid.append((identity, event))
-                except (ValueError, TypeError, KeyError, UnicodeError):
+                except (ValueError, TypeError, KeyError, UnicodeError, RecursionError):
                     await self.stream.quarantine(shard, identity)
                     await self.stream.acknowledge(shard, [identity])
                     log.warning({"event": "membership_activity_quarantined", "shard": shard})

@@ -90,7 +90,11 @@ class GroupChange:
             raise ValueError("A group must have a negative Telegram chat ID")
         if self.chat_kind not in {"group", "supergroup"}:
             raise ValueError("Broadcast channels are not groups")
-        if self.occurred_at.tzinfo is None or not self.event_key:
+        if (
+            not isinstance(self.occurred_at, datetime)
+            or self.occurred_at.tzinfo is None
+            or not self.event_key
+        ):
             raise ValueError("Lifecycle evidence needs a timezone and stable key")
         if (
             not isinstance(self.event_key, str)
@@ -118,14 +122,18 @@ class GroupChange:
             raise ValueError("Invalid lifecycle ordering")
         if not isinstance(self.stream, str) or len(self.stream) > 80:
             raise ValueError("Invalid lifecycle source")
-        for value in (self.title, self.username, self.event_key, self.stream):
+        for value in (self.title, self.username, self.event_key, self.stream, self.kind):
             if value is not None:
+                if "\x00" in value:
+                    raise ValueError("Invalid lifecycle text")
                 value.encode("utf-8")
-        if self.actor_id is not None and (type(self.actor_id) is not int or self.actor_id <= 0):
+        if self.actor_id is not None and (
+            type(self.actor_id) is not int or not 0 < self.actor_id < 2**63
+        ):
             raise ValueError("An actor must be a human user ID")
         if self.migrated_to is not None and (
             type(self.migrated_to) is not int
-            or self.migrated_to >= 0
+            or not -(2**63) < self.migrated_to < 0
             or self.migrated_to == self.chat_id
         ):
             raise ValueError("A migration needs a different negative group ID")

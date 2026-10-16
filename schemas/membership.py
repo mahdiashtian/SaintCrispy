@@ -60,3 +60,41 @@ class MembershipEvent:
         data = dict(data)
         data["occurred_at"] = datetime.fromisoformat(data["occurred_at"])
         return cls(**data)
+
+
+@dataclass(frozen=True)
+class HumanProfile:
+    """Verified private sender; never grants /start consent or administrator rights."""
+
+    user_id: int
+    username: str | None
+    first_name: str | None
+    last_name: str | None
+    occurred_at: datetime
+    kind: str = "profile"
+
+    @property
+    def chat_id(self):
+        return self.user_id
+
+    def __post_init__(self):
+        if self.kind != "profile" or type(self.user_id) is not int or not 0 < self.user_id < 2**63:
+            raise ValueError("Invalid private human identity")
+        if not isinstance(self.occurred_at, datetime) or self.occurred_at.tzinfo is None:
+            raise ValueError("A profile needs a timezone")
+        for value in (self.username, self.first_name, self.last_name):
+            if value is not None:
+                if not isinstance(value, str) or len(value) > 256 or "\x00" in value:
+                    raise ValueError("Invalid human metadata")
+                value.encode("utf-8")
+
+    def dump(self):
+        data = asdict(self)
+        data["occurred_at"] = self.occurred_at.astimezone(UTC).isoformat()
+        return data
+
+    @classmethod
+    def load(cls, data):
+        data = dict(data)
+        data["occurred_at"] = datetime.fromisoformat(data["occurred_at"])
+        return cls(**data)

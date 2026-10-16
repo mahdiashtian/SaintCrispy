@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import logging
 import time
 from collections import OrderedDict
 from types import SimpleNamespace
@@ -9,9 +10,12 @@ from types import SimpleNamespace
 from telethon import errors, types, utils
 
 from bot.checks.group import group_kind, human_id, participant_standing
+from schemas.group import GroupChange
 from schemas.membership import MembershipEvent
 
 from .groups import event_time
+
+log = logging.getLogger("activity")
 
 
 class MembershipTracker:
@@ -24,14 +28,15 @@ class MembershipTracker:
             bot_id,
         )
         self.slots = asyncio.Semaphore(8)
-        self.profiles = OrderedDict()
+        self.profiles = getattr(memberships, "profile_seen", OrderedDict())
 
     async def observe_private(self, event):
-        if not isinstance(getattr(event, "sender", None), types.User):
-            return
+        user_id = getattr(event, "sender_id", None)
         if (
-            getattr(event, "chat_id", None) != getattr(event, "sender_id", None)
-            or self.profiles.get(event.sender_id, 0) > time.monotonic()
+            type(user_id) is not int
+            or not 0 < user_id < 2**63
+            or getattr(event, "chat_id", None) != user_id
+            or self.profiles.get(user_id, 0) > time.monotonic()
         ):
             return
         user = await self.human(event.sender_id, event)
@@ -44,9 +49,13 @@ class MembershipTracker:
             self.profiles.popitem(last=False)
 
     async def human(self, user_id, event=None):
-        if type(user_id) is not int or user_id <= 0 or user_id == self.bot_id:
+        if type(user_id) is not int or not 0 < user_id < 2**63 or user_id == self.bot_id:
             return None
         entity = getattr(event, "sender", None)
+        if entity is not None and not isinstance(entity, types.User):
+            return None
+        if entity is not None and entity.id != user_id:
+            entity = None
         if entity is None:
             for item in getattr(event, "_entities", {}).values():
                 if isinstance(item, types.User) and item.id == user_id:
@@ -55,7 +64,10 @@ class MembershipTracker:
         if entity is None:
             try:
                 async with asyncio.timeout(3), self.slots:
-                    entity = await self.client.get_entity(user_id)
+                    resolver = getattr(event, "get_sender", None)
+                    entity = await resolver() if callable(resolver) else None
+                    if entity is None:
+                        entity = await self.client.get_entity(user_id)
             except (errors.RPCError, ValueError, OSError, TimeoutError, AttributeError):
                 return None
         return (
@@ -71,8 +83,10 @@ class MembershipTracker:
         if not getattr(event, "is_group", False):
             return
         user = await self.human(getattr(event, "sender_id", None), event)
-        group = await self.groups.get(event.chat_id) if user is not None else None
-        if user is None or group is None:
+        if user is None:
+            return
+        group = await self.known_group(event.chat_id)
+        if group is None and not await self.ensure_group(event.chat_id, event):
             return
         await self.memberships.observe(
             MembershipEvent(
@@ -145,22 +159,59 @@ class MembershipTracker:
             return SimpleNamespace(id=identity, username=None, first_name=None, last_name=None)
         return await self.human(identity, update)
 
+    async def known_group(self, chat_id):
+        try:
+            return await self.groups.get(chat_id)
+        except Exception as error:
+            if not (
+                isinstance(error, (OSError, TimeoutError))
+                or type(error).__module__.startswith("asyncpg")
+            ):
+                raise
+            log.warning({"event": "membership_parent_lookup_failed", "chat_id": chat_id})
+            return None
+
     async def ensure_group(self, chat_id, update):
-        if await self.groups.get(chat_id) is not None:
+        if await self.known_group(chat_id) is not None:
             return True
-        entity = await self.tracker._entity(chat_id, update)
-        if not group_kind(entity):
+        entity = getattr(update, "chat", None)
+        if entity is None:
+            entity = await self.tracker._entity(chat_id, update)
+        if entity is None:
+            peer = getattr(getattr(update, "message", None), "peer_id", None)
+            basic = (isinstance(peer, types.PeerChat) and -peer.chat_id == chat_id) or (
+                isinstance(
+                    update, (types.UpdateChatParticipantAdd, types.UpdateChatParticipantDelete)
+                )
+                and -update.chat_id == chat_id
+            )
+            if basic:
+                key = hashlib.sha256(bytes(update)).hexdigest()
+                await self.groups.record(
+                    GroupChange(
+                        chat_id,
+                        "observed",
+                        "member-parent:" + key,
+                        event_time(getattr(update, "date", None)),
+                        "group",
+                    )
+                )
+                return True
+        if not group_kind(entity) or utils.get_peer_id(entity) != chat_id:
             return False
         await self.tracker.observe(
             SimpleNamespace(
                 is_group=True,
                 chat_id=chat_id,
                 chat=entity,
-                id=0,
+                id=getattr(update, "id", 0),
                 date=event_time(getattr(update, "date", None)),
-            )
+            ),
+            force=True,
         )
-        return await self.groups.get(chat_id) is not None
+        # observe either commits or durably defers this verified group. Submit the
+        # member too; the service retains it until its parent transaction commits.
+        return True
 
     async def service_update(self, update):
         message = update.message

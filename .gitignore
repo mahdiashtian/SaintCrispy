@@ -31,6 +31,7 @@ coverage.xml
 .local-docs/
 /docss/
 /Couplyo/
+/couplyo/
 .playwright-cli/
 output/playwright/
 /*.md

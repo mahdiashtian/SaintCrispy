@@ -5,6 +5,46 @@ failed approaches and decisions for all providers. Read it before investigating 
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
 
+## Registration outage and source security follow-up (October 16)
+
+Reinspected the actual lowercase `couplyo/` reference at `e3e0732` and the
+application's cold sender, lifecycle, profile and membership recovery boundaries.
+Ten initial regressions reproduced dropped cold private senders/member identities,
+SQL-before-queue losses and lifecycle NUL acceptance. Corrected those boundaries,
+added durable timestamped private-profile replay, preserved queued parent/member
+handoff, and fixed old activity overwriting newer profile metadata. Unknown
+permission probes no longer start a success cooldown; forbidden group metadata
+does not prove bot membership. Deep JSON no longer poisons stream recovery or
+object-cache fallback. Lowercase reference code is explicitly ignored.
+
+The first focused integration run passed 52 cases and exposed one existing test
+that asserted probe-before-observation ordering. Its assertions now verify the
+intentional persist-before-enrichment order and definite membership evidence.
+The next focused run passed 94 cases; additional final regressions are included
+in the subsequent full run. The first broad run passed 1,875 tests and failed one
+older test that expected unknown permission results to receive the success
+cooldown. That test now explicitly distinguishes retried unknown results from
+debounced confirmed results. Later focused runs passed 76 SQL/adapter cases and
+107 dispatch/probe cases. Missing-parent recovery now bypasses a warm observation
+cache, maintenance clears private profile observations, and known bot/deleted or
+mismatched senders cannot enter user-creating download handlers.
+No provider origin was retried, no provider extraction
+code was changed, and no schema/dependency update was needed. Initial upstream
+fetch failed on DNS; a later fetch succeeded and its main was integrated before
+editing. Read the [failure matrix, scope and remaining storage/Telegram/security
+limits](REGISTRATION_SECURITY_AUDIT.md) before repeating investigations.
+
+Final workstation run on the completed implementation: **1,882 passed, zero
+failures/skips**, in 379.53 seconds, using dedicated disposable PostgreSQL 17 and
+Redis 7.4. Ten existing Windows curl-cffi selector warnings remain. All 352 Python
+files passed lint/format, the changed runtime files passed security lint, and the
+full suite includes provider/application architecture and schema contracts.
+The schema reference, dependency consistency, staged whitespace and wheel checks
+passed; all 215 packaged Python sources match the checkout and isolated imports
+work without including private/reference/runtime files. This is not production
+verification or a guarantee against every security flaw. Private-profile outage
+recovery requires configured persistent STATE; an evictable CACHE is insufficient.
+
 ## Reply-only administration and configurable quotas (October 16)
 
 The registered private admin runtime now converts every directory, pagination,

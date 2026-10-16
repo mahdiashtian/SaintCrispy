@@ -101,6 +101,7 @@ class MaintenanceGate:
             finally:
                 try:
                     memberships.active.clear()
+                    getattr(memberships, "profile_seen", {}).clear()
                     tracker._seen.clear()
                     tracker._checked.clear()
                     if cache and cache.redis is not None:

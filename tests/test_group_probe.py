@@ -148,7 +148,8 @@ async def test_explicit_old_exit_cannot_overwrite_confirmed_current_membership()
     assert change.kind == "standing_refreshed" and change.active and change.admin
 
 
-async def test_lazy_check_for_known_nonadmin_is_debounced_and_unknown_never_removes():
+@pytest.mark.parametrize("standing,calls", [(Standing.UNKNOWN, 2), (Standing.MEMBER, 1)])
+async def test_lazy_check_debounces_confirmed_standing_and_retries_unknown(standing, calls):
     service = SimpleNamespace(
         record=AsyncMock(),
         get=AsyncMock(
@@ -157,15 +158,23 @@ async def test_lazy_check_for_known_nonadmin_is_debounced_and_unknown_never_remo
             )
         ),
     )
-    probe = SimpleNamespace(check=AsyncMock(return_value=GroupStanding(Standing.UNKNOWN)))
+    probe = SimpleNamespace(check=AsyncMock(return_value=GroupStanding(standing)))
     tracker = GroupTracker(None, service, BOT_ID, probe=probe)
     event = SimpleNamespace(is_group=True, chat_id=CHAT_ID, chat=channel(), date=NOW, id=1)
     await tracker.observe(event)
     tracker._seen.clear()
     event.id = 2
     await tracker.observe(event)
-    probe.check.assert_awaited_once()
-    assert all(call.args[0].kind == "observed" for call in service.record.call_args_list)
+    assert probe.check.await_count == calls
+    if standing is Standing.UNKNOWN:
+        assert all(call.args[0].kind == "observed" for call in service.record.call_args_list)
+    else:
+        refreshed = [
+            call.args[0]
+            for call in service.record.call_args_list
+            if call.args[0].kind == "standing_refreshed"
+        ]
+        assert len(refreshed) == 1 and refreshed[0].active is True
 
 
 @pytest.mark.parametrize("destination", [True, 0, 10, -77])
