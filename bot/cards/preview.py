@@ -23,6 +23,8 @@ async def video_thumbnail(ffmpeg: str, prefix: bytes) -> bytes:
             "error",
             "-threads",
             "1",
+            "-protocol_whitelist",
+            "pipe",
             "-i",
             "pipe:0",
             "-map",

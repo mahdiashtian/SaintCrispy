@@ -3,29 +3,41 @@
 from bot.deeplinks import bot_handle
 
 
-def start_text(bot_username: str | None, interval: int = 60, *, youtube_enabled=False) -> str:
+def start_text(
+    bot_username: str | None, interval: int = 60, *, youtube_enabled=False, user_limit=None
+) -> str:
     handle = bot_handle(bot_username)
     youtube = "▶️ YouTube\n" if youtube_enabled else ""
+    quota = (
+        f"⏱ سقف هر کاربر: {user_limit} درخواست در دقیقه.\n"
+        if user_limit is not None
+        else f"⏱ هر {interval} ثانیه یک لینک می‌تونی بفرستی.\n"
+    )
     return (
         f"📬 به {handle} خوش اومدی!\n\n"
         "لینک رو بفرست، کیفیت رو انتخاب کن و فایل رو همین‌جا بگیر.\n"
         "لازم نیست قبل از هر لینک /start بزنی.\n\n"
         "📋 سایت‌های پشتیبانی‌شده:\n"
         f"🎵 SoundCloud\n🟢 Spotify\n{youtube}📸 Instagram\n🎵 TikTok\n📌 Pinterest\n🎬 XVideos\n🎬 XNXX\n\n"
-        f"⏱ هر {interval} ثانیه یک لینک می‌تونی بفرستی.\n"
+        f"{quota}"
         "برای لغو دانلود، «توقف» زیر پیام وضعیت رو بزن.\n"
         "فایلی که قبلاً گرفته باشم، از تلگرام دوباره برات می‌فرستم.\n\n"
         f"💬 ربات: {handle}"
     )
 
 
-def help_text(interval: int = 60, group_limit: int = 5) -> str:
+def help_text(interval: int = 60, group_limit: int = 5, *, user_limit=None) -> str:
+    quota = (
+        f"سقف هر کاربر {user_limit} درخواست در دقیقه است. "
+        if user_limit is not None
+        else f"بین دو درخواست {interval} ثانیه فاصله بذار. "
+    )
     return (
         "📖 راهنمای دانلود\n\n"
         "لینک آهنگ، ویدیو یا پست رو بفرست. بعد یکی از کیفیت‌ها رو بزن.\n"
         "کیفیت‌های بالاتر در ردیف اول دکمه‌ها هستن. "
         "برای آلبوم اینستاگرام، هر بخش دکمه‌های خودش رو داره.\n\n"
-        f"بین دو درخواست {interval} ثانیه فاصله بذار. "
+        f"{quota}"
         "برای لغو دانلود، «توقف» زیر پیام وضعیت رو بزن.\n"
         "دکمه‌های کیفیت فقط برای فرستندهٔ همان لینک کار می‌کنن.\n"
         "اگه دکمهٔ کیفیت منقضی شد، لینک رو دوباره بفرست.\n\n"

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from http_origin import serve_directory
 
 from bot.transfers.streaming import media_chunks
 from downloader_bot.downloaders.xvideos.client import XVideosClient
@@ -509,13 +510,16 @@ async def test_resolved_hls_preserves_audio_and_detects_incomplete_ffmpeg_output
             )
         return httpx.Response(200, content=data)
 
-    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+    async with (
+        serve_directory(tmp_path) as base,
+        httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http,
+    ):
         downloader = XVideosDownloader(XVideosClient(http))
         media = await downloader.inspect(PAGE_URL)
         quality = media.qualities[0]
         source = await downloader.resolve(media, quality)
         assert source.require_audio and source.duration == 1
-        local = replace(source, url=str(manifest), headers={})
+        local = replace(source, url=base + "/" + manifest.name, headers={})
         if not audio:
             with pytest.raises(DownloadError):
                 _ = [chunk async for chunk in media_chunks(http, local, quality, ffmpeg)]

@@ -11,7 +11,7 @@ TOPICS = (
 BACK = "⬅️ برگشت به فهرست"
 
 
-def topic_text(topic, *, interval=60, group_limit=5, youtube_enabled=False):
+def topic_text(topic, *, interval=60, group_limit=5, youtube_enabled=False, user_limit=None):
     from bot.texts.messages import sites_text
 
     return {
@@ -37,10 +37,15 @@ def topic_text(topic, *, interval=60, group_limit=5, youtube_enabled=False):
         ),
         "limits": (
             "⏱ سهمیه و درخواست‌ها\n\n"
-            f"هر کاربر می‌تونه هر {interval} ثانیه یک لینک بفرسته.\n"
-            f"پیش‌فرض سهمیهٔ کل گروه {group_limit} لینک در دقیقه است؛ این سهمیه بین همهٔ اعضا مشترکه.\n"
+            + (
+                f"سقف هر کاربر: {user_limit} درخواست در دقیقه.\n"
+                if user_limit is not None
+                else f"هر کاربر می‌تونه هر {interval} ثانیه یک لینک بفرسته.\n"
+            )
+            + f"پیش‌فرض سهمیهٔ کل گروه {group_limit} لینک در دقیقه است؛ این سهمیه بین همهٔ اعضا مشترکه.\n"
             "مدیر اصلی می‌تونه سهمیهٔ هر گروه رو جداگانه تنظیم کنه.\n"
-            "انتخاب کیفیت، فرستادن یک لینک تازه حساب نمی‌شه.\n\n"
+            "انتخاب هر فرمت، حتی از منوی قبلی، سهمیهٔ دریافت مصرف می‌کنه. "
+            "وقتی سهمیهٔ دریافت پر باشه، لینک تازه هم تا پایان انتظار پذیرفته نمی‌شه.\n\n"
             "برای دیدن درخواست‌های فعال، در پیوی /start و بعد «📥 درخواست‌های من» رو بزن."
         ),
         "problems": (

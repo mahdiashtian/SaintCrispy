@@ -575,3 +575,18 @@ UPDATE app_settings SET value=value-'forced_channels'-'archive'-'storage'-'watch
 UPDATE bot_users u SET last_active_at=x.active FROM (
  SELECT telegram_account_id,user_id,max(occurred_at) active FROM membership_events WHERE kind='message' GROUP BY telegram_account_id,user_id
 ) x WHERE u.telegram_account_id=x.telegram_account_id AND u.user_id=x.user_id;
+
+-- Revision 13: configurable_rolling_download_quotas
+CREATE TABLE IF NOT EXISTS download_request_windows (
+    telegram_account_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL CHECK (user_id > 0),
+    scope TEXT NOT NULL CHECK (scope IN ('inspect','download')),
+    accepted_at TIMESTAMPTZ[] NOT NULL DEFAULT '{}',
+    PRIMARY KEY (telegram_account_id,user_id,scope),
+    CHECK (cardinality(accepted_at) <= 1000)
+);
+
+INSERT INTO download_request_windows (telegram_account_id,user_id,scope,accepted_at)
+SELECT telegram_account_id,user_id,scope,ARRAY[requested_at] FROM request_limits
+WHERE user_id > 0 AND scope IN ('inspect','download')
+ON CONFLICT DO NOTHING;

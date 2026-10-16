@@ -21,6 +21,7 @@ async def handle_home(
     access=None,
     management=None,
     group_limit=5,
+    quota_limits=None,
 ):
     owner_id = int(event.pattern_match[1])
     if owner_id != event.sender_id:
@@ -44,6 +45,7 @@ async def handle_home(
                 group_limit=group_limit,
                 access=access,
                 management=management,
+                quota_limits=quota_limits,
             )
         elif action == "sites":
             text = sites_text(youtube_enabled=youtube_enabled)
@@ -63,8 +65,14 @@ async def handle_home(
                     text += f"\n\n{len(active) - 10} درخواست دیگه هم فعاله."
             buttons.insert(0, [Button.inline("تازه‌سازی", f"home:{owner_id}:active")])
         else:
+            limits = await quota_limits() if quota_limits is not None else None
             text, buttons = (
-                start_text(bot_username, interval, youtube_enabled=youtube_enabled),
+                start_text(
+                    bot_username,
+                    interval,
+                    youtube_enabled=youtube_enabled,
+                    user_limit=limits["user_limit"] if limits else None,
+                ),
                 start_buttons(owner_id),
             )
         if management is not None and action == "main":

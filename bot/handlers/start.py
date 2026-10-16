@@ -18,6 +18,7 @@ async def handle_start(
     group_limit=5,
     access=None,
     management=None,
+    quota_limits=None,
 ) -> None:
     if event.chat_id < 0 or getattr(event, "is_group", False):
         return
@@ -35,10 +36,12 @@ async def handle_start(
                 await users.touch_user(event.sender_id, started=True)
         if conversations and not combined:
             await conversations.set(event.sender_id, event.chat_id, ConversationState.MAIN)
+        limits = await quota_limits() if quota_limits is not None else None
         text = start_text(
             bot_username,
             interval,
             youtube_enabled=bool(access and access.allows("youtube", event.sender_id)),
+            user_limit=limits["user_limit"] if limits else None,
         )
         if management is not None:
             credit = await management.developer_credit()

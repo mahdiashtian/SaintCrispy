@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from http_origin import serve_directory
 from telethon import types
 from test_video_streaming import PEER, TelegramMock
 from video_fixture import box, mp4_header
@@ -302,13 +303,13 @@ async def test_fragmented_vp9_includes_samples_in_the_initial_moov(tmp_path):
     assert process.returncode == 0, diagnostic.decode(errors="replace")
     quality = replace(QUALITY, codec="vp9", protocol="dash")
     validator = MP4Integrity()
-    async with httpx.AsyncClient() as http:
+    async with serve_directory(tmp_path) as base, httpx.AsyncClient() as http:
         data = b"".join(
             [
                 c
                 async for c in media_chunks(
                     http,
-                    Source(str(video), "dash", duration=12),
+                    Source(base + "/" + video.name, "dash", duration=12),
                     quality,
                     ffmpeg,
                 )

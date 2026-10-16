@@ -1,0 +1,142 @@
+"""Private reply-only menus, persisted payload ownership and live quota configuration."""
+
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+from telethon import events, types
+
+from bot.admin_keyboard import reply_event
+from bot.handlers import admin as ui
+from bot.handlers import admin_reference as panel
+from bot.keyboards.admin import button
+from bot.state.storage import MemoryStateStorage
+from bot.texts import admin_buttons as b
+from core.enums import ConversationState as CS
+from schemas.media import DownloadError
+from services.conversation import ConversationService
+
+
+def event(raw="", owner=999):
+    return SimpleNamespace(
+        sender_id=owner,
+        chat_id=owner,
+        raw_text=raw,
+        data=None,
+        is_group=False,
+        respond=AsyncMock(),
+        edit=AsyncMock(),
+        answer=AsyncMock(),
+    )
+
+
+def admin():
+    return SimpleNamespace(
+        authorize=AsyncMock(return_value=True),
+        clear_prompts=AsyncMock(),
+        options=AsyncMock(
+            return_value={
+                "root": True,
+                "user_links_per_minute": 2,
+                "group_links_per_minute": 8,
+                "downloads_enabled": True,
+                "lifecycle_notifications": True,
+            }
+        ),
+        mutate=AsyncMock(),
+        confirm=AsyncMock(return_value=42),
+        stats=AsyncMock(return_value={}),
+    )
+
+
+async def send(actual, service, conversations):
+    with pytest.raises(events.StopPropagation):
+        await panel.handle_message(actual, service, conversations)
+
+
+async def test_download_settings_enter_change_user_and_group_quotas_and_keep_reply_keyboard():
+    conversations, service = ConversationService(MemoryStateStorage()), admin()
+    await conversations.set_state(999, 999, CS.ADMIN_PANEL)
+    actual = event(b.SETTINGS)
+    await send(actual, service, conversations)
+    assert await conversations.get_state(999, 999) is CS.ADMIN_DOWNLOAD_SETTINGS
+    assert "2" in actual.respond.call_args.args[0] and "8" in actual.respond.call_args.args[0]
+    assert isinstance(actual.respond.call_args.kwargs["buttons"], types.ReplyKeyboardMarkup)
+    for label, action in ((b.USER_LIMIT, "user_quota"), (b.GROUP_LIMIT, "group_quota")):
+        await send(event(label), service, conversations)
+        assert (await conversations.get_data(999, 999))["action"] == action
+        await send(event("5"), service, conversations)
+        service.mutate.assert_awaited_with(999, action, value=5)
+        assert await conversations.get_state(999, 999) is CS.ADMIN_DOWNLOAD_SETTINGS
+
+
+async def test_dynamic_reply_confirmation_survives_restart_and_stale_text_cannot_confirm_new_job():
+    storage, service = MemoryStateStorage(), admin()
+    conversations = ConversationService(storage)
+    await conversations.set_state(999, 999, CS.ADMIN_PANEL)
+    actual = event()
+    adapted = reply_event(actual, conversations)
+    await adapted.respond("Confirm", buttons=[[button(999, "✅ تأیید", "confirm", "old-token")]])
+    old = actual.respond.call_args.kwargs["buttons"].rows[0].buttons[0].text
+    await adapted.respond("New job", buttons=[[button(999, "✅ تأیید", "confirm", "new-token")]])
+    new = actual.respond.call_args.kwargs["buttons"].rows[0].buttons[0].text
+    assert new != old
+    restarted = ConversationService(storage)
+    # Unknown text cannot manufacture an administrator action or consume a token.
+    await panel.handle_message(event(old), service, restarted)
+    service.confirm.assert_not_awaited()
+    await send(event(new), service, restarted)
+    service.confirm.assert_awaited_once_with(999, "new-token")
+    await panel.handle_message(event(new), service, restarted)
+    service.confirm.assert_awaited_once()
+
+
+async def test_typed_callback_payload_and_other_owner_keyboard_do_not_grant_admin_access():
+    conversations, service = ConversationService(MemoryStateStorage()), admin()
+    await conversations.set_state(999, 999, CS.ADMIN_PANEL)
+    actual = event()
+    await reply_event(actual, conversations).respond(
+        "Stats", buttons=[[button(999, "آمار", "stats")]]
+    )
+    await panel.handle_message(event("adm:999:confirm:token"), service, conversations)
+    await panel.handle_message(event("آمار", owner=7), service, conversations)
+    service.confirm.assert_not_awaited()
+    service.stats.assert_not_awaited()
+    service.authorize.side_effect = DownloadError("Revoked")
+    await send(event("آمار"), service, conversations)
+    service.stats.assert_not_awaited()
+
+
+async def test_legacy_inline_admin_callbacks_are_disabled_in_the_registered_runtime():
+    actual, service = event(), admin()
+    actual.data = b"adm:999:stats:0"
+    await ui.callback(actual, service, conversations=ConversationService(MemoryStateStorage()))
+    service.stats.assert_not_awaited()
+    assert actual.answer.call_args.kwargs["alert"]
+
+
+async def test_keyboard_navigation_clears_dynamic_actions_without_polluting_input_payload():
+    conversations, service = ConversationService(MemoryStateStorage()), admin()
+    await conversations.set_state(999, 999, CS.ADMIN_PANEL)
+    actual = event()
+    await reply_event(actual, conversations).respond(
+        "Stats", buttons=[[button(999, "آمار", "stats")]]
+    )
+    await send(event(b.ADMINS), service, conversations)
+    await send(event(b.ADD_ADMIN), service, conversations)
+    assert await conversations.get_data(999, 999) == {
+        "action": "grant",
+        "parent": CS.ADMIN_CAT_ADMINS_PANEL.value,
+    }
+
+
+async def test_help_reads_current_quota_values_instead_of_the_startup_interval():
+    from bot.handlers.help import help_view
+
+    values = {"user_limit": 3, "group_limit": 9}
+    loader = AsyncMock(side_effect=lambda: dict(values))
+    text, _ = await help_view(7, topic="limits", quota_limits=loader)
+    assert "3 درخواست" in text and "9 لینک" in text
+    values.update(user_limit=5, group_limit=12)
+    text, _ = await help_view(7, topic="limits", quota_limits=loader)
+    assert "5 درخواست" in text and "12 لینک" in text

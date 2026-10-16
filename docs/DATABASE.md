@@ -2,14 +2,21 @@
 
 This document describes the downloader repository, reviewed against the October
 15, 2026 Couplyo porting reference supplied in `docss`. Couplyo's 25-table SQL
-snapshot belongs to a different product. This application owns **29 domain tables
-and one migration ledger**, uses native asyncpg and applies revisions 1–12.
+snapshot belongs to a different product. This application owns **30 domain tables
+and one migration ledger**, uses native asyncpg and applies revisions 1–13.
 Revision 10 implements administration; revision 11 adds the actual source's
 [resumable member crawling and administration flow](COUPLYO_PARITY.md).
 Revision 12 adds source-shaped `channels`, `group_watches`, immutable `daily_stats`,
 and a downloader safety table, `user_account_tombstones`. It preserves existing
 physical names, bot scoping and asyncpg; the SQL schema is not byte-identical to
 the single-bot reference. See [the follow-up evidence](COUPLYO_TELEGRAM_VERIFICATION.md).
+
+Revision 13 adds `download_request_windows`, keyed by bot/user/stage with bounded
+timestamp arrays, and adopts existing inspection/download cooldown timestamps.
+The old `request_limits` table/history and revisions 1–12 remain unchanged.
+`app_settings.user_links_per_minute` and `group_links_per_minute` (setting keys,
+not columns) supply fresh admission configuration; group-specific overrides
+remain on `bot_groups.links_per_minute`.
 
 ## Physical layout and ownership
 

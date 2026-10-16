@@ -46,8 +46,17 @@ async def source_size(http: httpx.AsyncClient, source: Source) -> int | None:
 
 
 def _input_options(source: Source, headers: dict[str, str], protocol: str) -> list[str]:
-    options = []
+    # Remote playlists may not open local files or spawn other protocols.
+    options = ["-protocol_whitelist", "http,https,tcp,tls,crypto"]
     if headers:
+        if any(
+            not isinstance(key, str)
+            or not isinstance(value, str)
+            or re.search(r"[\r\n\x00:]", key)
+            or re.search(r"[\r\n\x00]", value)
+            for key, value in headers.items()
+        ):
+            raise DownloadError("هدر منبع معتبر نیست.", code="invalid_source_headers")
         options.extend(
             ["-headers", "".join(f"{key}: {value}\r\n" for key, value in headers.items())]
         )
@@ -62,7 +71,7 @@ def _input_options(source: Source, headers: dict[str, str], protocol: str) -> li
 def remux_arguments(source: Source, quality: Quality, *, pipe_input: bool = False) -> list[str]:
     """Build a codec-copy command; media discovery stays inside each provider."""
     inputs = (
-        ["-i", "pipe:0"]
+        ["-protocol_whitelist", "pipe", "-i", "pipe:0"]
         if pipe_input
         else [
             *_input_options(source, source.headers, source.input_protocol or source.protocol),

@@ -5,6 +5,46 @@ failed approaches and decisions for all providers. Read it before investigating 
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
 
+## Reply-only administration and configurable quotas (October 16)
+
+The registered private admin runtime now converts every directory, pagination,
+settings and confirmation action to an ordinary reply keyboard, retaining the
+action payload only in the owner's SQL conversation. Text cannot inject an action
+or target; stale destructive confirmations have distinct operation references.
+Old inline admin panels require reopening `/admin`. Fresh numeric-ID/SQL roles,
+owner-bound one-use tokens and per-owner UI serialization remain authoritative.
+
+Download settings previously exposed pause/notifications only. They now edit the
+user requests/minute and global group default (1–1000), alongside per-group
+overrides. Revision 13 adds bounded rolling user windows, adopting the old
+inspection/download timestamps without deleting old history or rewriting earlier
+migrations. Every selected format consumes a download slot, including old menus
+and cached sends; a full download window also rejects fresh links. Menu discovery
+does not block its first format. Counts survive restart and span private/groups;
+grants and group accounting are atomic SQL operations with fresh settings.
+Rejected clicks answer with wait time; links receive an original-message reply
+with remaining seconds and a Tehran retry clock. Public help reads live limits.
+
+Security review restricted remote FFmpeg protocols and rejected header control
+injection. Real FFmpeg proved that a remote-media source cannot read a local file.
+The first full run exposed eleven old media-fixture failures because these tests
+used local paths as remote inputs; the same fixtures now run over local HTTP,
+retaining decoding/completeness assertions. The new network restriction was not
+relaxed. No provider extraction implementation or credential session changed.
+
+Final workstation coverage: **1,841 full-suite tests passed** with zero skips,
+then **three additional SQL/UI regressions passed**; together all **1,844 current
+cases** are covered. Dedicated disposable PostgreSQL 17/Redis 7.4 were used;
+Telegram was simulated and no production host or live origin was contacted.
+Ten existing Windows curl-cffi selector warnings remain. All 349 Python files
+passed lint/format; architecture, offline schema comparison and wheel packaging
+passed. The wheel contains the new modules and excludes tests/private runtime.
+The 27 security-linter findings were manually triaged. OSV rejected its one batch
+probe; the separate PyPI version-metadata check returned no listed vulnerabilities
+for eleven installed runtime packages. Do not describe that as an exhaustive
+native/transitive dependency audit. See the [security review, exact scope and
+remaining deployment boundaries](SECURITY_REVIEW.md).
+
 ## Quality button layout (October 16)
 
 The shared Telegram keyboard now caps all quality rows at two buttons and mirrors

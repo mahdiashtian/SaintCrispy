@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import pytest
+from http_origin import serve_directory
 from telethon import errors, functions, types
 from video_fixture import box, mp4_header
 
@@ -146,7 +147,7 @@ async def test_http_fragmented_hls_downloads_all_segments_and_keeps_audio(
         source = Source(
             base + manifest.name,
             "hls",
-            audio_url=str(audio) if separate_audio else None,
+            audio_url=base + audio.name if separate_audio else None,
             audio_protocol="progressive" if separate_audio else None,
             duration=4,
             require_audio=True,
@@ -163,7 +164,9 @@ async def test_http_fragmented_hls_downloads_all_segments_and_keeps_audio(
     else:
         assert len(set(name for name in requested if name.endswith(".m4s"))) == 4
         assert not any(
-            ranged for name, ranged in zip(requested, ranges) if not name.endswith(".m3u8")
+            ranged
+            for name, ranged in zip(requested, ranges)
+            if not name.endswith((".m3u8", ".m4a"))
         )
     verify = await asyncio.create_subprocess_exec(
         ffmpeg,
@@ -243,9 +246,12 @@ async def test_real_separate_streams_merge_without_losing_audio(
     quality = Quality(
         "dash", "Dash", video_codec, None, extension, f"video/{extension}", "dash", ""
     )
-    async with httpx.AsyncClient() as http:
+    async with serve_directory(tmp_path) as base, httpx.AsyncClient() as http:
         chunks = media_chunks(
-            http, Source(str(video), "dash", audio_url=str(audio)), quality, ffmpeg
+            http,
+            Source(base + "/" + video.name, "dash", audio_url=base + "/" + audio.name),
+            quality,
+            ffmpeg,
         )
         data = b"".join([chunk async for chunk in chunks])
     verify = await asyncio.create_subprocess_exec(
@@ -270,13 +276,13 @@ async def test_real_separate_streams_merge_without_losing_audio(
     _, diagnostic = await verify.communicate(data)
     assert verify.returncode == 0, diagnostic.decode(errors="replace")
     # A missing audio input must fail rather than deliver a silent video.
-    async with httpx.AsyncClient() as http:
+    async with serve_directory(tmp_path) as base, httpx.AsyncClient() as http:
         with pytest.raises(DownloadError):
             _ = [
                 chunk
                 async for chunk in media_chunks(
                     http,
-                    Source(str(video), "dash", audio_url=str(tmp_path / "missing.m4a")),
+                    Source(base + "/" + video.name, "dash", audio_url=base + "/missing.m4a"),
                     quality,
                     ffmpeg,
                 )
@@ -320,8 +326,8 @@ async def test_real_hls_remux_keeps_picture_and_available_audio(tmp_path, audio_
     )
     _, diagnostic = await create.communicate()
     assert create.returncode == 0, diagnostic.decode(errors="replace")
-    async with httpx.AsyncClient() as http:
-        chunks = media_chunks(http, Source(str(manifest), "hls"), QUALITY, ffmpeg)
+    async with serve_directory(tmp_path) as base, httpx.AsyncClient() as http:
+        chunks = media_chunks(http, Source(base + "/" + manifest.name, "hls"), QUALITY, ffmpeg)
         data = b"".join([chunk async for chunk in chunks])
     assert b"ftyp" in data[:32]
     # Decoding with both required maps fails if the remux drops either track.
@@ -391,9 +397,12 @@ async def test_separate_hls_audio_is_included_in_selected_video(tmp_path):
     )
     _, diagnostic = await create.communicate()
     assert create.returncode == 0, diagnostic.decode(errors="replace")
-    async with httpx.AsyncClient() as http:
+    async with serve_directory(tmp_path) as base, httpx.AsyncClient() as http:
         chunks = media_chunks(
-            http, Source(str(video), "hls", audio_url=str(audio)), QUALITY, ffmpeg
+            http,
+            Source(base + "/" + video.name, "hls", audio_url=base + "/" + audio.name),
+            QUALITY,
+            ffmpeg,
         )
         data = b"".join([chunk async for chunk in chunks])
     verify = await asyncio.create_subprocess_exec(
@@ -453,14 +462,14 @@ async def test_missing_middle_hls_segment_never_completes_the_upload(tmp_path):
     _, diagnostic = await create.communicate()
     assert create.returncode == 0, diagnostic.decode(errors="replace")
     (tmp_path / "index1.ts").unlink()
-    async with httpx.AsyncClient() as http:
+    async with serve_directory(tmp_path) as base, httpx.AsyncClient() as http:
         delivery = TelegramDelivery(None, http, ffmpeg)
         media = Media("xnxx", "demo", "Demo", "", 3, "page", None, (QUALITY,))
         from schemas.media import DownloadError
 
         with pytest.raises(DownloadError, match="کامل نشد"):
             # The source fails before any completed file can be sent to Telegram.
-            await delivery.new_file(None, media, QUALITY, Source(str(manifest), "hls"))
+            await delivery.new_file(None, media, QUALITY, Source(base + "/" + manifest.name, "hls"))
 
 
 @pytest.mark.parametrize("mime_type", ["video/mp4", "audio/mp4"])

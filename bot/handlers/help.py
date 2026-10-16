@@ -17,15 +17,21 @@ async def help_view(
     group_limit=5,
     access=None,
     management=None,
+    quota_limits=None,
 ):
+    limits = await quota_limits() if quota_limits is not None else None
+    user_limit = limits["user_limit"] if limits else None
+    group_limit = limits["group_limit"] if limits else group_limit
     text = (
-        help_text(interval, group_limit) + f"\n\n💬 ربات: {bot_handle(bot_username)}"
+        help_text(interval, group_limit, user_limit=user_limit)
+        + f"\n\n💬 ربات: {bot_handle(bot_username)}"
         if topic == "home"
         else topic_text(
             topic,
             interval=interval,
             group_limit=group_limit,
             youtube_enabled=bool(access and access.allows("youtube", owner_id)),
+            user_limit=user_limit,
         )
     )
     if text is None:

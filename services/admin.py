@@ -15,6 +15,8 @@ ROOT_ACTIONS = {
     "ban",
     "unban",
     "limit",
+    "user_quota",
+    "group_quota",
     "pause",
     "notifications",
     "broadcast",
@@ -180,6 +182,13 @@ class AdminService:
                     raise DownloadError("شناسه گروه و سقف ۱ تا ۱۰۰۰ را وارد کن.")
                 if not await uow.admin.group_limit(target, value):
                     raise DownloadError("این گروه هنوز ثبت نشده است.")
+            elif action in {"user_quota", "group_quota"}:
+                if type(value) is not int or not 1 <= value <= 1000:
+                    raise DownloadError("سقف باید عددی از ۱ تا ۱۰۰۰ باشد.")
+                await uow.admin.set_setting(
+                    "user_links_per_minute" if action == "user_quota" else "group_links_per_minute",
+                    value,
+                )
             elif action in {"pause", "notifications"}:
                 if type(value) is not bool:
                     raise DownloadError("مقدار تنظیم معتبر نیست.")
@@ -241,6 +250,10 @@ class AdminService:
             "root": root,
             "downloads_enabled": await option("downloads_enabled"),
             "lifecycle_notifications": await option("lifecycle_notifications"),
+            "user_links_per_minute": await self.repository.setting("user_links_per_minute", 1),
+            "group_links_per_minute": await self.repository.setting(
+                "group_links_per_minute", self.groups.links_per_minute
+            ),
         }
 
     def validate_job(self, kind, payload):

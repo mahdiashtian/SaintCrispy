@@ -2,6 +2,7 @@
 
 import io
 import re
+import time
 from types import SimpleNamespace
 
 from telethon import events, types, utils
@@ -22,6 +23,7 @@ CATEGORIES = {
     b.CHANNELS: CS.ADMIN_CAT_CHANNELS_PANEL,
     b.DATA: CS.ADMIN_CAT_DATA_PANEL,
     b.CLEANUP: CS.ADMIN_CAT_CLEANUP_PANEL,
+    b.SETTINGS: CS.ADMIN_DOWNLOAD_SETTINGS,
 }
 SUBMENUS = {
     b.JOIN: CS.ADMIN_JOIN_PANEL,
@@ -58,6 +60,9 @@ class Invocation:
 
 
 async def panel(event, admin, conversations, state=CS.ADMIN_PANEL, presentation=None):
+    if state is CS.ADMIN_DOWNLOAD_SETTINGS:
+        await download_settings(event, admin, conversations)
+        return
     await admin.authorize(event.sender_id)
     await conversations.set_state(event.sender_id, event.chat_id, state)
     title = (
@@ -73,6 +78,7 @@ async def panel(event, admin, conversations, state=CS.ADMIN_PANEL, presentation=
             CS.ADMIN_ARCHIVE_PANEL: copy.ADMIN_ARCHIVE_PANEL,
             CS.ADMIN_STORAGE_PANEL: copy.ADMIN_STORAGE_PANEL,
             CS.ADMIN_WATCH_PANEL: copy.ADMIN_WATCH_PANEL,
+            CS.ADMIN_DOWNLOAD_SETTINGS: "⚙️ تنظیمات دانلود؛ محدودیت‌ها برای همهٔ گفتگوها فوراً اعمال می‌شوند.",
             CS.ADMIN_CAT_CLEANUP_PANEL: "<b>🧹 پاکسازی دیتابیس</b> ⚠️\nهمه‌ی حذف‌های خطرناک اینجان. فقط ادمینِ اصلی بهشون دسترسی داره و هیچ‌کدوم برنمی‌گرده.\n\nقبل از هر حذفی دقیقاً بهت می‌گم چی حذف می‌شه، چی دست‌نخورده می‌مونه و چند مورد شامل می‌شه، بعد ازت تأیید می‌گیرم. تا تأیید نکنی هیچی حذف نمی‌شه ✅\n\nقبل از هر کاری بهتره بک‌آپ بگیری 💾",
         }.get(state, copy.CHOOSE_FROM_LIST)
     )
@@ -162,7 +168,30 @@ async def ask(event, admin, conversations, action, parent, **data):
 async def invoke(event, admin, action, value="0", presentation=None):
     from bot.handlers.admin import callback
 
-    await callback(Invocation(event, action, value), admin, presentation)
+    await callback(
+        Invocation(event, action, value),
+        admin,
+        presentation,
+        conversations=getattr(event, "conversations", None),
+    )
+
+
+async def download_settings(event, admin, conversations):
+    await admin.authorize(event.sender_id, root=True)
+    options = await admin.options(event.sender_id)
+    await conversations.set_state(event.sender_id, event.chat_id, CS.ADMIN_DOWNLOAD_SETTINGS)
+    await event.respond(
+        "⚙️ تنظیمات دانلود\n\n"
+        f"هر کاربر: {options['user_links_per_minute']} درخواست در دقیقه\n"
+        f"پیش‌فرض هر گروه: {options['group_links_per_minute']} لینک در دقیقه\n"
+        f"دریافت فایل: {'روشن' if options['downloads_enabled'] else 'خاموش'}\n"
+        f"اعلان گروه: {'روشن' if options['lifecycle_notifications'] else 'خاموش'}\n\n"
+        "سهمیهٔ کاربر بین همهٔ گروه‌ها و خصوصی مشترک است. انتخاب هر فرمت، حتی از لینک قبلی، "
+        "سهمیهٔ دریافت را مصرف می‌کند. پس از پرشدن آن، لینک تازه هم تا پایان انتظار پذیرفته نمی‌شود.\n"
+        "بازکردن منوی کیفیت، اولین دریافت را مسدود نمی‌کند. تنظیم اختصاصی گروه بر پیش‌فرض اولویت دارد.",
+        buttons=keys.menu(CS.ADMIN_DOWNLOAD_SETTINGS),
+        parse_mode=None,
+    )
 
 
 def parse_ids(raw, *, positive=None):
@@ -307,6 +336,16 @@ async def schedule_panel(event, admin, conversations, state):
 
 
 async def handle_message(event, admin, conversations, presentation=None):
+    from bot.admin_keyboard import locks, reply_event
+    from bot.handlers.admin import private
+
+    if not private(event) or conversations is None:
+        return
+    async with locks.hold(str(event.sender_id)):
+        await _handle_message(reply_event(event, conversations), admin, conversations, presentation)
+
+
+async def _handle_message(event, admin, conversations, presentation=None):
     from bot.handlers.admin import private
 
     if not private(event) or conversations is None:
@@ -326,7 +365,17 @@ async def handle_message(event, admin, conversations, presentation=None):
     handled = True
     try:
         await admin.authorize(event.sender_id)
-        if raw == b.CANCEL:
+        actions = data.get("admin_reply_actions", {})
+        expires = data.get("admin_reply_expires", 0)
+        data = {key: value for key, value in data.items() if not key.startswith("admin_reply_")}
+        if raw in actions:
+            if expires <= time.time():
+                raise DownloadError("این منو منقضی شده؛ /admin را دوباره باز کن.")
+            encoded = actions[raw].split(":")
+            if len(encoded) != 4 or encoded[:2] != ["adm", str(event.sender_id)]:
+                raise DownloadError("دکمه مدیریت معتبر نیست.")
+            await invoke(event, admin, encoded[2], encoded[3], presentation)
+        elif raw == b.CANCEL:
             await admin.clear_prompts(event.sender_id)
             await conversations.reset(event.sender_id, event.chat_id)
             await event.respond(
@@ -357,9 +406,36 @@ async def handle_message(event, admin, conversations, presentation=None):
         elif state is CS.ADMIN_INPUT:
             await handle_input(event, admin, conversations, data, presentation)
         elif raw in CATEGORIES and state is CS.ADMIN_PANEL:
-            await panel(event, admin, conversations, CATEGORIES[raw], presentation)
-        elif raw == b.SETTINGS and state is CS.ADMIN_PANEL:
-            await invoke(event, admin, "settings", presentation=presentation)
+            if raw == b.SETTINGS:
+                await download_settings(event, admin, conversations)
+            else:
+                await panel(event, admin, conversations, CATEGORIES[raw], presentation)
+        elif state is CS.ADMIN_DOWNLOAD_SETTINGS:
+            if raw in {b.USER_LIMIT, b.GROUP_LIMIT, b.LIMIT}:
+                await ask(
+                    event,
+                    admin,
+                    conversations,
+                    {
+                        b.USER_LIMIT: "user_quota",
+                        b.GROUP_LIMIT: "group_quota",
+                        b.LIMIT: "limit",
+                    }[raw],
+                    state,
+                )
+            elif raw in {b.DOWNLOAD_TOGGLE, b.NOTIFICATIONS_TOGGLE}:
+                options = await admin.options(event.sender_id)
+                field = (
+                    "downloads_enabled" if raw == b.DOWNLOAD_TOGGLE else "lifecycle_notifications"
+                )
+                await admin.mutate(
+                    event.sender_id,
+                    "pause" if raw == b.DOWNLOAD_TOGGLE else "notifications",
+                    value=not options[field],
+                )
+                await download_settings(event, admin, conversations)
+            else:
+                await download_settings(event, admin, conversations)
         elif raw in SUBMENUS and state is CS.ADMIN_CAT_CHANNELS_PANEL:
             await panel(event, admin, conversations, SUBMENUS[raw], presentation)
         elif state in {CS.ADMIN_PROMO_PANEL, CS.ADMIN_NUDGE_PANEL, CS.ADMIN_WEEKLY_REPORT_PANEL}:
@@ -574,6 +650,10 @@ async def menu_action(event, admin, conversations, state, raw, presentation):
 async def handle_input(event, admin, conversations, data, presentation):
     action, owner, raw = data["action"], event.sender_id, (event.raw_text or "").strip()
     parent = CS(data["parent"])
+    if action in {"user_quota", "group_quota"}:
+        await admin.mutate(owner, action, value=int(raw))
+        await download_settings(event, admin, conversations)
+        return
     if action in {"lookup", "trace"}:
         query = raw
         if getattr(event, "is_reply", False):

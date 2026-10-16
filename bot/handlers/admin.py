@@ -13,6 +13,7 @@ def private(event):
     return (
         type(getattr(event, "sender_id", None)) is int
         and event.sender_id > 0
+        and type(getattr(event, "chat_id", None)) is int
         and event.chat_id == event.sender_id
         and not getattr(event, "is_group", False)
     )
@@ -40,10 +41,17 @@ async def open_panel(event, admin, presentation=None, conversations=None):
     try:
         root = await admin.authorize(event.sender_id)
         if conversations is not None:
+            from bot.admin_keyboard import locks, reply_event
             from bot.handlers.admin_reference import panel
 
-            await admin.clear_prompts(event.sender_id)
-            await panel(event, admin, conversations, presentation=presentation)
+            async with locks.hold(str(event.sender_id)):
+                await admin.clear_prompts(event.sender_id)
+                await panel(
+                    reply_event(event, conversations),
+                    admin,
+                    conversations,
+                    presentation=presentation,
+                )
             raise events.StopPropagation
         await show(event, HOME, home(event.sender_id, root), presentation)
     except DownloadError as error:
@@ -54,6 +62,12 @@ async def callback(event, admin, presentation=None, conversations=None):
     if not private(event):
         await event.answer("پنل مدیریت فقط در گفت‌وگوی خصوصی فعال است.", alert=True)
         return
+    if conversations is not None:
+        from bot.handlers.admin_reference import Invocation
+
+        if not isinstance(event, Invocation):
+            await event.answer("این پنل قدیمی است؛ /admin را در خصوصی باز کن.", alert=True)
+            return
     try:
         parts = event.data.decode("ascii").split(":")
         if len(parts) != 4 or int(parts[1]) != event.sender_id:
@@ -370,6 +384,11 @@ async def callback(event, admin, presentation=None, conversations=None):
             identity = await admin.confirm(owner, value)
             text = f"✅ عملیات #{identity} در صف پایدار ثبت شد. پیشرفت را از «عملیات» ببین."
         elif action == "settings":
+            if conversations is not None:
+                from bot.handlers.admin_reference import download_settings
+
+                await download_settings(event, admin, conversations)
+                return
             options = await admin.options(owner)
             if not options["root"]:
                 raise DownloadError("تنظیمات فقط برای مدیر اصلی است.")
@@ -422,9 +441,13 @@ async def callback(event, admin, presentation=None, conversations=None):
         await event.answer(text, alert=True)
 
 
-async def input_reply(event, admin, presentation=None):
+async def input_reply(event, admin, presentation=None, conversations=None):
     if not private(event) or not getattr(event, "reply_to_msg_id", None):
         return
+    if conversations is not None:
+        from bot.admin_keyboard import reply_event
+
+        event = reply_event(event, conversations)
     raw = (getattr(event, "raw_text", "") or "").strip()
     command = raw.split(maxsplit=1)[0].split("@", 1)[0] if raw else ""
     if command == "/help" or raw.removeprefix("📖").strip() == "راهنما":

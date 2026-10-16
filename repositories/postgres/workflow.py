@@ -86,6 +86,28 @@ class WorkflowRepository:
             return int(interval)
         return int(remaining)
 
+    async def record_admitted_link(self, user_id, chat_id, request_id):
+        """Called only inside the transaction that granted the rolling quota."""
+        await self.pool.execute(
+            """WITH touched AS (
+              INSERT INTO bot_users (telegram_account_id,user_id) VALUES ($1,$2)
+              ON CONFLICT (telegram_account_id,user_id) DO UPDATE SET last_seen_at=now(),updated_at=now()
+            ) INSERT INTO bot_conversations (telegram_account_id,user_id,chat_id,state,data)
+              VALUES ($1,$2,$3,'INSPECTING',jsonb_build_object('request_id',$4::text))
+              ON CONFLICT (telegram_account_id,user_id,chat_id) DO UPDATE SET
+              state=EXCLUDED.state,data=EXCLUDED.data,
+              revision=bot_conversations.revision+1,updated_at=now()""",
+            self.bot_id,
+            user_id,
+            chat_id,
+            request_id,
+        )
+        from repositories.postgres.user_tombstone import remove_tombstoned
+        from schemas.media import DownloadError
+
+        if await remove_tombstoned(self.pool, self.bot_id, [user_id]):
+            raise DownloadError("این حساب مجاز نیست.", code="user_unavailable")
+
     async def set_state(self, user_id: int, chat_id: int, state: str, data: dict) -> None:
         await self.pool.execute(
             """INSERT INTO bot_conversations

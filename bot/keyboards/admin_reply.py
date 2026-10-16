@@ -75,6 +75,13 @@ MENUS = {
         [b.BACK],
     ],
     "ADMIN_CAT_CLEANUP_PANEL": [[b.FILTER_CLEANUP], [b.PURGE_USERS], [b.BACK]],
+    "ADMIN_DOWNLOAD_SETTINGS": [
+        [b.USER_LIMIT, b.GROUP_LIMIT],
+        [b.LIMIT],
+        [b.DOWNLOAD_TOGGLE],
+        [b.NOTIFICATIONS_TOGGLE],
+        [b.BACK],
+    ],
     "ADMIN_JOIN_PANEL": [
         [b.ADD_CHANNEL, b.REMOVE_CHANNEL],
         [b.LIST_CHANNELS],

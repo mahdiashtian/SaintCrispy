@@ -43,7 +43,7 @@ async def handle_quality(
         if policy is not None:
             await policy.check_download(event.sender_id)
         access.require(menu.media.site, event.sender_id)
-        if index >= len(menu.media.qualities):
+        if not 0 <= index < len(menu.media.qualities):
             raise DownloadError("کیفیت انتخاب‌شده معتبر نیست.")
     except DownloadError as error:
         await event.answer(str(error), alert=True)

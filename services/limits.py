@@ -24,6 +24,7 @@ class RequestLimiter:
         cache_capacity=100000,
         admission_repository=None,
         groups=None,
+        quota_repository=None,
     ):
         if interval_seconds < 1:
             raise ValueError("Request interval must be positive")
@@ -31,6 +32,7 @@ class RequestLimiter:
         self.repository = repository
         self.admission_repository = admission_repository
         self.groups = groups
+        self.quota_repository = quota_repository
         self.telemetry = telemetry
         if cache_capacity < 1:
             raise ValueError("Admission cache capacity must be positive")
@@ -39,6 +41,9 @@ class RequestLimiter:
         self._deadlines: OrderedDict[tuple[int, str], float] = OrderedDict()
 
     async def check_link(self, user_id, chat_id, request_id) -> bool:
+        if self.quota_repository is not None:
+            await self._rolling(user_id, "inspect", chat_id=chat_id, request_id=request_id)
+            return True
         if chat_id < 0 and self.groups is not None:
             await self.check(
                 user_id,
@@ -58,7 +63,13 @@ class RequestLimiter:
         )
         return True
 
+    async def public_limits(self):
+        return await self.quota_repository.limits() if self.quota_repository is not None else None
+
     async def check(self, user_id: int, scope: str, *, claim=None) -> None:
+        if self.quota_repository is not None:
+            await self._rolling(user_id, scope)
+            return
         key = user_id, scope
         async with self._locks.hold(f"{user_id}:{scope}"):
             now = time.monotonic()
@@ -105,4 +116,19 @@ class RequestLimiter:
             raise DownloadError(
                 f"هر {self.interval} ثانیه یک درخواست مجاز است؛ {remaining} ثانیه دیگر امتحان کن.",
                 code="user_rate_limited",
+            )
+
+    async def _rolling(self, user_id, scope, **options):
+        from datetime import datetime, timedelta, timezone
+
+        reason, remaining, limit = await self.quota_repository.claim(user_id, scope, **options)
+        if remaining:
+            until = datetime.now(timezone(timedelta(hours=3, minutes=30))) + timedelta(
+                seconds=remaining
+            )
+            subject = "این گروه" if reason == "group_rate_limited" else "هر کاربر"
+            raise DownloadError(
+                f"⏳ سقف {subject}: {limit} درخواست در دقیقه.\n"
+                f"{remaining} ثانیه صبر کن؛ ساعت {until:%H:%M:%S} به وقت تهران دوباره امتحان کن.",
+                code=reason,
             )

@@ -1,5 +1,6 @@
 from .administration import AUDIT, JOB, OUTBOX, REQUEST, SETTING
 from .conversation import MODEL as CONVERSATION
+from .download_quota import MODEL as DOWNLOAD_QUOTA
 from .file_expiry import MODEL as FILE_EXPIRY
 from .group import MODEL as GROUP
 from .group_event import MODEL as GROUP_EVENT
@@ -47,6 +48,7 @@ TABLES = (
     + CONTROL_TABLES
     + ROSTER_TABLES
     + SOURCE_MANAGEMENT_TABLES
+    + (DOWNLOAD_QUOTA,)
 )
 SCHEMA = "\n".join(table.schema for table in MEDIA_TABLES)
 WORKFLOW_SCHEMA = "\n".join(table.schema for table in WORKFLOW_TABLES)

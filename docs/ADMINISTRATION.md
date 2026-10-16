@@ -1,5 +1,11 @@
 # Administration, membership and cache architecture
 
+October 16 follow-up: all registered admin screens, pagination and confirmations
+now use ordinary reply keyboards. Download settings expose the live per-user and
+default per-group requests/minute limits, plus the existing per-group override.
+Revision 13 adds persistent rolling user windows and adopts legacy timestamps.
+Read the [security review and verification scope](SECURITY_REVIEW.md).
+
 The current source-based implementation is described in [Couplyo parity](COUPLYO_PARITY.md).
 It supersedes the earlier revision-10 observed-only scope below: the category-based
 reply-keyboard panel, full resumable roster crawl, channel management, reminders,

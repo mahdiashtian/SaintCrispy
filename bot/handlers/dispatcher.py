@@ -151,6 +151,7 @@ def register_handlers(
             ),
         )
     help_options = dict(
+        quota_limits=getattr(limits, "public_limits", None),
         bot_username=bot_username,
         interval=getattr(limits, "interval", 60),
         group_limit=getattr(groups, "links_per_minute", 5),
@@ -186,7 +187,12 @@ def register_handlers(
             events.CallbackQuery(pattern=rb"^adm:"),
         )
         client.add_event_handler(
-            partial(admin_handlers.input_reply, admin=admin, presentation=presentation),
+            partial(
+                admin_handlers.input_reply,
+                admin=admin,
+                presentation=presentation,
+                conversations=conversations,
+            ),
             events.NewMessage(
                 incoming=True,
                 func=lambda event: getattr(event, "is_private", False) and event.is_reply,
@@ -218,6 +224,7 @@ def register_handlers(
     client.add_event_handler(
         partial(
             handle_start,
+            quota_limits=getattr(limits, "public_limits", None),
             bot_username=bot_username,
             interval=getattr(limits, "interval", 60),
             conversations=conversations,
@@ -246,6 +253,7 @@ def register_handlers(
     client.add_event_handler(
         partial(
             handle_home,
+            quota_limits=getattr(limits, "public_limits", None),
             jobs=jobs,
             bot_username=bot_username,
             interval=getattr(limits, "interval", 60),

@@ -235,7 +235,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\keep-wsl-alive.ps1
 | `POSTGRES_POOL_SIZE` | `32` | Total database connections per process, range 2-64; one is held by the coordinator. |
 | `TRANSFER_CONCURRENCY` | `1000` | Maximum producers transferring new files. |
 | `CACHED_TRANSFER_CONCURRENCY` | `1000` | Maximum concurrent sends of saved references. |
-| `USER_REQUEST_INTERVAL_SECONDS` | `60` | One accepted link per user per interval across all sites/chats. Quality selection has a separate stage limit. |
+| `USER_REQUEST_INTERVAL_SECONDS` | `60` | Legacy interval for standalone limiter adapters. The running bot uses the live per-minute limits in private `/admin` download settings, initially one user request per minute. |
 | `MAX_FILE_SIZE_MB` | `1024` | Per-file cap; one MB here is 1024 x 1024 bytes. Valid range: 1-1999. |
 | `TRANSFER_TIMEOUT_SECONDS` | `3600` | Total transfer deadline, including waits for resources. |
 | `METADATA_CONCURRENCY` | `8` | Concurrent inspections/source resolutions, range 1-64. Identical links share an inspection; metadata queue waits count toward the 90-second deadline. |
@@ -358,9 +358,15 @@ help distinguish origin, menu-storage and Telegram latency.
 Supported links also work in basic groups and supergroups without `/start` or a
 private conversation. The bot replies to the link with its quality menu; its
 sender chooses, and progress/files stay in that group. Set
-`GROUP_LINKS_PER_MINUTE=5` in `.env` for the shared rolling 60-second group quota.
-The existing per-user interval still applies. PostgreSQL admits both quotas
-atomically and preserves them across restarts. Added/re-added, removed, promoted,
+`GROUP_LINKS_PER_MINUTE=5` in `.env` for the initial shared rolling 60-second group quota.
+The main administrator can change the user limit and default group limit immediately
+through `/admin` → download settings, or override one group's limit. Every format
+selection consumes the user's download quota, including old menus/cached files;
+a full download quota also blocks new links. Inspection has its own window so
+showing a menu does not block the first download. Callback rejections answer the
+click; rejected links receive a reply with remaining seconds and Tehran retry time.
+PostgreSQL admits quotas atomically and preserves them across restarts. Revision 13
+adopts the previous cooldown timestamps without deleting history. Added/re-added, removed, promoted,
 demoted and migration events update the group snapshot and durable audit, with
 safe events in `logs/activity.log`. Migration 7 is additive.
 

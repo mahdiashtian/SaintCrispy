@@ -8,6 +8,7 @@ from urllib.parse import parse_qs
 
 import httpx
 import pytest
+from http_origin import serve_directory
 
 from bot.state.menus import MenuStore
 from bot.transfers.streaming import media_chunks
@@ -706,13 +707,18 @@ async def test_dash_remux_preserves_separate_video_and_audio(tmp_path):
     node = find_media(fixture("audio_reel"), "DZwzHDsiVlk")
     _, formats = read_media(node, PAGE, "DZwzHDsiVlk")
     quality = formats[0].quality
-    async with httpx.AsyncClient() as http:
+    async with serve_directory(tmp_path) as origin, httpx.AsyncClient() as http:
         data = b"".join(
             [
                 chunk
                 async for chunk in media_chunks(
                     http,
-                    Source(str(video), "dash", audio_url=str(audio), require_audio=True),
+                    Source(
+                        origin + "/video.mp4",
+                        "dash",
+                        audio_url=origin + "/audio.m4a",
+                        require_audio=True,
+                    ),
                     quality,
                     ffmpeg,
                 )
