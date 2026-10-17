@@ -938,3 +938,47 @@ async def test_cancelling_candidate_probe_does_not_publish_unverified_source(
     assert not client._public_cache[IDENTITY][2][media.qualities[0].key][1].size_probed
     monkeypatch.setattr(YouTubeClient, "_public_source", original)
     assert (await client.public_resolve(media, media.qualities[0])).size_probed
+
+
+async def test_stalled_quality_preserves_completed_choices_and_cancels_owned_tasks(
+    monkeypatch, public_api
+):
+    monkeypatch.setattr(module, "PUBLIC_INSPECTION_TIMEOUT", 1.05)
+    original = YouTubeClient._public_convert
+    cancelled = asyncio.Event()
+
+    async def convert(self, api, identity, kind, value, seconds, **options):
+        if value == "1080":
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+        return await original(self, api, identity, kind, value, seconds, **options)
+
+    monkeypatch.setattr(YouTubeClient, "_public_convert", convert)
+    client = YouTubeClient(resolver_url="https://cnv.cx")
+    media = await client.public_inspect(IDENTITY)
+    assert {quality.height for quality in media.qualities} == {360, 720, None}
+    assert cancelled.is_set() and not client._public_locks
+    assert client._public_catalog[IDENTITY][0] <= time.monotonic() + 15
+
+
+async def test_low_resolution_origin_keeps_complete_menu_with_half_the_conversion_requests(
+    public_api,
+):
+    visits, _, state = public_api
+    player = json.loads(catalog_watch_page().split(" = ", 1)[1].removesuffix(";</script>"))
+    player["streamingData"]["adaptiveFormats"] = [
+        item for item in player["streamingData"]["adaptiveFormats"] if item.get("height", 0) <= 360
+    ]
+    state.update(
+        watch="<script>var ytInitialPlayerResponse = " + json.dumps(player) + ";</script>",
+        filename=True,
+    )
+    client = YouTubeClient(resolver_url="https://cnv.cx")
+    media = await client.public_inspect(IDENTITY)
+    assert {quality.height for quality in media.qualities} == {360, None}
+    assert sum(request.method == "POST" for request in visits) == 2
+    assert client._public_catalog[IDENTITY][0] > time.monotonic() + 290
+    for quality in media.qualities:
+        assert (await client.public_resolve(media, quality)).size_probed

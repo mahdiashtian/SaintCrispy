@@ -206,6 +206,22 @@ def public_catalog_quality(result, metadata, kind, value):
     return public_quality(kind, value, metadata.duration, width=sizes[0][0], height=height)
 
 
+def public_renditions(metadata):
+    """Avoid converting the same capped rendition repeatedly for short/low-res VODs."""
+    requests = [("mp4", "360"), ("mp4", "720"), ("mp4", "1080")]
+    if metadata and metadata.playable and metadata.has_audio and metadata.video_sizes:
+        maximum = max(height for _, height in metadata.video_sizes)
+        # Keep the first ceiling at/above the actual maximum; higher requests
+        # cannot add a source resolution. Unknown catalogs retain full discovery.
+        requests = requests[
+            : next(
+                (i + 1 for i, (_, value) in enumerate(requests) if int(value) >= maximum),
+                len(requests),
+            )
+        ]
+    return (*requests, ("mp3", "128"))
+
+
 def public_quality(kind, value, seconds, *, width=None, height=None):
     if kind == "mp3":
         return Quality(

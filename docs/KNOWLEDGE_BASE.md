@@ -5,6 +5,44 @@ failed approaches and decisions for all providers. Read it before investigating 
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
 
+## YouTube batch deadlines, failure coalescing and resolver latency (October 17)
+
+The public timeout is not proof of a YouTube outage. Workstation checks isolated
+successful resolver keys/search from failed watch reads and converter header
+deadlines. Later origin connectivity recovered for some inputs, while native-only
+extraction still timed out. Public first-byte timing on reused connections was
+5.838/7.713 seconds with zero TCP/TLS setup; a converter POST also returned HTTP
+502. Do not call this HTTP 429 without an actual rate-limit response.
+
+HTTPX's 12-second setting did not bound CurlTransport's separate 30-second timeout.
+Use an explicit header/body deadline and safe phase/transport metrics. Replace
+striped public locks with bounded exact-identity locks: unrelated hash collisions
+must not consume another video's network deadline. Keep completed verified choices
+when one quality stalls, cancel/await unfinished tasks, and retain only the short
+partial-catalog TTL. Complete low-resolution origin catalogs can omit duplicate
+higher conversion ceilings without inventing formats or relaxing selected-byte/full
+duration validation.
+
+Positive-only coalescing still lets failed followers repeat extraction. A bounded
+15-second per-video failure cache stores safe code/copy only, never exception
+tracebacks. Native guest timeouts have a separate bounded per-video recovery window
+so failed public followers do not each spawn another stalled worker. Cancellation
+is not a cached failure; explicit native configurations retain recovery, expiry
+allows another attempt and unrelated videos remain independent.
+
+Baseline forced-cold short-video testing completed 14/20 files; an updated diverse
+20-input run completed 16/20. Every successful file reached EOF with production
+integrity checks. These are different inputs and not a controlled speedup claim.
+The 100-case follow-up attempted all 100 requests across the same 20 identities:
+73 complete downloads and 27 failures (13 inspection, 14 selected-link refresh).
+It consumed 47,850,016 bytes, with no observed HTTP 429 or incomplete successful
+file. This profile was captured during development; final failure/native guards
+were checked separately, not claimed as the cause of its timings. Complete
+methods/failure scope and the internal 1020-request real-SQL/simulated-origin result are recorded in
+[the dated batch investigation](YOUTUBE_BATCH_20261017.md). Do not extrapolate
+cached/coalesced request speed into 1000 distinct cold origin downloads per minute.
+Local raw reports, media hashes and signed source state remain ignored.
+
 ## Premium emoji coverage and admin HTML (October 17)
 
 Spotify's green symbol and many admin/help/group icons were absent from the body

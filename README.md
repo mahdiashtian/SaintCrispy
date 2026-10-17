@@ -311,6 +311,22 @@ versus a 14.409 s metadata failure with the preceding revision on this workstati
 Full 360p/720p and MP3 transfers passed completeness checks with simulated Telegram
 calls. See the [dated metadata and transfer evidence](docs/YOUTUBE_INSTAGRAM_ACCESS.md#october-15-unindexed-video-metadata-and-menu-latency).
 
+YouTube public JSON operations have an explicit 12-second header/body deadline;
+the Curl transport's separate timeout cannot silently extend it. Per-video locks
+isolate unrelated identities, queue waits have a distinct `youtube_public_busy`
+error, and completed verified qualities survive a stalled alternative. Complete
+low-resolution origin catalogs avoid requesting redundant higher conversion
+ceilings. No provider concurrency or upstream quota was increased.
+
+Run `python tools/benchmark_youtube.py` for 20 sequential complete downloads followed
+by 100 samples with four workers. The default cycles one short public video and
+alternates video/audio; use `--url-file public-video-urls.txt` for distinct inputs
+and `--cold` to invalidate menu/source snapshots before each sample. The report
+separates unique inputs, queue/inspection/resolution/download times, complete bytes,
+integrity checks, safe upstream phase logs, failures and unattempted work. It stops
+on HTTP 429 or three consecutive failures, sends no Telegram messages and saves no
+signed URLs. See [batch diagnosis and capacity limits](docs/YOUTUBE_BATCH_20261017.md).
+
 YouTube now acknowledges an inspection lasting over 150 ms and edits that same
 reply into a text quality menu, without blocking on Telegram fetching an external
 thumbnail. Fast cached inspections send the menu directly. Final-file artwork and

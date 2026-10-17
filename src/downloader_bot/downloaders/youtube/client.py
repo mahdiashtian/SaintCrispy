@@ -11,6 +11,7 @@ from dataclasses import dataclass, field, replace
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
+from curl_cffi import CurlInfo
 
 from core.bounded_curl import BoundedSession
 from core.source_http import CurlTransport
@@ -23,6 +24,7 @@ from .parser import (
     public_download_url,
     public_metadata,
     public_quality,
+    public_renditions,
     public_video_info,
     source_headers,
     usable,
@@ -34,6 +36,17 @@ log = logging.getLogger(__name__)
 ORIGIN_METADATA_TIMEOUT = 3
 SEARCH_METADATA_TIMEOUT = 3
 MAX_WATCH_BYTES = 4 * 1024 * 1024
+PUBLIC_OPERATION_TIMEOUT = 12
+PUBLIC_QUEUE_TIMEOUT = 30
+PUBLIC_MAX_PENDING_IDENTITIES = 1024
+PUBLIC_INSPECTION_TIMEOUT = 35
+PUBLIC_FAILURE_TTL = 15
+PUBLIC_TIMINGS = (
+    CurlInfo.NAMELOOKUP_TIME,
+    CurlInfo.CONNECT_TIME,
+    CurlInfo.APPCONNECT_TIME,
+    CurlInfo.STARTTRANSFER_TIME,
+)
 RETRYABLE_EXTRACTION = {
     "youtube_login_required",
     "youtube_extraction_failed",
@@ -41,6 +54,50 @@ RETRYABLE_EXTRACTION = {
     "youtube_cdn_unavailable",
     "youtube_cdn_connection_failed",
 }
+
+
+def public_failure_fields(error):
+    """Classify transport causes without logging exception strings or signed URLs."""
+    fields = {"error_type": type(error).__name__}
+    reasons = {
+        5: "proxy_dns",
+        6: "dns",
+        7: "tcp_connect",
+        28: "transport_timeout",
+        35: "tls",
+        60: "certificate",
+    }
+    cause, seen = error, set()
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        code = getattr(cause, "code", None)
+        if isinstance(code, int) and not isinstance(code, bool):
+            fields.update(transport_code=code, network_reason=reasons.get(code, "transport"))
+        cause = cause.__cause__
+    if "network_reason" not in fields:
+        if isinstance(error, TimeoutError):
+            fields["network_reason"] = "operation_deadline"
+        elif isinstance(error, httpx.TimeoutException):
+            fields["network_reason"] = "http_timeout"
+        elif isinstance(error, httpx.ConnectError):
+            fields["network_reason"] = "connect"
+    return fields
+
+
+class PublicTransport(CurlTransport):
+    async def handle_async_request(self, request):
+        response = await super().handle_async_request(request)
+        origin = getattr(response.stream, "response", None)
+        infos = getattr(origin, "infos", {})
+        if all(isinstance(infos.get(info), (int, float)) for info in PUBLIC_TIMINGS):
+            dns, connect, tls, first_byte = (max(0, infos[info]) for info in PUBLIC_TIMINGS)
+            response.extensions["youtube_timings"] = {
+                "dns_seconds": round(dns, 4),
+                "tcp_seconds": round(max(0, connect - dns), 4),
+                "tls_seconds": round(max(0, tls - connect), 4),
+                "first_byte_wait_seconds": round(max(0, first_byte - max(tls, connect)), 4),
+            }
+        return response
 
 
 @dataclass(frozen=True)
@@ -70,6 +127,9 @@ class YouTubeClient:
     _public_catalog: OrderedDict = field(
         default_factory=OrderedDict, init=False, repr=False, compare=False
     )
+    _public_failures: OrderedDict = field(
+        default_factory=OrderedDict, init=False, repr=False, compare=False
+    )
     _public_cooldown: dict = field(default_factory=dict, init=False, repr=False, compare=False)
     _public_probe_required: OrderedDict = field(
         default_factory=OrderedDict, init=False, repr=False, compare=False
@@ -89,12 +149,7 @@ class YouTubeClient:
     _public_slots: asyncio.Semaphore = field(
         default_factory=lambda: asyncio.Semaphore(2), init=False, repr=False, compare=False
     )
-    _public_locks: tuple = field(
-        default_factory=lambda: tuple(asyncio.Lock() for _ in range(32)),
-        init=False,
-        repr=False,
-        compare=False,
-    )
+    _public_locks: dict = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def __post_init__(self):
         if not 0 <= self.catalog_ttl <= 900:
@@ -247,32 +302,64 @@ class YouTubeClient:
         started = time.monotonic()
         if self._public_cooldown.get("until", 0) > time.monotonic():
             raise SiteHTTPError(429, "مسیر عمومی یوتیوب موقتاً محدود شده؛ کمی بعد امتحان کن.")
-        async with http.stream(method, url, **options) as response:
-            operation = (
-                "request_key"
-                if url.endswith("/key")
-                else "convert"
-                if url.endswith("/converter")
-                else "metadata"
-            )
+        operation = (
+            "request_key"
+            if url.endswith("/key")
+            else "convert"
+            if url.endswith("/converter")
+            else "metadata"
+        )
+        phase, status = "response_headers", None
+        try:
+            # CurlTransport has its own transport timeout; HTTPX's timeout setting
+            # alone does not bound this session's header/body read.
+            async with asyncio.timeout(PUBLIC_OPERATION_TIMEOUT):
+                async with http.stream(method, url, **options) as response:
+                    status = response.status_code
+                    log.info(
+                        {
+                            "event": "youtube_public_response",
+                            "operation": operation,
+                            "http_status": status,
+                            "elapsed_seconds": round(time.monotonic() - started, 4),
+                            **response.extensions.get("youtube_timings", {}),
+                        }
+                    )
+                    if status == 429:
+                        self._public_cooldown["until"] = time.monotonic() + 60
+                        raise SiteHTTPError(
+                            429, "مسیر عمومی یوتیوب موقتاً محدود شده؛ کمی بعد امتحان کن."
+                        )
+                    response.raise_for_status()
+                    phase = "response_body"
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes(8192):
+                        body.extend(chunk)
+                        if len(body) > 1024 * 1024:
+                            raise ValueError("Public metadata exceeds limit")
+                phase = "decode"
+                result = json.loads(body)
             log.info(
                 {
-                    "event": "youtube_public_response",
+                    "event": "youtube_public_operation_complete",
                     "operation": operation,
-                    "http_status": response.status_code,
+                    "http_status": status,
                     "elapsed_seconds": round(time.monotonic() - started, 4),
                 }
             )
-            if response.status_code == 429:
-                self._public_cooldown["until"] = time.monotonic() + 60
-                raise SiteHTTPError(429, "مسیر عمومی یوتیوب موقتاً محدود شده؛ کمی بعد امتحان کن.")
-            response.raise_for_status()
-            body = bytearray()
-            async for chunk in response.aiter_bytes(8192):
-                body.extend(chunk)
-                if len(body) > 1024 * 1024:
-                    raise ValueError("Public metadata exceeds limit")
-        return json.loads(body)
+            return result
+        except (Exception, asyncio.CancelledError) as error:
+            log.warning(
+                {
+                    "event": "youtube_public_operation_failed",
+                    "operation": operation,
+                    "phase": phase,
+                    "http_status": status,
+                    **public_failure_fields(error),
+                    "elapsed_seconds": round(time.monotonic() - started, 4),
+                }
+            )
+            raise
 
     @asynccontextmanager
     async def _public_session(self):
@@ -281,9 +368,10 @@ class YouTubeClient:
             discard_cookies=True,
             trust_env=False,
             proxy=self.resolver_proxy or None,
+            curl_infos=list(PUBLIC_TIMINGS),
         ) as browser:
             async with httpx.AsyncClient(
-                transport=CurlTransport(browser),
+                transport=PublicTransport(browser),
                 trust_env=False,
                 timeout=12,
                 headers={"Origin": PUBLIC_ORIGIN, "Referer": PUBLIC_ORIGIN + "/"},
@@ -307,7 +395,15 @@ class YouTubeClient:
     async def _public_convert(
         self, api, identity, kind, value, seconds, *, request_key=None, catalog=None
     ):
+        queued = time.monotonic()
         async with self._public_slots:
+            log.info(
+                {
+                    "event": "youtube_public_queue",
+                    "operation": "convert",
+                    "wait_seconds": round(time.monotonic() - queued, 4),
+                }
+            )
             link = canonical_url(identity)
             key = request_key or await self._public_key(api, identity)
             result = await self._public_json(
@@ -423,18 +519,84 @@ class YouTubeClient:
         )
         return quality, source
 
+    @asynccontextmanager
+    async def _public_identity_lock(self, identity, operation):
+        entry = self._public_locks.get(identity)
+        if entry is None:
+            if len(self._public_locks) >= PUBLIC_MAX_PENDING_IDENTITIES:
+                raise DownloadError(
+                    "صف یوتیوب پر شده؛ کمی بعد دوباره بفرست.", code="youtube_public_busy"
+                )
+            entry = [asyncio.Lock(), 0]
+            self._public_locks[identity] = entry
+        entry[1] += 1
+        acquired, started = False, time.monotonic()
+        try:
+            try:
+                async with asyncio.timeout(PUBLIC_QUEUE_TIMEOUT):
+                    await entry[0].acquire()
+                acquired = True
+            except TimeoutError as error:
+                raise DownloadError(
+                    "درخواست قبلی همین ویدیو هنوز در حال انجام است؛ کمی بعد امتحان کن.",
+                    code="youtube_public_busy",
+                ) from error
+            log.info(
+                {
+                    "event": "youtube_public_queue",
+                    "operation": operation,
+                    "wait_seconds": round(time.monotonic() - started, 4),
+                }
+            )
+            yield
+        finally:
+            if acquired:
+                entry[0].release()
+            entry[1] -= 1
+            if not entry[1]:
+                self._public_locks.pop(identity, None)
+
     async def public_inspect(self, identity):
         if not self.resolver_url or self.cookies_file:
             raise DownloadError(code="youtube_public_disabled")
-        try:
-            async with asyncio.timeout(35):
-                async with self._public_locks[hash(identity) % len(self._public_locks)]:
+        async with self._public_identity_lock(identity, "inspect"):
+            self._check_origin_rate()
+            if self._public_cooldown.get("until", 0) > time.monotonic():
+                raise SiteHTTPError(429, "مسیر عمومی یوتیوب موقتاً محدود شده؛ کمی بعد امتحان کن.")
+            failure = self._public_failures.get(identity)
+            if failure and failure[0] > time.monotonic():
+                self._public_failures.move_to_end(identity)
+                log.info({"event": "youtube_public_failure_reused", "error_code": failure[1]})
+                raise DownloadError(failure[2], code=failure[1])
+            self._public_failures.pop(identity, None)
+            try:
+                async with asyncio.timeout(PUBLIC_INSPECTION_TIMEOUT):
                     return await self._public_inspect(identity)
-        except TimeoutError as error:
-            raise DownloadError(
-                "دریافت اطلاعات مسیر عمومی یوتیوب طولانی شد؛ کمی بعد امتحان کن.",
-                code="youtube_public_unavailable",
-            ) from error
+            except TimeoutError as error:
+                failure = DownloadError(
+                    "دریافت اطلاعات مسیر عمومی یوتیوب طولانی شد؛ کمی بعد امتحان کن.",
+                    code="youtube_public_unavailable",
+                )
+                self._remember_public_failure(identity, failure)
+                raise failure from error
+            except DownloadError as error:
+                if error.code in {
+                    "youtube_public_unavailable",
+                    "youtube_public_metadata_unavailable",
+                }:
+                    self._remember_public_failure(identity, error)
+                raise
+
+    def _remember_public_failure(self, identity, error):
+        # Store safe copy/code only, never exception tracebacks or signed source state.
+        self._public_failures[identity] = (
+            time.monotonic() + PUBLIC_FAILURE_TTL,
+            error.code,
+            str(error),
+        )
+        self._public_failures.move_to_end(identity)
+        while len(self._public_failures) > 128:
+            self._public_failures.popitem(last=False)
 
     async def _public_inspect(self, identity):
         self._check_origin_rate()
@@ -447,7 +609,8 @@ class YouTubeClient:
             return catalog[1]
         self._public_catalog.pop(identity, None)
         try:
-            async with asyncio.timeout(35):
+            deadline = time.monotonic() + PUBLIC_INSPECTION_TIMEOUT
+            async with asyncio.timeout(PUBLIC_INSPECTION_TIMEOUT):
                 async with self._public_session() as api:
                     pending = [
                         asyncio.create_task(self._public_metadata(api, identity)),
@@ -469,8 +632,8 @@ class YouTubeClient:
                         and self._public_probe_required.get(identity, 0) <= time.monotonic()
                         else None
                     )
-                    results = await asyncio.gather(
-                        *(
+                    conversions = [
+                        asyncio.create_task(
                             self._public_convert(
                                 api,
                                 identity,
@@ -480,15 +643,29 @@ class YouTubeClient:
                                 request_key=key,
                                 catalog=catalog,
                             )
-                            for kind, value in (
-                                ("mp4", "360"),
-                                ("mp4", "720"),
-                                ("mp4", "1080"),
-                                ("mp3", "128"),
-                            )
-                        ),
-                        return_exceptions=True,
-                    )
+                        )
+                        for kind, value in public_renditions(catalog)
+                    ]
+                    try:
+                        # A single stalled quality must not discard other completed
+                        # and verified choices at the outer discovery deadline.
+                        done, _ = await asyncio.wait(
+                            conversions, timeout=max(0, deadline - time.monotonic() - 1)
+                        )
+                        results = []
+                        for task in conversions:
+                            if task not in done:
+                                results.append(TimeoutError())
+                            else:
+                                try:
+                                    results.append(task.result())
+                                except Exception as error:
+                                    results.append(error)
+                    finally:
+                        for task in conversions:
+                            if not task.done():
+                                task.cancel()
+                        await asyncio.gather(*conversions, return_exceptions=True)
                 rows = {}
                 for result in results:
                     if isinstance(result, SiteHTTPError) and result.status == 429:
@@ -558,17 +735,20 @@ class YouTubeClient:
         if not self.resolver_url or self.cookies_file:
             raise DownloadError(code="youtube_public_disabled")
         try:
-            async with asyncio.timeout(30):
-                async with self._public_locks[hash(media.content_id) % len(self._public_locks)]:
-                    return await self._public_resolve(media, quality)
+            async with self._public_identity_lock(media.content_id, "resolve"):
+                async with asyncio.timeout(30):
+                    source = await self._public_resolve(media, quality)
+                    self._public_failures.pop(media.content_id, None)
+                    return source
         except TimeoutError as error:
             self._invalidate_public(media.content_id)
             raise DownloadError(
                 "دریافت لینک تازه یوتیوب طولانی شد؛ کمی بعد امتحان کن.",
                 code="youtube_public_unavailable",
             ) from error
-        except DownloadError:
-            self._invalidate_public(media.content_id)
+        except DownloadError as error:
+            if error.code != "youtube_public_busy":
+                self._invalidate_public(media.content_id)
             raise
 
     def _invalidate_public(self, identity):

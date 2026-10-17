@@ -1,5 +1,6 @@
 import asyncio
 import time
+from collections import OrderedDict
 from dataclasses import replace
 
 from downloader_bot.downloaders.base import Downloader
@@ -31,11 +32,15 @@ class YouTubeDownloader(Downloader):
         self.accounts = accounts or {}
         self._next_account = 0
         self._public_preferred_until = 0.0
+        self._native_stalled = OrderedDict()
 
     def cache_key(self, url: str) -> str:
         return video_id(url)
 
     async def inspect(self, url: str) -> Media:
+        identity = video_id(url)
+        if self._native_stalled.get(identity, 0) <= time.monotonic():
+            self._native_stalled.pop(identity, None)
         try:
             async with asyncio.timeout(85):
                 preflight_seconds = 0.0
@@ -43,7 +48,16 @@ class YouTubeDownloader(Downloader):
                     self.client, "cookies_file", None
                 )
                 public_failure = None
-                prefer_public = time.monotonic() < self._public_preferred_until
+                default_guest = (
+                    public
+                    and not self.accounts
+                    and not getattr(self.client, "player_clients", None)
+                    and not getattr(self.client, "pot_base_url", None)
+                )
+                native_stalled = default_guest and time.monotonic() < self._native_stalled.get(
+                    identity, 0
+                )
+                prefer_public = time.monotonic() < self._public_preferred_until or native_stalled
                 if (
                     public
                     and not self.accounts
@@ -67,6 +81,12 @@ class YouTubeDownloader(Downloader):
                     except DownloadError as error:
                         public_failure = error
                         self._public_preferred_until = 0.0
+                        if default_guest and time.monotonic() < self._native_stalled.get(
+                            identity, 0
+                        ):
+                            # A recent native deadline already established this
+                            # route is stalled; do not spawn a worker per follower.
+                            raise
                 try:
                     budget = 85
                     if public:
@@ -74,8 +94,12 @@ class YouTubeDownloader(Downloader):
                         if not self.accounts:
                             budget = max(0.05, budget - preflight_seconds)
                     async with asyncio.timeout(budget):
-                        return await self._inspect(url)
+                        media = await self._inspect(url)
+                        self._native_stalled.pop(identity, None)
+                        return media
                 except DownloadError as error:
+                    if default_guest and error.code == "youtube_extraction_timeout":
+                        self._defer_native(identity)
                     if not public or error.code not in {
                         "youtube_login_required",
                         "youtube_extraction_failed",
@@ -90,6 +114,8 @@ class YouTubeDownloader(Downloader):
                 except TimeoutError:
                     if not public:
                         raise
+                    if default_guest:
+                        self._defer_native(identity)
                 if public_failure is not None:
                     raise public_failure
                 media = await self.client.public_inspect(video_id(url))
@@ -101,6 +127,12 @@ class YouTubeDownloader(Downloader):
                 "دریافت اطلاعات یوتیوب طولانی شد. کمی بعد دوباره امتحان کن.",
                 code="youtube_extraction_timeout",
             ) from error
+
+    def _defer_native(self, identity):
+        self._native_stalled[identity] = time.monotonic() + 15
+        self._native_stalled.move_to_end(identity)
+        while len(self._native_stalled) > 128:
+            self._native_stalled.popitem(last=False)
 
     async def _inspect(self, url: str) -> Media:
         identity = video_id(url)
