@@ -9,6 +9,10 @@ See [the Telegram verification follow-up](COUPLYO_TELEGRAM_VERIFICATION.md) for
 source lifecycle copy, normalized storage, report windows and measured activity
 throughput. Message contents are forwarded only to configured destinations;
 SQL records membership/activity metadata, as in the source.
+The [October 17 field/event audit](GROUP_DATA_PARITY_20261017.md) maps every
+applicable group/member field, corrects basic-chat administrator classification
+and first-message eligibility, and verifies real joins, partial metadata and
+replayed lifecycle/storage work. It requires no migration after revision 13.
 
 ## User flow and Telegram configuration
 

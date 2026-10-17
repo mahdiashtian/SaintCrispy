@@ -5,6 +5,27 @@ failed approaches and decisions for all providers. Read it before investigating 
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
 
+## Group/member field and ingestion audit (October 17)
+
+Compared the actual Couplyo group, membership and roster models against the
+downloader's populated PostgreSQL schema. All applicable group/member/roster
+fields already exist through revision 13; no new migration or physical-table
+rename is needed. See the [field/event map and rollout](GROUP_DATA_PARITY_20261017.md).
+
+The installed Telethon 1.45 basic-chat participant iterator does not apply
+`ChannelParticipantsAdmins`. Do not assume its returned users are all admins.
+Read native basic-chat participant constructors and exclude ordinary members,
+bots and deleted accounts. Keep creator and other-admin IDs separate. Unknown
+roster results preserve prior contacts; an explicit empty list remains distinct.
+Use full-group metadata for readable existing invite links and accurate counts.
+Explicit health checks refresh these fields even without a new role transition.
+
+First-message discovery must reload persisted admin standing before tagging
+activity eligibility; unknown is not false. Real joins update membership presence
+without increasing message counters or private-start consent. Workstation tests
+use real PostgreSQL/Redis, installed Telethon iteration, raw-update constructors,
+replay races and migration reruns; they do not prove production Telegram delivery.
+
 ## Couplyo native admin controls (October 17)
 
 The local source at `e3e0732` uses reply category/form menus but native inline

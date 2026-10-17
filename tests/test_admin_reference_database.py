@@ -285,7 +285,7 @@ async def test_group_custom_limit_and_migration_metadata_are_preserved(app):
         await app.groups.claim_link(3, -10, "third", 60)
     await app.groups.migrate(-10, -1000000000077, app.now + timedelta(seconds=2))
     new = await app.groups.get(-1000000000077)
-    assert new.links_per_minute == 2 and new.owner_id == 7 and new.admin_ids == (7, 8)
+    assert new.links_per_minute == 2 and new.owner_id == 7 and new.admin_ids == (8,)
     assert new.added_at == (await app.groups.get(-10)).added_at
 
 

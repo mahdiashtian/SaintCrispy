@@ -10,9 +10,45 @@ SQL; it never connects to the installed database or substitutes for migration.
 
 The Python bot and Node runtime run on the host. Docker runs PostgreSQL, Redis CACHE and Redis STATE only. Existing ports and password stay in `.env`; Python derives connection URLs from those values.
 
+## Current server update and restart
+
+The October 17 admin/group corrections add no migration after revision **13**.
+Run the migration command anyway so an older server applies any missing existing
+revisions. Do not run the reference schema as an import script.
+
+Stop the current receiver with Ctrl+C in its terminal, or stop its existing
+supervisor service. Then run the following on the Linux server. The backup command
+uses the existing PostgreSQL container before updating the checkout.
+
+```bash
+cd ~/SaintCrispy
+mkdir -p .runtime/backups
+db_backup_path=".runtime/backups/before-group-update-$(date +%Y%m%d-%H%M%S).dump"
+docker compose -p saintcrispy exec -T postgres pg_dump -U downloader -d downloader -Fc > "$db_backup_path"
+docker compose -p saintcrispy exec -T postgres pg_restore --list < "$db_backup_path" > "$db_backup_path.list"
+chmod 600 "$db_backup_path" "$db_backup_path.list"
+git pull --ff-only
+source .venv/bin/activate
+python -m pip install -e .
+python tools/setup_services.py
+docker compose -p saintcrispy ps
+python scripts/migrate.py
+python main.py
+```
+
+`setup_services.py` keeps configured SQL/CACHE/STATE ports and passwords and starts
+the three database containers with health checks. Python stays on the host.
+The expected migration result has `versions: 13`; wait for `bot_ready`, then open
+`/admin` in private. With the bot stopped, the backup listing checks archive
+readability; retain the dump separately if a restore is needed. Never use
+`docker compose down -v` during an update.
+
+The [field/event parity audit](GROUP_DATA_PARITY_20261017.md) describes the stored
+Couplyo data, corrections, concurrency checks and workstation verification scope.
+
 ## Administration upgrade (revision 10)
 
-This same procedure upgrades an existing installation through revision **12**.
+This same procedure upgrades an existing installation through revision **13**.
 Create a fresh pre-upgrade backup; never overwrite your only tested backup.
 New roster settings default to enabled
 with one worker, three passes, 400 requests and a one-second minimum page delay.

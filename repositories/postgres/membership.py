@@ -215,7 +215,7 @@ class MembershipRepository:
             state_changed_at=CASE WHEN $4 THEN $6 ELSE state_changed_at END,
             state_event_order=CASE WHEN $4 AND $9<>'message' THEN $7 ELSE state_event_order END,
             state_event_stream=CASE WHEN $4 AND $9<>'message' THEN $9 ELSE state_event_stream END,
-            last_seen_at=CASE WHEN $8 THEN GREATEST(last_seen_at,$6) ELSE last_seen_at END,
+            last_seen_at=CASE WHEN $11 THEN GREATEST(last_seen_at,$6) ELSE last_seen_at END,
             message_count=message_count+CASE WHEN $8 THEN 1 ELSE 0 END,
             state_revision=CASE WHEN $4 THEN nextval('membership_state_revision') ELSE state_revision END,
             msg_this_week=CASE WHEN NOT $8 THEN msg_this_week WHEN msg_week=$10 THEN msg_this_week+1 WHEN msg_week<$10 THEN 1 ELSE msg_this_week END,
@@ -232,6 +232,7 @@ class MembershipRepository:
             event.kind == "message",
             event.stream,
             int(event.occurred_at.timestamp()) // 604800,
+            event.kind in {"message", "joined"},
         )
         if event.kind == "message":
             await self.connection.execute(

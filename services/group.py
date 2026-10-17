@@ -67,8 +67,19 @@ class GroupService(TransactionalService):
             await uow.groups.remember_peer(chat_id, raw_id, chat_kind, access_hash)
 
     async def metadata(self, chat_id, owner_id, admin_ids, member_count, link):
-        if any(type(value) is not int or value <= 0 for value in admin_ids) or len(admin_ids) > 200:
+        if owner_id is not None and (type(owner_id) is not int or not 0 < owner_id < 2**63):
+            raise ValueError("Invalid group owner snapshot")
+        if admin_ids is not None and (
+            any(type(value) is not int or not 0 < value < 2**63 for value in admin_ids)
+            or len(admin_ids) > 200
+        ):
             raise ValueError("Invalid group administrator snapshot")
+        if admin_ids is not None:
+            admin_ids = sorted(set(admin_ids) - {owner_id})
+        if member_count is not None and (
+            type(member_count) is not int or not 0 <= member_count < 2**31
+        ):
+            raise ValueError("Invalid group size snapshot")
         async with self._uow_factory() as uow:
             await uow.groups.metadata(chat_id, owner_id, admin_ids, member_count, link)
         if self.cache:

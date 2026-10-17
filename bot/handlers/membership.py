@@ -86,8 +86,10 @@ class MembershipTracker:
         if user is None:
             return
         group = await self.known_group(event.chat_id)
-        if group is None and not await self.ensure_group(event.chat_id, event):
-            return
+        if group is None:
+            if not await self.ensure_group(event.chat_id, event):
+                return
+            group = await self.known_group(event.chat_id)
         await self.memberships.observe(
             MembershipEvent(
                 event.chat_id,
@@ -99,7 +101,7 @@ class MembershipTracker:
                 user.username,
                 user.first_name,
                 user.last_name,
-                observed_admin=getattr(group, "is_admin", None) is True,
+                observed_admin=getattr(group, "is_admin", None),
             )
         )
 

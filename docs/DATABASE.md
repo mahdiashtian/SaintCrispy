@@ -18,6 +18,10 @@ The old `request_limits` table/history and revisions 1–12 remain unchanged.
 not columns) supply fresh admission configuration; group-specific overrides
 remain on `bot_groups.links_per_minute`.
 
+The [October 17 group-data audit](GROUP_DATA_PARITY_20261017.md) checks applicable
+Couplyo group, membership and roster fields against the installed schema, with
+populated-data migration reruns. Its ingestion fixes add no schema revision.
+
 ## Physical layout and ownership
 
 ```text

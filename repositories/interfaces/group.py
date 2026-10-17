@@ -20,7 +20,7 @@ class GroupRepository(Protocol):
         self,
         chat_id: int,
         owner_id: int | None,
-        admin_ids: list[int],
+        admin_ids: list[int] | None,
         member_count: int | None,
         link: str | None,
     ) -> None: ...

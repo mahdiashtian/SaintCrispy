@@ -7,7 +7,7 @@ import time
 from collections import OrderedDict
 from datetime import UTC, datetime
 
-from telethon import errors, types, utils
+from telethon import errors, functions, types, utils
 
 from bot.checks.group import (
     entity_can_send,
@@ -98,7 +98,9 @@ class GroupTracker:
                 return GroupStanding(Standing.UNKNOWN, reason="unresolved")
             report = await self.probe.check(entity, chat_id)
             if report.standing is not Standing.UNKNOWN:
-                result = await self._refresh_entity(entity, chat_id, verdict=report)
+                result = await self._refresh_entity(
+                    entity, chat_id, verdict=report, refresh_metadata=True
+                )
                 if result is None:
                     return GroupStanding(Standing.UNKNOWN, reason="persist_deferred")
             return report
@@ -384,7 +386,14 @@ class GroupTracker:
                 )
 
     async def _refresh_entity(
-        self, entity, chat_id, *, verdict=None, change_kind="standing_refreshed", observed_at=None
+        self,
+        entity,
+        chat_id,
+        *,
+        verdict=None,
+        change_kind="standing_refreshed",
+        observed_at=None,
+        refresh_metadata=False,
     ):
         started = observed_at or datetime.now(UTC)
         when = started
@@ -413,7 +422,11 @@ class GroupTracker:
             )
         )
         self._seen.pop(chat_id, None)
-        if isinstance(result, dict) and result.get("transition") and result.get("is_admin") is True:
+        if (
+            isinstance(result, dict)
+            and result.get("is_active") is True
+            and (refresh_metadata or (result.get("transition") and result.get("is_admin") is True))
+        ):
             await self.remember(entity, chat_id)
             await self.snapshot(entity, chat_id)
         return result
@@ -424,29 +437,54 @@ class GroupTracker:
         ):
             return
         try:
-            async with asyncio.timeout(5), self._slots:
-                users = await self.client.get_participants(
-                    entity, filter=types.ChannelParticipantsAdmins(), limit=200
-                )
-            admins = []
+            response = await self.full_group(entity, chat_id)
+            full = getattr(response, "full_chat", None)
+            roster = getattr(full, "participants", None)
+            roles = None
+            if isinstance(entity, types.Chat) and isinstance(roster, types.ChatParticipants):
+                roles = {item.user_id: item for item in roster.participants}
+                users = response.users
+            elif isinstance(entity, types.Chat) and callable(self.client):
+                users = None
+            else:
+                try:
+                    async with asyncio.timeout(5), self._slots:
+                        users = await self.client.get_participants(
+                            entity, filter=types.ChannelParticipantsAdmins(), limit=200
+                        )
+                except (errors.RPCError, OSError, ValueError, TimeoutError):
+                    users = None
+            admins = [] if users is not None else None
             owner = None
-            for user in users:
+            for user in users or ():
                 if not isinstance(user, types.User) or user.bot or user.deleted:
                     continue
+                role = (
+                    roles.get(user.id) if roles is not None else getattr(user, "participant", None)
+                )
                 if isinstance(
-                    getattr(user, "participant", None),
+                    role,
                     (types.ChannelParticipantCreator, types.ChatParticipantCreator),
                 ):
                     owner = user.id
-                else:
+                elif isinstance(role, (types.ChannelParticipantAdmin, types.ChatParticipantAdmin)):
                     admins.append(user.id)
-            count = getattr(entity, "participants_count", None)
+            count = (
+                len(roster.participants)
+                if isinstance(roster, types.ChatParticipants)
+                else getattr(full, "participants_count", None)
+            )
+            if type(count) is not int or count < 0:
+                count = getattr(entity, "participants_count", None)
+            link = f"https://t.me/{entity.username}" if getattr(entity, "username", None) else None
+            if link is None:
+                link = getattr(getattr(full, "exported_invite", None), "link", None)
             await self.service.metadata(
                 chat_id,
                 owner,
                 admins,
                 count,
-                f"https://t.me/{entity.username}" if getattr(entity, "username", None) else None,
+                link,
             )
         except (errors.RPCError, OSError, ValueError, TimeoutError) as error:
             log.warning(
@@ -456,6 +494,21 @@ class GroupTracker:
                     "error_type": type(error).__name__,
                 }
             )
+
+    async def full_group(self, entity, chat_id):
+        """Read existing counts/invite data; partial lookup never fabricates an empty roster."""
+        if not callable(self.client):
+            return None
+        try:
+            async with asyncio.timeout(5), self._slots:
+                return await self.client(
+                    functions.messages.GetFullChatRequest(entity.id)
+                    if isinstance(entity, types.Chat)
+                    else functions.channels.GetFullChannelRequest(entity)
+                )
+        except (errors.RPCError, OSError, ValueError, TimeoutError):
+            log.warning({"event": "group_full_metadata_unavailable", "chat_id": chat_id})
+            return None
 
     async def send_failure(self, chat_id, error):
         known = await self.service.get(chat_id)

@@ -73,13 +73,13 @@ class GroupRepository:
 
     async def metadata(self, chat_id, owner_id, admin_ids, member_count, link):
         await self.connection.execute(
-            """UPDATE bot_groups SET owner_id=COALESCE($3,owner_id),admin_ids=$4::jsonb,
+            """UPDATE bot_groups SET owner_id=COALESCE($3,owner_id),admin_ids=COALESCE($4::jsonb,admin_ids),
             member_count=COALESCE($5,member_count),link=COALESCE($6,link),updated_at=now(),revision=revision+1
             WHERE telegram_account_id=$1 AND chat_id=$2""",
             self.bot_id,
             chat_id,
             owner_id,
-            json.dumps(admin_ids),
+            json.dumps(admin_ids) if admin_ids is not None else None,
             member_count,
             link,
         )
