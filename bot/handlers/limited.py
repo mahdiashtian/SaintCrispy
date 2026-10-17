@@ -56,7 +56,11 @@ class LimitedHandlers:
         now = time.monotonic()
         while self._warnings and next(iter(self._warnings.values())) <= now:
             self._warnings.popitem(last=False)
-        owner = None if event.chat_id < 0 and reason == "group_rate_limited" else event.sender_id
+        owner = (
+            None
+            if event.chat_id < 0 and reason in {"group_rate_limited", "group_gap_limited"}
+            else event.sender_id
+        )
         key = owner, event.chat_id, reason
         if self._error_replies >= 32 or (reason and self._warnings.get(key, 0) > now):
             self._count("link_error_replies_suppressed")

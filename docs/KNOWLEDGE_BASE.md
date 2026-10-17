@@ -5,6 +5,31 @@ failed approaches and decisions for all providers. Read it before investigating 
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
 
+## Administrator rate exemption and independent controls (October 17)
+
+Download admission previously treated all user IDs identically, so even the
+configured root and SQL-authorized delegated bot admins were rate-limited. The
+production repository now receives `MAIN_ADMIN_ID` and reads delegated roles
+fresh from bot-scoped SQL. Exempt admissions retain transactional registration
+and group permissions but spend no user/group rate timestamps. A Telegram group
+owner/admin snapshot is not an installation role. Revocation must never depend
+on a cached user profile.
+
+Four independent switches control user/group minute quotas and optional gaps.
+Gap seconds are 1–3600, initially disabled; changing a number does not toggle it.
+Do not implement disabled quotas by appending unbounded timestamps, or discard
+all timestamps outside 60 seconds before checking a longer gap. Keep the newest
+1000 ordinary admissions and read the last accepted time before pruning the
+rolling view. Report the longer wait when both quota and gap apply to a subject.
+Existing revision-13 tables support this without a new migration or Redis reset.
+
+Dedicated workstation PostgreSQL tests verified fresh grant/revoke/ban handling,
+cross-instance/cross-chat races, no admin group-slot consumption, transactional
+rollback, owner-bound quality clicks, live panel persistence and 1005 accepted
+ordinary requests with quotas disabled and bounded storage. Telegram is simulated
+in these tests; there is no production/live throughput claim. See the
+[policy, settings and verification details](REQUEST_LIMITS.md).
+
 ## Group/member field and ingestion audit (October 17)
 
 Compared the actual Couplyo group, membership and roster models against the

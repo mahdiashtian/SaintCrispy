@@ -145,3 +145,66 @@ async def test_help_reads_current_quota_values_instead_of_the_startup_interval()
     values.update(user_limit=5, group_limit=12)
     text, _ = await help_view(7, topic="limits", quota_limits=loader)
     assert "5 درخواست" in text and "12 لینک" in text
+
+
+@pytest.mark.parametrize(
+    "label,action",
+    [
+        (b.USER_GAP, "user_gap"),
+        (b.GROUP_GAP, "group_gap"),
+    ],
+)
+async def test_gap_inputs_keep_parent_menu_and_pass_seconds(label, action):
+    conversations, service = ConversationService(MemoryStateStorage()), admin()
+    await conversations.set_state(999, 999, CS.ADMIN_DOWNLOAD_SETTINGS)
+    await send(event(label), service, conversations)
+    assert (await conversations.get_data(999, 999))["action"] == action
+    await send(event("120"), service, conversations)
+    service.mutate.assert_awaited_with(999, action, value=120)
+    assert await conversations.get_state(999, 999) is CS.ADMIN_DOWNLOAD_SETTINGS
+
+
+@pytest.mark.parametrize(
+    "label,action,field,default",
+    [
+        (b.USER_QUOTA_TOGGLE, "user_quota_toggle", "user_quota_enabled", True),
+        (b.GROUP_QUOTA_TOGGLE, "group_quota_toggle", "group_quota_enabled", True),
+        (b.USER_GAP_TOGGLE, "user_gap_toggle", "user_gap_enabled", False),
+        (b.GROUP_GAP_TOGGLE, "group_gap_toggle", "group_gap_enabled", False),
+    ],
+)
+async def test_each_rate_switch_works_in_both_directions(label, action, field, default):
+    conversations, service = ConversationService(MemoryStateStorage()), admin()
+    await conversations.set_state(999, 999, CS.ADMIN_DOWNLOAD_SETTINGS)
+    for current in (default, not default):
+        service.options.return_value[field] = current
+        await send(event(label), service, conversations)
+        service.mutate.assert_awaited_with(999, action, value=not current)
+        assert await conversations.get_state(999, 999) is CS.ADMIN_DOWNLOAD_SETTINGS
+
+
+async def test_start_and_help_show_disabled_quotas_and_live_gaps():
+    from bot.handlers.help import help_view
+    from bot.handlers.start import handle_start
+
+    values = {
+        "user_limit": 3,
+        "group_limit": 9,
+        "user_quota_enabled": False,
+        "group_quota_enabled": False,
+        "user_gap_enabled": True,
+        "user_gap_seconds": 17,
+        "group_gap_enabled": True,
+        "group_gap_seconds": 23,
+    }
+    loader = AsyncMock(return_value=values)
+    for topic in ("home", "limits"):
+        text, _ = await help_view(7, topic=topic, quota_limits=loader)
+        assert "کاربر خاموش" in text and "گروه خاموش" in text
+        assert "17 ثانیه" in text and "23 ثانیه" in text
+        assert "3 درخواست" not in text and "9 لینک" not in text
+        assert "ادمین‌های ثبت‌شده" in text
+    actual = event(owner=7)
+    await handle_start(actual, quota_limits=loader)
+    text = actual.respond.call_args.args[0]
+    assert "کاربر خاموش" in text and "17 ثانیه" in text and "3 درخواست" not in text

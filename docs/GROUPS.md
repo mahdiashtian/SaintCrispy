@@ -54,9 +54,14 @@ USER_REQUEST_INTERVAL_SECONDS=60
 
 The group limit accepts integers 1-1000 and defaults to five. It applies to the
 whole group across users and providers in a **rolling 60-second window**, not a
-calendar-minute counter. The existing per-user interval still applies across
-private chats and groups. A quality click does not consume another group link;
-the existing download-stage user interval still applies to quality selections.
+calendar-minute counter. `/admin` → download settings changes user/group minute
+quotas, independently enables/disables each quota, and configures optional user
+and group gaps (1–3600 seconds, initially off). User limits span private/group
+chats and quality selections use their own download-stage window. A quality click
+does not consume another group link. Main/delegated bot admins are rate-exempt
+and consume no group slots; Telegram group-admin rights alone are not exempt.
+Disabling the global group quota disables per-group quota enforcement while
+retaining their numeric overrides. See [the current rate policy](REQUEST_LIMITS.md).
 
 PostgreSQL locks the bot/group row and checks both quotas in one private Unit of
 Work. Accepted links register the user and own the per-user/chat `INSPECTING`

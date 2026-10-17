@@ -17,6 +17,11 @@ The old `request_limits` table/history and revisions 1–12 remain unchanged.
 `app_settings.user_links_per_minute` and `group_links_per_minute` (setting keys,
 not columns) supply fresh admission configuration; group-specific overrides
 remain on `bot_groups.links_per_minute`.
+The same `app_settings` now holds independent quota/gap enable flags and gap
+seconds; existing timestamp arrays retain the latest accepted time for gaps up
+to one hour. Storage is bounded at 1000 timestamps even with quotas off. The
+[administrator exemption and rate controls](REQUEST_LIMITS.md) require no schema
+revision beyond 13 and do not erase existing request history.
 
 The [October 17 group-data audit](GROUP_DATA_PARITY_20261017.md) checks applicable
 Couplyo group, membership and roster fields against the installed schema, with

@@ -365,7 +365,13 @@ private conversation. The bot replies to the link with its quality menu; its
 sender chooses, and progress/files stay in that group. Set
 `GROUP_LINKS_PER_MINUTE=5` in `.env` for the initial shared rolling 60-second group quota.
 The main administrator can change the user limit and default group limit immediately
-through `/admin` → download settings, or override one group's limit. Every format
+through `/admin` → download settings, or override one group's limit. The panel also
+provides independent on/off switches for user/group minute quotas and optional
+user/group gaps of 1–3600 seconds (gaps initially off). The main administrator and
+delegated bot administrators are exempt from these rate controls and consume no
+group slots. Roles and settings are checked fresh from SQL; changes apply without
+a restart. See [request-limit controls and semantics](docs/REQUEST_LIMITS.md).
+Every ordinary-user format
 selection consumes the user's download quota, including old menus/cached files;
 a full download quota also blocks new links. Inspection has its own window so
 showing a menu does not block the first download. Callback rejections answer the

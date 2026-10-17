@@ -448,7 +448,10 @@ class Container:
             admission_repository=workflow,
             groups=groups,
             quota_repository=DownloadQuotaRepository(
-                pool, bot.id, group_default=settings.group_links_per_minute
+                pool,
+                bot.id,
+                group_default=settings.group_links_per_minute,
+                main_admin_id=settings.main_admin_id,
             ),
         )
         self.client = client

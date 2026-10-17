@@ -5,6 +5,9 @@ native inline controls for cleanup, directories, watch switches and confirmation
 The previous conversion of all inline controls to reply text has been removed.
 Download settings expose the live per-user and
 default per-group requests/minute limits, plus the existing per-group override.
+They also expose independent user/group quota switches and optional gap switches
+with editable seconds. Main and delegated bot admins consume no download rate
+slots. See [the current request-limit policy](REQUEST_LIMITS.md).
 Revision 13 adds persistent rolling user windows and adopts legacy timestamps.
 Read the [security review and verification scope](SECURITY_REVIEW.md).
 
@@ -38,6 +41,7 @@ roles do not change installation privileges.
 | Grant/revoke delegated roles; ban/unban download users | Yes | No |
 | Global download maintenance switch; lifecycle notifications | Yes | No |
 | Per-group rolling link quota | Yes | No |
+| User/group rate switches, minute quotas and request gaps | Yes | No |
 | Broadcast or forward to private subscribers / eligible groups | Yes | No |
 | Leave a group; cancel pending administration jobs | Yes | No |
 | Bounded CSV export and user-name import | Yes | No |

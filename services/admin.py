@@ -6,24 +6,27 @@ import logging
 
 from repositories.interfaces.control import ControlRepository, ObjectCache
 from schemas.admin import AdminDataFile, SettingSnapshot
+from schemas.download_limits import NUMERIC_CONTROLS, TOGGLE_CONTROLS, DownloadLimits
 from schemas.media import DownloadError
 
 log = logging.getLogger("activity")
-ROOT_ACTIONS = {
-    "grant",
-    "revoke",
-    "ban",
-    "unban",
-    "limit",
-    "user_quota",
-    "group_quota",
-    "pause",
-    "notifications",
-    "broadcast",
-    "forward",
-    "leave",
-    "import_users",
-}
+ROOT_ACTIONS = (
+    {
+        "grant",
+        "revoke",
+        "ban",
+        "unban",
+        "limit",
+        "pause",
+        "notifications",
+        "broadcast",
+        "forward",
+        "leave",
+        "import_users",
+    }
+    | NUMERIC_CONTROLS.keys()
+    | TOGGLE_CONTROLS.keys()
+)
 
 
 class AdminService:
@@ -193,13 +196,15 @@ class AdminService:
                     raise DownloadError("شناسه گروه و سقف ۱ تا ۱۰۰۰ را وارد کن.")
                 if not await uow.admin.group_limit(target, value):
                     raise DownloadError("این گروه هنوز ثبت نشده است.")
-            elif action in {"user_quota", "group_quota"}:
-                if type(value) is not int or not 1 <= value <= 1000:
-                    raise DownloadError("سقف باید عددی از ۱ تا ۱۰۰۰ باشد.")
-                await uow.admin.set_setting(
-                    "user_links_per_minute" if action == "user_quota" else "group_links_per_minute",
-                    value,
-                )
+            elif action in NUMERIC_CONTROLS:
+                maximum = 3600 if action.endswith("_gap") else 1000
+                if type(value) is not int or not 1 <= value <= maximum:
+                    raise DownloadError(f"مقدار باید عددی از ۱ تا {maximum} باشد.")
+                await uow.admin.set_setting(NUMERIC_CONTROLS[action], value)
+            elif action in TOGGLE_CONTROLS:
+                if type(value) is not bool:
+                    raise DownloadError("مقدار تنظیم معتبر نیست.")
+                await uow.admin.set_setting(TOGGLE_CONTROLS[action], value)
             elif action in {"pause", "notifications"}:
                 if type(value) is not bool:
                     raise DownloadError("مقدار تنظیم معتبر نیست.")
@@ -257,14 +262,15 @@ class AdminService:
                 await self.cache.read("setting", key, load) if self.cache else await load()
             ).value
 
+        defaults = DownloadLimits(group_links_per_minute=self.groups.links_per_minute).settings()
         return {
             "root": root,
             "downloads_enabled": await option("downloads_enabled"),
             "lifecycle_notifications": await option("lifecycle_notifications"),
-            "user_links_per_minute": await self.repository.setting("user_links_per_minute", 1),
-            "group_links_per_minute": await self.repository.setting(
-                "group_links_per_minute", self.groups.links_per_minute
-            ),
+            **{
+                key: await self.repository.setting(key, default)
+                for key, default in defaults.items()
+            },
         }
 
     def validate_job(self, kind, payload):

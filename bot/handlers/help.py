@@ -23,7 +23,7 @@ async def help_view(
     user_limit = limits["user_limit"] if limits else None
     group_limit = limits["group_limit"] if limits else group_limit
     text = (
-        help_text(interval, group_limit, user_limit=user_limit)
+        help_text(interval, group_limit, user_limit=user_limit, rate_limits=limits)
         + f"\n\n💬 ربات: {bot_handle(bot_username)}"
         if topic == "home"
         else topic_text(
@@ -32,6 +32,7 @@ async def help_view(
             group_limit=group_limit,
             youtube_enabled=(access is None or access.allows("youtube", owner_id)),
             user_limit=user_limit,
+            rate_limits=limits,
         )
     )
     if text is None:

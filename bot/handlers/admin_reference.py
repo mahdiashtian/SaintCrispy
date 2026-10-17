@@ -14,7 +14,21 @@ from bot.texts import admin_buttons as b
 from bot.texts import couplyo_admin as copy
 from bot.texts.admin import PROMPTS
 from core.enums import ConversationState as CS
+from schemas.download_limits import NUMERIC_CONTROLS, TOGGLE_CONTROLS, DownloadLimits
 from schemas.media import DownloadError
+
+RATE_INPUTS = {
+    b.USER_LIMIT: "user_quota",
+    b.GROUP_LIMIT: "group_quota",
+    b.USER_GAP: "user_gap",
+    b.GROUP_GAP: "group_gap",
+}
+RATE_TOGGLES = {
+    b.USER_QUOTA_TOGGLE: "user_quota_toggle",
+    b.GROUP_QUOTA_TOGGLE: "group_quota_toggle",
+    b.USER_GAP_TOGGLE: "user_gap_toggle",
+    b.GROUP_GAP_TOGGLE: "group_gap_toggle",
+}
 
 CATEGORIES = {
     b.ADMINS: CS.ADMIN_CAT_ADMINS_PANEL,
@@ -179,13 +193,24 @@ async def invoke(event, admin, action, value="0", presentation=None):
 async def download_settings(event, admin, conversations):
     await admin.authorize(event.sender_id, root=True)
     options = await admin.options(event.sender_id)
+    limits = DownloadLimits.from_settings(options)
+
+    def status(enabled):
+        return "روشن" if enabled else "خاموش"
+
     await conversations.set_state(event.sender_id, event.chat_id, CS.ADMIN_DOWNLOAD_SETTINGS)
     await event.respond(
         "⚙️ تنظیمات دانلود\n\n"
-        f"هر کاربر: {options['user_links_per_minute']} درخواست در دقیقه\n"
-        f"پیش‌فرض هر گروه: {options['group_links_per_minute']} لینک در دقیقه\n"
+        f"هر کاربر: {limits.user_links_per_minute} درخواست در دقیقه · {status(limits.user_quota_enabled)}\n"
+        f"پیش‌فرض هر گروه: {limits.group_links_per_minute} لینک در دقیقه · {status(limits.group_quota_enabled)}\n"
+        f"فاصلهٔ درخواست کاربر: {limits.user_gap_seconds} ثانیه · {status(limits.user_gap_enabled)}\n"
+        f"فاصلهٔ لینک گروه: {limits.group_gap_seconds} ثانیه · {status(limits.group_gap_enabled)}\n"
         f"دریافت فایل: {'روشن' if options['downloads_enabled'] else 'خاموش'}\n"
         f"اعلان گروه: {'روشن' if options['lifecycle_notifications'] else 'خاموش'}\n\n"
+        "مدیر اصلی و همهٔ ادمین‌های ثبت‌شدهٔ ربات از سقف و فاصلهٔ درخواست معاف هستند "
+        "و سهمیهٔ گروه را مصرف نمی‌کنند. ادمینِ صرفاً گروه، این معافیت را ندارد.\n\n"
+        "سقف دقیقه‌ای و فاصلهٔ هر بخش مستقل روشن/خاموش می‌شوند؛ تغییر عدد، آن را روشن نمی‌کند. "
+        "خاموش کردن سقف گروه، سقف اختصاصی گروه‌ها را هم غیرفعال می‌کند.\n"
         "سهمیهٔ کاربر بین همهٔ گروه‌ها و خصوصی مشترک است. انتخاب هر فرمت، حتی از لینک قبلی، "
         "سهمیهٔ دریافت را مصرف می‌کند. پس از پرشدن آن، لینک تازه هم تا پایان انتظار پذیرفته نمی‌شود.\n"
         "بازکردن منوی کیفیت، اولین دریافت را مسدود نمی‌کند. تنظیم اختصاصی گروه بر پیش‌فرض اولویت دارد.",
@@ -413,18 +438,21 @@ async def _handle_message(event, admin, conversations, presentation=None):
             else:
                 await panel(event, admin, conversations, CATEGORIES[raw], presentation)
         elif state is CS.ADMIN_DOWNLOAD_SETTINGS:
-            if raw in {b.USER_LIMIT, b.GROUP_LIMIT, b.LIMIT}:
+            if raw in RATE_INPUTS or raw == b.LIMIT:
                 await ask(
                     event,
                     admin,
                     conversations,
-                    {
-                        b.USER_LIMIT: "user_quota",
-                        b.GROUP_LIMIT: "group_quota",
-                        b.LIMIT: "limit",
-                    }[raw],
+                    "limit" if raw == b.LIMIT else RATE_INPUTS[raw],
                     state,
                 )
+            elif raw in RATE_TOGGLES:
+                options = await admin.options(event.sender_id)
+                action = RATE_TOGGLES[raw]
+                field = TOGGLE_CONTROLS[action]
+                current = options.get(field, DownloadLimits().settings()[field])
+                await admin.mutate(event.sender_id, action, value=not current)
+                await download_settings(event, admin, conversations)
             elif raw in {b.DOWNLOAD_TOGGLE, b.NOTIFICATIONS_TOGGLE}:
                 options = await admin.options(event.sender_id)
                 field = (
@@ -658,7 +686,7 @@ async def menu_action(event, admin, conversations, state, raw, presentation):
 async def handle_input(event, admin, conversations, data, presentation):
     action, owner, raw = data["action"], event.sender_id, (event.raw_text or "").strip()
     parent = CS(data["parent"])
-    if action in {"user_quota", "group_quota"}:
+    if action in NUMERIC_CONTROLS:
         await admin.mutate(owner, action, value=int(raw))
         await download_settings(event, admin, conversations)
         return

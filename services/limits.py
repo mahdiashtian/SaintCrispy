@@ -13,7 +13,7 @@ def check_file_size(size: int | None, maximum: int) -> None:
 
 
 class RequestLimiter:
-    """One interval per user and stage, across all chats; production uses PostgreSQL."""
+    """Live SQL quotas and optional gaps; legacy callers retain interval admission."""
 
     def __init__(
         self,
@@ -126,9 +126,14 @@ class RequestLimiter:
             until = datetime.now(timezone(timedelta(hours=3, minutes=30))) + timedelta(
                 seconds=remaining
             )
-            subject = "این گروه" if reason == "group_rate_limited" else "هر کاربر"
+            subject = "این گروه" if reason.startswith("group_") else "هر کاربر"
+            rule = (
+                f"فاصلهٔ درخواست‌های {subject}: {limit} ثانیه."
+                if reason.endswith("gap_limited")
+                else f"سقف {subject}: {limit} درخواست در دقیقه."
+            )
             raise DownloadError(
-                f"⏳ سقف {subject}: {limit} درخواست در دقیقه.\n"
+                f"⏳ {rule}\n"
                 f"{remaining} ثانیه صبر کن؛ ساعت {until:%H:%M:%S} به وقت تهران دوباره امتحان کن.",
                 code=reason,
             )

@@ -42,6 +42,7 @@ async def handle_start(
             interval,
             youtube_enabled=(access is None or access.allows("youtube", event.sender_id)),
             user_limit=limits["user_limit"] if limits else None,
+            rate_limits=limits,
         )
         if management is not None:
             credit = await management.developer_credit()
