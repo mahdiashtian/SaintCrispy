@@ -102,8 +102,10 @@ ROSTER_CRAWL_MAX_REQUESTS=400
 ROSTER_CRAWL_DELAY_SECONDS=1
 ```
 
-Only verified active administrator groups are eligible. Missing crawl jobs are
-seeded in bounded batches. Each claim has a fresh owner token and expiring SQL
+Only verified active administrator groups are eligible. Automatic runs are created
+by admin transitions, with a fresh run after every re-promotion. Idle/startup polls
+never seed missing jobs or reannounce historical completed runs. Explicit manual
+admin crawl requests remain available. Each claim has a fresh owner token and expiring SQL
 lease, checked again before a page RPC and before committing its result. A stale
 worker cannot publish a page or finish a new owner's run.
 

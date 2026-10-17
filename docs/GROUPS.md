@@ -137,8 +137,12 @@ activity. A 2048-entry, 60-second observation cache, per-active-chat keyed locks
 slots and finite deadlines bound metadata work. Definite group entities prevent
 phantom groups from users/broadcasts. Fresh activity after a known removal can
 request a definite self-membership probe before reactivation; a message alone
-does not reverse a recorded removal. Startup registers handlers before catch-up;
-eligible administrator groups receive a separate resumable roster crawl.
+does not reverse a recorded removal. Startup registers handlers before catch-up.
+Each actual transition into active admin standing starts a fresh roster run,
+including promotion after demotion. Startup does not seed jobs for existing admin
+groups or replay completed progress reports. Interrupted promotion work retains
+its run and resumes through its existing lease/checkpoint. Migration carries only
+pending work. Report rows include the group's name and exact numeric chat ID.
 Only updates Telegram actually delivers can be recorded; this is not a historical
 inventory of groups the bot left before this feature was installed.
 

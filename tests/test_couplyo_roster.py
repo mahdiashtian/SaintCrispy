@@ -161,7 +161,7 @@ async def test_roster_reactivation_fences_older_explicit_leave(app):
     assert await app.pool.fetchval("SELECT is_active FROM group_memberships") is True
 
 
-async def test_demotion_releases_claim_and_promotion_wakes_only_rights_pause(app):
+async def test_demotion_releases_claim_and_promotion_starts_fresh_run(app):
     service = await setup(app)
     groups = GroupService(GroupRepository(app.pool, app.bot), app.factory, roster_enabled=True)
     crawl = await service.claim()
@@ -179,7 +179,7 @@ async def test_demotion_releases_claim_and_promotion_wakes_only_rights_pause(app
         )
     )
     current = await service.claim()
-    assert current and current.run_id == crawl.run_id
+    assert current and current.run_id != crawl.run_id
     await service.pause(current, "flood_wait", 200, flood=True)
     assert not await service.enqueue(CHAT)
     assert await service.claim() is None

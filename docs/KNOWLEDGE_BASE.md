@@ -7,6 +7,15 @@ rather than rewriting historical failures as successes.
 
 ## Public YouTube, download history and group follow-up (October 17)
 
+Later October 17 correction: the operator reported a completed crawl message on
+startup and requested promotion-only automatic runs plus numeric IDs in report
+rows. Idle polling had both seeded missing jobs for existing admins and replayed
+historical summary data. Both triggers are removed. Reporting activates only when
+actual queued work is claimed; a fresh promotion resets the run/counters and
+fences previous workers, including after demotion. Interrupted work can resume its
+existing run, and explicit manual admin requests remain supported. See the
+[dated follow-up](GROUP_FOLLOWUP_20261017.md#promotion-only-automatic-runs).
+
 The operator removed the temporary owner-only YouTube policy. Public inspection,
 quality selection and cached delivery now follow the same admission/ownership
 rules as other providers. Start/sites/help include YouTube even without a configured

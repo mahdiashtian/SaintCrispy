@@ -1,5 +1,34 @@
 # Group, history and availability follow-up — October 17, 2026
 
+## Promotion-only automatic runs
+
+The later operator report contained a completed crawl message sent on startup.
+Code inspection found two independent causes: every `claim()` seeded jobs for
+existing administrator groups with no crawl row, and idle worker polls reported
+historical summaries without any current work. Both automatic startup behaviors
+are removed. This does not establish whether the supplied message represented
+new network crawling or just reporting existing results on that server.
+
+Each applied transition into admin standing now requests a fresh run even if the
+previous run is paused/running/finished/failed. Run identity, counters, filter/pass
+and offsets reset atomically with the group transition. Old workers cannot write
+or finish the replacement run. Duplicate unchanged admin evidence does not reset
+it. Interrupted promotion work still resumes its existing run after a restart;
+that is recovery of an existing obligation, not a new startup-triggered crawl.
+Migration carries only pending crawl work. Explicit manual requests remain
+supported. All recent-group rows show an escaped name and numeric ID in code.
+
+Workstation regressions cover idle startup with/without an existing report anchor,
+admin groups missing a job, completed and interrupted runs, repeated promotion
+from running/done/paused/failed states, stale-worker fencing, duplicate rights and
+numeric-ID rendering. PostgreSQL/Redis checks use dedicated local test data;
+Telegram is simulated and the separate production host is not accessed.
+
+Validation: 141 affected group/roster/probe/architecture cases passed with real
+local PostgreSQL 16 and Redis, zero skips. The final focused trigger suite passed
+15 cases, including four additional migration/report-recovery cases (145 distinct
+passing cases across both runs). Ruff and formatting passed for 358 Python files.
+
 ## Verified code findings
 
 The supplied Mdi Family notices establish that an add was recorded and admin

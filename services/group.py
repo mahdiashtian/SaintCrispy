@@ -188,7 +188,7 @@ class GroupService(TransactionalService):
                 and result["is_active"] is True
                 and result["is_admin"] is True
             ):
-                await uow.roster_crawls.enqueue(change.chat_id)
+                await uow.roster_crawls.enqueue(change.chat_id, restart=True)
             if (
                 self.roster_enabled
                 and result
@@ -338,8 +338,10 @@ class GroupService(TransactionalService):
                         )
                         management_changed = True
                 if self.roster_enabled:
+                    previous_crawl = await uow.roster_crawls.get(old_id)
                     await uow.roster_crawls.suspend(old_id, True, reason="migrated")
-                    await uow.roster_crawls.enqueue(new_id)
+                    if previous_crawl and previous_crawl.status in {"queued", "running", "paused"}:
+                        await uow.roster_crawls.enqueue(new_id)
                 if (
                     result
                     and self.main_admin_id

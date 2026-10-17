@@ -194,11 +194,11 @@ async def test_private_report_reuses_durable_message_and_stays_running_during_pa
         edit_message=AsyncMock(return_value=SimpleNamespace(id=22)),
     )
     report = RosterProgress(client, service, 7, interval=0)
-    await report.update()
+    await report.update(active=True)
     assert saved == {"owner": 7, "message_id": 22}
     assert "در حال" in client.send_message.call_args.args[1]
     service.summary.return_value = summary(0)
-    await RosterProgress(client, service, 7, interval=0).update()
+    await report.update()
     client.send_message.assert_awaited_once()
     assert client.edit_message.call_args.args[:2] == (7, 22)
     assert "تمام شد" in client.edit_message.call_args.args[2]
@@ -208,4 +208,4 @@ async def test_private_report_reuses_durable_message_and_stays_running_during_pa
 
 async def test_progress_send_failure_does_not_escape_into_crawling():
     service = SimpleNamespace(summary=AsyncMock(side_effect=OSError()))
-    await RosterProgress(None, service, 7).update()
+    await RosterProgress(None, service, 7).update(active=True)

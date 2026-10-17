@@ -29,7 +29,6 @@ class RosterCrawlService:
 
     async def claim(self):
         async with self.uow_factory() as uow:
-            await uow.roster_crawls.seed_missing()
             return await uow.roster_crawls.claim(
                 uuid.uuid4().hex, self.lease_seconds, self.max_concurrent
             )

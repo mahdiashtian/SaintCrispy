@@ -57,7 +57,7 @@ def progress_text(summary, recent):
         total = pd(row["claimed_total"]) if row["claimed_total"] is not None else "نامعلوم"
         reason = reasons.get(row["stopped_because"], "")
         lines.append(
-            f"• «{html.escape(row['title'] or str(row['chat_id']))}»: {pd(row['seen_unique'])} از {total} عضو · {pd(row['skipped_accounts'])} بات/حذف‌شده · {states[row['status']]}"
+            f"• «{html.escape(row['title'] or 'بدون نام')}» · <code>{row['chat_id']}</code>: {pd(row['seen_unique'])} از {total} عضو · {pd(row['skipped_accounts'])} بات/حذف‌شده · {states[row['status']]}"
             + (f" ({reason})" if reason else "")
         )
     return "\n".join(lines)
@@ -70,11 +70,15 @@ class RosterProgress:
         self.lock = asyncio.Lock()
         self.last_at, self.last_phase, self.last_text = 0, None, None
         self.retry_at = 0
+        self.active = False
 
-    async def update(self):
+    async def update(self, *, active=False):
         if not self.owner:
             return
         async with self.lock:
+            self.active = self.active or active
+            if not self.active:
+                return
             if time.monotonic() < self.retry_at:
                 return
             try:
@@ -88,6 +92,7 @@ class RosterProgress:
                     recent = await self.service.recent()
                     text = progress_text(summary, recent)
                     if text == self.last_text:
+                        self.active = bool(summary["pending"])
                         return
                     saved = await self.service.report_state()
                     if self.rate:
@@ -131,6 +136,7 @@ class RosterProgress:
                             {"owner": self.owner, "message_id": message.id}
                         )
                     self.last_at, self.last_phase, self.last_text = time.monotonic(), phase, text
+                    self.active = bool(summary["pending"])
             except errors.FloodWaitError as error:
                 self.retry_at = time.monotonic() + max(1, error.seconds)
                 if self.rate:

@@ -274,7 +274,7 @@ class RosterCrawler:
             try:
                 crawl = await self.service.claim()
                 if self.progress:
-                    await self.progress.update()
+                    await self.progress.update(active=crawl is not None)
                 if crawl:
                     await self.run(crawl)
                     if self.progress:

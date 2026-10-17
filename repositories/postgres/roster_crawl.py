@@ -20,14 +20,16 @@ class RosterCrawlRepository:
         )
         return RosterCrawl(**dict(row)) if row else None
 
-    async def enqueue(self, chat_id):
-        woke = await self.connection.fetchval(
-            """UPDATE group_roster_crawls c SET available_at=now(),stopped_because=NULL
+    async def enqueue(self, chat_id, *, restart=False):
+        woke = None
+        if not restart:
+            woke = await self.connection.fetchval(
+                """UPDATE group_roster_crawls c SET available_at=now(),stopped_because=NULL
         FROM bot_groups g WHERE c.telegram_account_id=$1 AND c.chat_id=$2 AND c.status='paused' AND c.stopped_because='not_admin'
         AND g.telegram_account_id=c.telegram_account_id AND g.chat_id=c.chat_id AND g.is_active IS TRUE AND g.is_admin IS TRUE AND g.migrated_to IS NULL RETURNING c.run_id""",
-            self.bot_id,
-            chat_id,
-        )
+                self.bot_id,
+                chat_id,
+            )
         if woke:
             return True
         value = await self.connection.fetchval(
@@ -39,10 +41,11 @@ class RosterCrawlRepository:
         claimed_total=NULL,seen_unique=0,stored_new=0,skipped_accounts=0,requests_made=0,
         flood_waits=0,ambiguous_visits=0,converged=FALSE,stopped_because=NULL,last_error=NULL,
         locked_by=NULL,locked_until=NULL,available_at=now(),started_at=NULL,finished_at=NULL,updated_at=now()
-        WHERE group_roster_crawls.status IN ('done','failed','cancelled') RETURNING run_id""",
+        WHERE $4::boolean OR group_roster_crawls.status IN ('done','failed','cancelled') RETURNING run_id""",
             self.bot_id,
             chat_id,
             uuid.uuid4().hex,
+            restart,
         )
         if value:
             await self.connection.execute(
@@ -52,19 +55,6 @@ class RosterCrawlRepository:
                 value,
             )
         return value is not None
-
-    async def seed_missing(self, limit=100):
-        rows = await self.connection.fetch(
-            """SELECT g.chat_id FROM bot_groups g
-        LEFT JOIN group_roster_crawls c USING(telegram_account_id,chat_id)
-        WHERE g.telegram_account_id=$1 AND g.is_active IS TRUE AND g.is_admin IS TRUE
-        AND g.migrated_to IS NULL AND c.chat_id IS NULL ORDER BY g.chat_id LIMIT $2""",
-            self.bot_id,
-            limit,
-        )
-        for row in rows:
-            await self.enqueue(row["chat_id"])
-        return len(rows)
 
     async def suspend(self, chat_id, removed=False, *, reason=None):
         await self.connection.execute(
