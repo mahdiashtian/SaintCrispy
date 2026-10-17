@@ -668,6 +668,10 @@ async def menu_action(event, admin, conversations, state, raw, presentation):
             from bot.handlers.admin_maintenance import open_cleanup
 
             await open_cleanup(event, admin)
+        elif raw == b.RESET_DATABASE:
+            from bot.handlers.admin_maintenance import reset_callback
+
+            await reset_callback(event, admin, "resetprepare", "0")
         else:
             return False
     elif state in {

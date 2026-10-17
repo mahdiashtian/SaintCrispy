@@ -9,7 +9,10 @@ def picker(owner):
     return [
         [button(owner, text.ENTITIES[ent.code][0], "cleanfilter", encode(ent, ent.default))]
         for ent in ENTITIES
-    ] + [[button(owner, "✖️ بستن", "cleanclose")]]
+    ] + [
+        [button(owner, "🗑 پاکسازی کامل دیتابیس", "resetprepare")],
+        [button(owner, "✖️ بستن", "cleanclose")],
+    ]
 
 
 def builder(owner, ent, masks, *, deletable):

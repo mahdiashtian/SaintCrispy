@@ -21,11 +21,16 @@ async def run_with_recovery(container_factory) -> None:
     delay = 2
     while True:
         fields = {}
+        container = None
         try:
             async with container_factory() as container:
                 await container.client.run_until_disconnected()
+                if getattr(container, "stop_requested", False):
+                    return
                 delay = 2
         except TRANSIENT_FAILURES as error:
+            if getattr(container, "stop_requested", False):
+                return
             fields = error_fields(error)
         # The prior container has completely cleaned up before a replacement starts.
         print(

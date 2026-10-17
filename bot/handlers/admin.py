@@ -63,6 +63,14 @@ async def callback(event, admin, presentation=None, conversations=None):
     from bot.handlers.admin_reference import Invocation
 
     if conversations is not None and not isinstance(event, Invocation) and private(event):
+        if (getattr(event, "data", None) or b"").startswith(
+            f"adm:{event.sender_id}:resetconfirm:".encode("ascii")
+        ):
+            # The maintenance gate serializes resets. Holding the owner lock here
+            # would deadlock while draining another update waiting for that lock.
+            return await _callback(
+                reply_event(event, conversations, presentation), admin, presentation, conversations
+            )
         async with locks.hold(str(event.sender_id)):
             return await _callback(
                 reply_event(event, conversations, presentation), admin, presentation, conversations
@@ -180,6 +188,11 @@ async def _callback(event, admin, presentation=None, conversations=None):
             )
             text = "ارسال یادآوری برای گروه‌های خارج‌شده را تأیید می‌کنی؟"
             buttons = confirmation(owner, token)
+        elif action in {"resetprepare", "resetconfirm", "resetcancel"}:
+            from bot.handlers.admin_maintenance import reset_callback
+
+            await reset_callback(event, admin, action, value)
+            return
         elif action in {"cleanview", "cleanprepare", "cleanup", "restore"}:
             from bot.handlers.admin_maintenance import decode, open_cleanup
 

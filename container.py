@@ -51,6 +51,7 @@ from downloader_bot.downloaders.youtube.client import YouTubeClient
 from downloader_bot.downloaders.youtube.downloader import YouTubeDownloader
 from downloader_bot.downloaders.youtube.urls import network_host as youtube_network_host
 from repositories.postgres.admin import AdminRepository
+from repositories.postgres.database_reset import DatabaseResetRepository
 from repositories.postgres.download_quota import DownloadQuotaRepository
 from repositories.postgres.file_expiry import FileExpiryRepository
 from repositories.postgres.group import GroupRepository
@@ -60,11 +61,13 @@ from repositories.postgres.roster_crawl import RosterCrawlRepository
 from repositories.postgres.unit_of_work import PostgresUnitOfWork
 from repositories.postgres.workflow import WorkflowRepository
 from repositories.redis.activity import ActivityStream, LifecycleStream
+from repositories.redis.database_reset import ResetRedis
 from repositories.redis.media import FileRepository
 from repositories.redis.objects import ObjectCache
 from repositories.redis.telegram_rate import TelegramRateRepository
 from services.access import ProviderAccess
 from services.admin import AdminService
+from services.database_reset import DatabaseReset, recover_reset
 from services.download import DownloadService
 from services.group import GroupService
 from services.limits import RequestLimiter
@@ -95,6 +98,7 @@ class Container:
         self.settings = settings
         self._stack = AsyncExitStack()
         self._entered = False
+        self.stop_requested = False
 
     async def __aenter__(self):
         if self._entered:
@@ -186,6 +190,8 @@ class Container:
             redis = create_redis(settings.redis_cache_url or settings.redis_url)
             stack.push_async_callback(redis.aclose)
         coordinator = await stack.enter_async_context(pool.acquire())
+        self.reset_repository = DatabaseResetRepository(coordinator, bot_id)
+        await self.reset_repository.join_runtime()
         if not await coordinator.fetchval("SELECT pg_try_advisory_lock($1)", bot_id):
             raise RuntimeError("Another coordinator is already running for this Telegram bot")
         repository = FileRepository(pool, redis, bot_id)
@@ -196,7 +202,13 @@ class Container:
             stack.push_async_callback(self.state_redis.aclose)
         telemetry.emit("startup_progress", stage="database_initializing")
         await repository.initialize()
+        self.reset_redis = ResetRedis(self.cache_redis, self.state_redis)
+        await recover_reset(self.reset_repository, self.reset_redis)
         return pool, http, repository, coordinator
+
+    async def shutdown_after_reset(self):
+        self.stop_requested = True
+        await self.client.disconnect()
 
     async def _connect_telegram(self, telemetry, bot_id, coordinator):
         settings, stack = self.settings, self._stack
@@ -435,6 +447,30 @@ class Container:
             tracker=tracker,
             cache=groups.cache,
             bot_id=bot.id,
+        )
+
+        def seal_reset():
+            gate.seal()
+            self.stop_requested = True
+            file_expiry._pending.clear()
+            file_expiry._deleted.clear()
+
+        admin.maintenance.database_reset = DatabaseReset(
+            admin,
+            self.reset_repository,
+            self.reset_redis,
+            guard=partial(
+                gate.guard,
+                jobs=jobs,
+                workers=[*workers, file_expiry],
+                memberships=memberships,
+                groups=groups,
+                tracker=tracker,
+                cache=groups.cache,
+                bot_id=bot.id,
+            ),
+            seal=seal_reset,
+            shutdown=self.shutdown_after_reset,
         )
         recovered = await workflow.recover()
         telemetry.emit("conversations_recovered", interrupted_requests=recovered)

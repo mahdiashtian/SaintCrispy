@@ -34,6 +34,72 @@ VALUES = {
 }
 
 
+async def reset_callback(event, admin, action, value):
+    from bot.handlers.admin_render import source_reply
+    from bot.keyboards.admin import button
+
+    await admin.authorize(event.sender_id, root=True)
+    reset = admin.maintenance.database_reset
+    if reset is None:
+        raise DownloadError("پاکسازی کامل در این اجرا آماده نیست؛ ربات را به‌روز و دوباره اجرا کن.")
+    if action == "resetprepare":
+        token, counts = await reset.prepare(event.sender_id)
+        await source_reply(
+            event,
+            "⚠️ پاکسازی کامل دیتابیس\n\n"
+            f"تمام داده‌های {len(counts)} جدول برنامه برای همهٔ ربات‌های این دیتابیس حذف می‌شوند. "
+            f"تعداد فعلی: {sum(counts.values()):,} رکورد.\n\n"
+            "کاربران و ادمین‌های ثبت‌شده، گروه‌ها و اعضا، پیام‌ها و تاریخچه، فایل‌های ذخیره‌شده، "
+            "تنظیمات، حساب‌های دانلودر و عملیات در انتظار پاک می‌شوند؛ کش و صف‌های Redis همین داده‌ها هم پاک می‌شوند.\n"
+            "این حذف برگشت‌پذیر نیست. اگر لازم داری، پیش از تأیید از PostgreSQL بک‌آپ کامل بگیر.\n\n"
+            "ساختار جدول‌ها و سابقهٔ مهاجرت حفظ می‌شوند. فایل .env، نشست محلی و پیام‌های داخل تلگرام حذف نمی‌شوند.\n"
+            "پس از پاکسازی، ربات متوقف می‌شود. توکن جدید را در .env بگذار و python main.py را اجرا کن.\n\n"
+            "حذف تمام داده‌ها و توقف ربات را تأیید می‌کنی؟",
+            buttons=[
+                [button(event.sender_id, "❌ انصراف", "resetcancel", token)],
+                [
+                    button(
+                        event.sender_id, "🗑 بله، حذف تمام داده‌ها و توقف ربات", "resetconfirm", token
+                    )
+                ],
+            ],
+            edit=getattr(event, "data", None) is not None,
+        )
+    elif action == "resetcancel":
+        await reset.cancel(event.sender_id, value)
+        await source_reply(event, "پاکسازی کامل لغو شد.", buttons=None, edit=True)
+    elif action == "resetconfirm":
+        try:
+            counts = await reset.confirm(event.sender_id, value)
+            await source_reply(
+                event,
+                f"✅ پاکسازی کامل انجام شد: {len(counts)} جدول برنامه و کش و صف‌های مربوطه خالی شدند.\n"
+                "ربات متوقف می‌شود. توکن را در .env تنظیم کن و python main.py را دوباره اجرا کن.",
+                buttons=None,
+                edit=True,
+            )
+        except Exception:
+            if reset.stopped:
+                await source_reply(
+                    event,
+                    "⚠️ پاکسازی کامل تأیید نشد و ربات برای جلوگیری از ثبت مجدد داده متوقف می‌شود. "
+                    "پس از بررسی لاگ و اتصال دیتابیس و Redis، دوباره اجرا کن؛ پاکسازی ناتمام Redis پیش از شروع ربات بازیابی می‌شود.",
+                    buttons=None,
+                    edit=True,
+                )
+            else:
+                await source_reply(
+                    event,
+                    "⚠️ پاکسازی کامل انجام نشد و داده‌ها حذف نشدند. اتصال دیتابیس و Redis و لاگ خطا را بررسی کن و دوباره تأیید بگیر.",
+                    buttons=None,
+                    edit=True,
+                )
+            raise
+        finally:
+            if reset.stopped:
+                await reset.shutdown()
+
+
 def encode(entity, filters):
     return (
         ("u" if entity == "users" else "g")

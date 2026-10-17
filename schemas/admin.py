@@ -3,6 +3,9 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+RESET_DATABASE_ACTION = "reset_database"
+RESET_DATABASE_PENDING = "database_reset_pending"
+
 
 @dataclass(frozen=True)
 class AdminUser:

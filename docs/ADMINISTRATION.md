@@ -42,6 +42,7 @@ roles do not change installation privileges.
 | Global download maintenance switch; lifecycle notifications | Yes | No |
 | Per-group rolling link quota | Yes | No |
 | User/group rate switches, minute quotas and request gaps | Yes | No |
+| Full application database reset across bot IDs, with explicit confirmation and shutdown | Yes | No |
 | Broadcast or forward to private subscribers / eligible groups | Yes | No |
 | Leave a group; cancel pending administration jobs | Yes | No |
 | Bounded CSV export and user-name import | Yes | No |

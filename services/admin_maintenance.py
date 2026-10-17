@@ -42,6 +42,7 @@ class AdminMaintenance:
         self.admin = admin
         self.guard = default_guard
         self.cpu_slots = asyncio.Semaphore(2)
+        self.database_reset = None
 
     async def columns(self, connection, table):
         if table not in TABLES:

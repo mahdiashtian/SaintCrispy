@@ -5,6 +5,48 @@ failed approaches and decisions for all providers. Read it before investigating 
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
 
+## Full database reset and replay prevention (October 17)
+
+A bot-token change can leave old bot IDs, file references, settings, jobs and
+durable streams in the installation. Filtered per-account cleanup is insufficient
+for an explicit full reset. The root-only panel action now previews the global
+scope and requires a private owner-bound, expiring confirmation. It truncates all
+30 registered application tables with identity restart, preserves schema and the
+migration ledger, and clears matching Redis namespaces for SQL-known bot IDs.
+
+Do not use `TRUNCATE ... CASCADE`, `FLUSHDB`, or clear SQL while workers/handlers
+can still write. Include file-expiry buffers/workers in quiescence, seal the
+maintenance gate for destructive execution, and honor intentional shutdown in
+the coordinator recovery loop. A database-wide shared/exclusive advisory lease
+and legacy-coordinator checks refuse reset while other coordinators are active.
+
+SQL and Redis cannot commit atomically. The SQL transaction keeps a consumed
+non-expiring `database_reset_pending` manifest in `admin_requests` until Redis
+cleanup succeeds. Startup completes it across bot IDs before Telegram or workers
+start. Missing required Redis configuration blocks startup. Never erase the last
+manifest or resume writers after partial cleanup. A failure during destructive
+execution stops the runtime even if PostgreSQL rolled back; errors before that
+phase resume normal work. An acknowledged Redis deletion can still be absent
+from an `appendfsync everysec` AOF at a power loss. Pin one Redis connection,
+write/remove a temporary fence even on an already-empty retry, and confirm local
+`WAITAOF` fsync (or a fresh RDB `SAVE` without AOF) before deleting the SQL marker.
+Denied/busy persistence commands and unconfirmed fsync keep recovery pending.
+Full-reset callbacks use the maintenance gate's serialization instead of holding
+the admin owner lock while waiting for other updates to drain.
+Root/cancellation/expiry and SQL transaction failures
+were exercised on dedicated workstation PostgreSQL/Redis, including every model
+table populated, old-bot records, foreign-key refusal, 100 concurrent confirms,
+post-truncate rollback and restart under a changed bot ID. Telegram is simulated.
+See [reset scope and operational instructions](DATABASE_RESET.md).
+
+The AOF persistence path was verified on a disposable Redis 7.4 instance using
+real `WAITAOF`, then `SIGKILL` and restart. Deleted streams stayed absent and an
+unrelated key survived. Docker reallocated the random published port on restart;
+the first workstation reconnect to the old port timed out. Inspect the new
+published port and internal `PING` before retrying; that failure was a port
+mapping change, not lost AOF data. Final affected checks passed 121 tests after
+the persistence change; the earlier full regression run passed 2530 tests.
+
 ## Administrator rate exemption and independent controls (October 17)
 
 Download admission previously treated all user IDs identically, so even the

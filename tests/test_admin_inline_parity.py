@@ -69,7 +69,12 @@ async def test_all_category_menus_remain_reply_keyboards_and_filter_picker_is_in
     with pytest.raises(events.StopPropagation):
         await panel.handle_message(actual, app.admin, conversations)
     rows = controls(actual)
-    assert [row[0].text for row in rows] == ["👥 پاکسازی کاربران", "🏠 پاکسازی گروه‌ها", "✖️ بستن"]
+    assert [row[0].text for row in rows] == [
+        "👥 پاکسازی کاربران",
+        "🏠 پاکسازی گروه‌ها",
+        "🗑 پاکسازی کامل دیتابیس",
+        "✖️ بستن",
+    ]
     assert all(
         isinstance(item.type, types.InlineButtonTypeCallback) for row in rows for item in row
     )

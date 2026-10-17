@@ -358,6 +358,15 @@ connection-specific observations, not server guarantees. Per-stage menu logs and
 [the dated measurements](docs/PROVIDER_VERIFICATION.md#october-15-2026-quality-menu-latency)
 help distinguish origin, menu-storage and Telegram latency.
 
+## Full database reset
+
+Before switching to a different bot token, the main administrator can select
+`/admin` → cleanup → full database reset. An explicit owner-bound confirmation
+empties all 30 application tables across bot IDs, clears related Redis keys and
+stops Python. Table definitions and the migration ledger remain. Configure the
+new token in `.env`, then start `python main.py` again. See
+[reset scope, confirmation and crash recovery](docs/DATABASE_RESET.md).
+
 ## Group downloads
 
 Supported links also work in basic groups and supergroups without `/start` or a

@@ -16,13 +16,23 @@ class MaintenanceGate:
         self.paused = False
         self.waiters = set()
         self.ready = False
+        self.closed = False
+
+    def seal(self):
+        """A confirmed full reset must never resume updates or stopped workers."""
+        self.closed = True
+        self.ready = False
 
     @asynccontextmanager
     async def operation(self):
         task = asyncio.current_task()
         async with self.condition:
             while self.paused and task not in self.active:
+                if self.closed:
+                    raise DownloadError("ربات پس از پاکسازی کامل متوقف شده است.")
                 await self.condition.wait()
+            if self.closed:
+                raise DownloadError("ربات پس از پاکسازی کامل متوقف شده است.")
             self.active[task] = self.active.get(task, 0) + 1
         try:
             yield
@@ -124,7 +134,7 @@ class MaintenanceGate:
                 finally:
                     restart_errors = []
                     try:
-                        for worker in stopped:
+                        for worker in stopped if not self.closed else ():
                             try:
                                 await worker.__aenter__()
                             except Exception as error:
@@ -137,7 +147,7 @@ class MaintenanceGate:
                                 )
                     finally:
                         async with self.condition:
-                            self.paused = False
+                            self.paused = self.closed
                             self.condition.notify_all()
                     if restart_errors:
                         raise RuntimeError("Maintenance worker restart failed") from restart_errors[

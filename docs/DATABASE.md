@@ -29,6 +29,12 @@ populated-data migration reruns. Its ingestion fixes add no schema revision.
 
 ## Physical layout and ownership
 
+The root-only [full application reset](DATABASE_RESET.md) empties the model
+registry's 30 domain tables across bot IDs without dropping definitions or the
+migration ledger. A consumed `admin_requests.database_reset_pending` action
+temporarily records Redis cleanup recovery; the record is removed on completion,
+leaving every domain table empty. It is an action value, not a new column/table.
+
 ```text
 db/postgres/base.py          Immutable executable table definition
 db/postgres/models/         Table definitions and lifecycle constraint SQL
