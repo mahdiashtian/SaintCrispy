@@ -20,7 +20,7 @@ async def test_menu_has_quality_buttons_even_without_usable_thumbnail(thumbnail)
     media = Media("soundcloud", "track", "Title", "Artist", 30, "url", thumbnail, (QUALITY,))
 
     async def inspect(url):
-        assert url == "https://www.soundcloud.com/gdaal/mojezeh"
+        assert url == "https://soundcloud.com/gdaal/mojezeh"
         return media
 
     async def respond(text, **kwargs):

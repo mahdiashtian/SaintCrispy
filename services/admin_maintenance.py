@@ -208,12 +208,17 @@ class AdminMaintenance:
         await self.admin.authorize(owner, root=True)
         where, params, table, key = cleanup_query(entity, filters, self.admin.main_admin_id)
         connection = self.admin.repository.connection
-        count = await connection.fetchval(
-            f"SELECT count(*) FROM {table} t WHERE telegram_account_id=$1 AND ({where})",
+        counts = await connection.fetchrow(
+            f"SELECT count(*) FILTER (WHERE ({where})) AS matched,count(*) AS total FROM {table} t WHERE telegram_account_id=$1",
             self.admin.repository.bot_id,
             *params,
         )
-        return {"matched": count, "batch": min(1000, count), "entity": entity}
+        return {
+            "matched": counts["matched"],
+            "total": counts["total"],
+            "batch": min(1000, counts["matched"]),
+            "entity": entity,
+        }
 
     async def prepare_cleanup(self, owner, entity, filters):
         preview = await self.cleanup_preview(owner, entity, filters)
@@ -359,9 +364,11 @@ def cleanup_query(entity, filters, root_id):
     if entity == "users":
         if (
             set(filters) != {"started", "membership", "kind"}
-            or filters["started"] not in {"all", "yes", "no"}
-            or filters["membership"] not in {"all", "yes", "no"}
-            or filters["kind"] not in {"all", "real", "unknown", "bot", "deleted", "invalid"}
+            or not isinstance(filters["started"], str)
+            or filters["started"] not in {"all", "yes", "no", "none"}
+            or not isinstance(filters["membership"], str)
+            or filters["membership"] not in {"all", "yes", "no", "none"}
+            or not valid_account_filter(filters["kind"])
         ):
             raise DownloadError("فیلتر کاربران معتبر نیست.")
         where = [
@@ -369,23 +376,30 @@ def cleanup_query(entity, filters, root_id):
             "NOT is_admin",
             "NOT EXISTS (SELECT 1 FROM group_memberships m JOIN bot_groups g USING(telegram_account_id,chat_id) WHERE m.telegram_account_id=t.telegram_account_id AND m.user_id=t.user_id AND m.is_active AND g.is_active IS TRUE)",
         ]
-        if filters["started"] != "all":
+        if "none" in (filters["started"], filters["membership"], filters["kind"]):
+            where.append("FALSE")
+        if filters["started"] not in {"all", "none"}:
             where.append("is_started IS " + ("TRUE" if filters["started"] == "yes" else "FALSE"))
-        if filters["membership"] != "all":
+        if filters["membership"] not in {"all", "none"}:
             where.append(
                 ("" if filters["membership"] == "yes" else "NOT ")
                 + "EXISTS (SELECT 1 FROM group_memberships m WHERE m.telegram_account_id=t.telegram_account_id AND m.user_id=t.user_id)"
             )
-        if filters["kind"] != "all":
+        params = [root_id or 0]
+        if isinstance(filters["kind"], list):
+            where.append("account_kind=ANY($3::text[])")
+            params.append(filters["kind"])
+        elif filters["kind"] not in {"all", "none"}:
             where.append(
                 "account_kind IN ('bot','deleted')"
                 if filters["kind"] == "invalid"
                 else "account_kind='" + filters["kind"] + "'"
             )
-        return " AND ".join(where), [root_id or 0], "bot_users", "user_id"
+        return " AND ".join(where), params, "bot_users", "user_id"
     if entity == "groups":
         if set(filters) != {"admin", "members", "owner"} or any(
-            value not in {"all", "yes", "no"} for value in filters.values()
+            not isinstance(value, str) or value not in {"all", "yes", "no", "none"}
+            for value in filters.values()
         ):
             raise DownloadError("فیلتر گروه‌ها معتبر نیست.")
         where = [
@@ -393,6 +407,8 @@ def cleanup_query(entity, filters, root_id):
             "migrated_to IS NULL",
             "NOT EXISTS (SELECT 1 FROM bot_groups origin WHERE origin.telegram_account_id=t.telegram_account_id AND origin.migrated_to=t.chat_id)",
         ]
+        if "none" in filters.values():
+            where.append("FALSE")
         for key, expression in (
             ("admin", "is_admin IS TRUE"),
             (
@@ -401,10 +417,21 @@ def cleanup_query(entity, filters, root_id):
             ),
             ("owner", "owner_id IS NOT NULL"),
         ):
-            if filters[key] != "all":
+            if filters[key] not in {"all", "none"}:
                 where.append("(" + ("" if filters[key] == "yes" else "NOT ") + expression + ")")
         return " AND ".join(where), [], "bot_groups", "chat_id"
     raise DownloadError("نوع داده برای پاکسازی معتبر نیست.")
+
+
+def valid_account_filter(value):
+    choices = {"real", "unknown", "bot", "deleted"}
+    if isinstance(value, str):
+        return value in choices | {"all", "invalid", "none"}
+    return (
+        isinstance(value, list)
+        and 0 < len(value) <= len(choices)
+        and all(isinstance(item, str) and item in choices for item in value)
+    )
 
 
 def validate_payload(payload, metadata, account):

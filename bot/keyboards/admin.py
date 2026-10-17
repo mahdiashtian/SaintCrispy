@@ -71,4 +71,9 @@ def back(owner):
 
 
 def confirmation(owner, token):
-    return [[button(owner, "✅ تأیید و شروع", "confirm", token), button(owner, "انصراف", "home")]]
+    return [
+        [
+            button(owner, "❌ لغو", "dismiss"),
+            button(owner, "✅ بله، مطمئنم", "confirm", token),
+        ]
+    ]

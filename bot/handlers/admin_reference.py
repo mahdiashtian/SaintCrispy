@@ -63,7 +63,7 @@ async def panel(event, admin, conversations, state=CS.ADMIN_PANEL, presentation=
     if state is CS.ADMIN_DOWNLOAD_SETTINGS:
         await download_settings(event, admin, conversations)
         return
-    await admin.authorize(event.sender_id)
+    await admin.authorize(event.sender_id, root=state is CS.ADMIN_CAT_CLEANUP_PANEL)
     await conversations.set_state(event.sender_id, event.chat_id, state)
     title = (
         copy.admin_panel(getattr(getattr(event, "sender", None), "first_name", None))
@@ -273,10 +273,6 @@ async def directory(event, admin, page=0, active="all", order="date", *, edit=Fa
         {"members": "mem", "members_asc": "mem_asc"}.get(order, order),
     )
     buttons = []
-    for row in rows:
-        buttons.append(
-            [button(event.sender_id, (row.title or str(row.chat_id))[:45], "group", row.chat_id)]
-        )
     buttons.append(
         [
             button(
@@ -297,7 +293,6 @@ async def directory(event, admin, page=0, active="all", order="date", *, edit=Fa
                 ("date", "جدیدترین"),
                 ("members", "بیشترین عضو"),
                 ("members_asc", "کمترین عضو"),
-                ("activity", "فعالیت"),
             )
         ]
     )
@@ -308,7 +303,9 @@ async def directory(event, admin, page=0, active="all", order="date", *, edit=Fa
         nav.append(button(event.sender_id, "بعدی ▶️", "dir", f"{page + 1}_{active}_{order}"))
     if nav:
         buttons.append(nav)
-    buttons.append([button(event.sender_id, "🔄 بروزرسانی (فچِ دوباره)", "health")])
+    buttons.append(
+        [button(event.sender_id, "🔄 بروزرسانی (فچِ دوباره)", "dirrefresh", f"{active}_{order}")]
+    )
     await source_reply(event, text, buttons=buttons, edit=getattr(event, "data", None) is not None)
 
 
@@ -627,11 +624,17 @@ async def menu_action(event, admin, conversations, state, raw, presentation):
             return False
     elif state is CS.ADMIN_CAT_CLEANUP_PANEL:
         if raw == b.PURGE_USERS:
+            await admin.authorize(event.sender_id, root=True)
             token = await admin.prepare(event.sender_id, "purge_users", {})
             await source_reply(
                 event,
                 "کاربرها رو از تلگرام بررسی کنم و بات‌ها و اکانت‌های حذف‌شده رو پاک کنم؟\nکاربرهای محافظت‌شده و مواردی که قابل بررسی نباشن حفظ می‌شن.",
-                buttons=confirmation(event.sender_id, token),
+                buttons=[
+                    [
+                        button(event.sender_id, "❌ لغو", "dismiss"),
+                        button(event.sender_id, "✅ بله، مطمئنم", "confirm", token),
+                    ]
+                ],
             )
         elif raw == b.FILTER_CLEANUP:
             from bot.handlers.admin_maintenance import open_cleanup
@@ -904,7 +907,6 @@ async def member_directory(event, admin, chat, page=0, active="all", started="al
         )
     if nav:
         buttons.append(nav)
-    buttons.append([button(event.sender_id, "🕷 خزش همین گروه", "crawl", chat)])
     await source_reply(event, text, buttons=buttons, edit=getattr(event, "data", None) is not None)
 
 
@@ -1125,8 +1127,8 @@ async def watch_detail(event, admin, identity, *, confirm=False):
                 button(event.sender_id, b.ALL_OFF, "wkind", f"{compact_id(identity)}_none"),
             ],
             [
-                button(event.sender_id, "🗑️ حذف رصد", "watchdel", identity),
-                button(event.sender_id, "↩️ لیست رصدها", "watchpage"),
+                button(event.sender_id, "🗑 حذف این رصد", "watchdel", identity),
+                button(event.sender_id, "◀️ لیست", "watchpage"),
             ],
         ]
         text = copy.watch_detail(

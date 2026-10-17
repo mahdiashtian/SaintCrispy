@@ -1,5 +1,12 @@
 # Administration and downloader security review
 
+October 17 UI correction: [Couplyo keyboard behavior](ADMINISTRATION.md#couplyo-keyboard-behavior)
+supersedes the historical reply-only UI decision below. Categories/forms remain
+reply menus; native inline controls preserve owner-bound callbacks and fresh SQL
+authorization. Destructive confirmation still uses expiring single-use SQL tokens.
+Tests cover concurrent replay, forged owners, delegated roles, expiry, empty
+filters and restart. Typed labels and callback strings cannot confirm operations.
+
 The subsequent [actual-source registration/security audit](REGISTRATION_SECURITY_AUDIT.md)
 adds cold sender resolution, durable private profile recovery, parent/member
 handoff and poison-entry protections, with a matrix of remaining registration

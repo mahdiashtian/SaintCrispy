@@ -156,11 +156,8 @@ async def test_admin_adapter_adds_premium_to_direct_reply_and_dynamic_actions():
     )
     assert actual.respond.call_args.kwargs["buttons"].rows[0].buttons[0].style.icon == 102
     await adapted.respond("عملیات", buttons=[[button(7, "عملیات", "stats")]])
-    assert actual.respond.call_args.kwargs["buttons"].rows[0].buttons[0].style.icon == 102
-    assert (
-        conversations.update_data.call_args.kwargs["admin_reply_actions"]["عملیات"]
-        == "adm:7:stats:0"
-    )
+    result = actual.respond.call_args.kwargs["buttons"][0][0]
+    assert result.style.icon == 102 and result.type.data == b"adm:7:stats:0"
 
 
 def summary(pending=1, failed=0):

@@ -1,6 +1,5 @@
 """Owner-bound cleanup preview, filter and explicit-confirmation adapters."""
 
-from bot.keyboards.admin import button
 from schemas.media import DownloadError
 
 DEFAULTS = {
@@ -62,45 +61,48 @@ def decode(value):
 
 async def open_cleanup(event, admin, deleted_only=False, value=None):
     await admin.authorize(event.sender_id, root=True)
-    entity, filters = (
-        decode(value)
-        if value
-        else (
-            "users",
-            {
-                **DEFAULTS["users"],
-                **(
-                    {"kind": "invalid", "started": "all", "membership": "all"}
-                    if deleted_only
-                    else {}
-                ),
-            },
-        )
-    )
-    preview = await admin.maintenance.cleanup_preview(event.sender_id, entity, filters)
-    text = f"🧹 پاکسازی {entity}\nتعداد منطبق: {preview['matched']} · سقف هر اجرا: ۱۰۰۰\nفقط کاربران خارج از گروه فعال یا گروه‌های قطعاً خارج‌شده حذف می‌شوند؛ مدیران محافظت می‌شوند. عضویت و شواهد وابسته نیز حذف می‌شوند. تاریخچه دریافت فایل حفظ می‌شود."
-    buttons = [
-        [
-            button(event.sender_id, "کاربران", "cleanview", encode("users", DEFAULTS["users"])),
-            button(event.sender_id, "گروه‌ها", "cleanview", encode("groups", DEFAULTS["groups"])),
-        ]
-    ]
-    for key, current in filters.items():
-        values = CHOICES[key]
-        changed = {**filters, key: values[(values.index(current) + 1) % len(values)]}
-        buttons.append(
-            [
-                button(
-                    event.sender_id,
-                    f"{LABELS[key]}: {VALUES[current]}",
-                    "cleanview",
-                    encode(entity, changed),
-                )
-            ]
-        )
-    buttons.append(
-        [button(event.sender_id, "⚠️ آماده‌سازی حذف", "cleanprepare", encode(entity, filters))]
-    )
-    from bot.handlers.admin import show
+    from bot.handlers.admin_render import source_reply
+    from bot.keyboards.cleanup import picker
+    from bot.texts.cleanup import PICK
 
-    await show(event, text, buttons)
+    await source_reply(
+        event, PICK, buttons=picker(event.sender_id), edit=getattr(event, "data", None) is not None
+    )
+
+
+async def cleanup_callback(event, admin, action, value):
+    from bot.handlers.admin_render import source_reply
+    from bot.keyboards import cleanup as keyboard
+    from bot.texts import cleanup as text
+    from core.cleanup import decode as decode_masks
+    from core.cleanup import filters
+
+    await admin.authorize(event.sender_id, root=True)
+    if action == "cleanclose":
+        await source_reply(event, text.CLOSED, buttons=None, edit=True)
+        return
+    if action == "cleanpick":
+        await open_cleanup(event, admin)
+        return
+    ent, masks = decode_masks(value)
+    if action == "cleandefault":
+        masks = ent.default
+    elif action == "cleanall":
+        masks = tuple(attr.full for attr in ent.attributes)
+    selected = filters(ent, masks)
+    if action == "cleango":
+        token, preview = await admin.maintenance.prepare_cleanup(
+            event.sender_id, ent.name, selected
+        )
+        buttons = keyboard.confirm(event.sender_id, token, ent, masks)
+    else:
+        preview = await admin.maintenance.cleanup_preview(event.sender_id, ent.name, selected)
+        buttons = keyboard.builder(
+            event.sender_id, ent, masks, deletable=bool(preview["matched"]) and 0 not in masks
+        )
+    await source_reply(
+        event,
+        text.briefing(ent, masks, preview, confirm=action == "cleango"),
+        buttons=buttons,
+        edit=True,
+    )

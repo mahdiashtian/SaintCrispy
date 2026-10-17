@@ -1,7 +1,9 @@
 # Administration, membership and cache architecture
 
-October 16 follow-up: all registered admin screens, pagination and confirmations
-now use ordinary reply keyboards. Download settings expose the live per-user and
+October 17 follow-up: the actual Couplyo UI uses reply category/form menus and
+native inline controls for cleanup, directories, watch switches and confirmations.
+The previous conversion of all inline controls to reply text has been removed.
+Download settings expose the live per-user and
 default per-group requests/minute limits, plus the existing per-group override.
 Revision 13 adds persistent rolling user windows and adopts legacy timestamps.
 Read the [security review and verification scope](SECURITY_REVIEW.md).
@@ -45,10 +47,10 @@ every privileged operation; a cached profile cannot authorize a revoked manager.
 Buttons with a premium icon use plain text labels, without a second Unicode
 decoration. Emoji-only navigation keeps one Unicode icon so its text stays
 nonempty. If Telegram rejects premium icons, the original labels are restored.
-Private reply menus persist visible-label aliases alongside their action map in
-the existing owner/chat conversation record. This keeps category navigation,
-forms and single-use confirmations working after restart; callback payloads and
-authorization checks are unchanged.
+Private reply menus persist visible-label aliases in the existing owner/chat
+conversation record. Inline controls retain their owner-scoped callback payloads;
+they are never translated into typed reply actions. Confirmation tokens remain
+in SQL, so they survive restart and cannot be consumed twice.
 The configured root cannot be revoked or banned through the panel. Prompts are
 SQL records tied to owner and outgoing reply message; unrelated replies continue
 through normal routing. Administrative text containing a provider link is consumed
@@ -59,6 +61,31 @@ confirmation. Tokens expire after 20 minutes, survive coordinator restart and
 cannot be consumed by another user. Database audit records identify actor, action,
 target and safe counts; raw broadcast text is stored only in the operational
 payload needed for delivery, not copied to audit/logs.
+
+## Couplyo keyboard behavior
+
+| Screen | Keyboard and interaction |
+| --- | --- |
+| Main panel and administrator, messaging, group, channel, data, cleanup and download categories | Reply keyboard with source back/cancel hierarchy |
+| Forced-join points, global storage kinds, schedules and text-input forms | Reply controls; canonical labels survive premium-icon rendering |
+| Group/member directories, daily history and download history | Inline filters/navigation; edits reuse the current message |
+| Group directory refresh | Re-read the SQL snapshot; never starts a health sweep |
+| Per-group watch list, kind switches and removal confirmation | Native inline controls carrying the watch ID |
+| Filtered cleanup | Inline entity picker, independent checkbox choices, live counts, defaults/all, explicit confirmation, back and close |
+| Bot/deleted-account purge and other operation confirmations | Native inline confirm/cancel; text alone cannot execute the action |
+
+Cleanup adopts the Couplyo interaction and shared wording for fields present in
+the downloader: start history, group history, account kind, bot administration,
+members and known owner. Matching/couple/profile attributes are absent because
+this product does not store those features. Downloader quota, CSV and cache tools
+remain available in their existing categories. Deletion retains the existing
+protected-admin/active-member and inactive-group constraints and 1,000-row cap.
+No database migration or new service is required.
+
+Workstation verification on October 17: the complete suite passed 2,447 tests
+with no skips, using dedicated PostgreSQL 17 and Redis containers. Telegram TL
+objects and callback dispatch were exercised locally; RPC delivery was simulated.
+Ruff checks and the migration/schema-reference check also passed.
 
 Private broadcasts only target users who actually used private `/start`, excluding
 banned/blocked accounts. Receiving a group message, downloading without `/start`

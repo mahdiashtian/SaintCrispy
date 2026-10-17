@@ -2,7 +2,7 @@
 
 import io
 
-from telethon import events, types
+from telethon import errors, events, types
 
 from bot.keyboards.admin import back, button, compact_id, confirmation, home
 from bot.texts.admin import HOME, PROMPTS, group_text, user_text
@@ -59,18 +59,24 @@ async def open_panel(event, admin, presentation=None, conversations=None):
 
 
 async def callback(event, admin, presentation=None, conversations=None):
+    from bot.admin_keyboard import locks, reply_event
+    from bot.handlers.admin_reference import Invocation
+
+    if conversations is not None and not isinstance(event, Invocation) and private(event):
+        async with locks.hold(str(event.sender_id)):
+            return await _callback(
+                reply_event(event, conversations, presentation), admin, presentation, conversations
+            )
+    return await _callback(event, admin, presentation, conversations)
+
+
+async def _callback(event, admin, presentation=None, conversations=None):
     if not private(event):
         await event.answer("پنل مدیریت فقط در گفت‌وگوی خصوصی فعال است.", alert=True)
         return
-    if conversations is not None:
-        from bot.handlers.admin_reference import Invocation
-
-        if not isinstance(event, Invocation):
-            await event.answer("این پنل قدیمی است؛ /admin را در خصوصی باز کن.", alert=True)
-            return
     try:
         parts = event.data.decode("ascii").split(":")
-        if len(parts) != 4 or int(parts[1]) != event.sender_id:
+        if len(parts) != 4 or parts[0] != "adm" or int(parts[1]) != event.sender_id:
             raise DownloadError("این دکمه متعلق به تو نیست.")
         owner, action, value = event.sender_id, parts[2], parts[3]
         root = await admin.authorize(owner)
@@ -112,6 +118,32 @@ async def callback(event, admin, presentation=None, conversations=None):
 
             page, active, order = value.split("_", 2)
             await directory(event, admin, int(page), active, order)
+            return
+        elif action == "dirrefresh":
+            from bot.handlers.admin_reference import directory
+
+            active, order = value.split("_", 1)
+            await directory(event, admin, 0, active, order)
+            return
+        elif action == "noop":
+            return
+        elif action == "dismiss":
+            from bot.handlers.admin_render import source_reply
+            from bot.texts.couplyo_admin import ADMIN_DANGER_CANCELLED
+
+            await source_reply(event, ADMIN_DANGER_CANCELLED, buttons=None, edit=True)
+            return
+        elif action in {
+            "cleanpick",
+            "cleanfilter",
+            "cleandefault",
+            "cleanall",
+            "cleango",
+            "cleanclose",
+        }:
+            from bot.handlers.admin_maintenance import cleanup_callback
+
+            await cleanup_callback(event, admin, action, value)
             return
         elif action == "mdir":
             from bot.handlers.admin_reference import member_directory
@@ -165,8 +197,20 @@ async def callback(event, admin, presentation=None, conversations=None):
                     ]
                 ]
             elif action == "cleanup":
-                count = await admin.maintenance.confirm_cleanup(owner, value)
-                text = f"✅ {count} رکورد حذف شد. برای بخش بعد، فیلتر را دوباره بررسی کن."
+                from bot.handlers.admin_render import source_reply
+                from bot.texts.couplyo_admin import pd
+
+                code, token = value.split(".", 1) if value.startswith(("u.", "g.")) else ("", value)
+                count = await admin.maintenance.confirm_cleanup(owner, token)
+                noun = {"u": "کاربر", "g": "گروه"}.get(code, "مورد")
+                await source_reply(
+                    event,
+                    f"✅ حذف شد: <b>{pd(count)}</b> {noun} (+ هرچی cascade می‌شد).\n"
+                    "هر چیزی که با فیلتر هم‌خوان نبود دست‌نخورده موند و کش هم‌گام شد.",
+                    buttons=None,
+                    edit=True,
+                )
+                return
             else:
                 counts = await admin.maintenance.confirm_restore(owner, value)
                 text = "✅ بازیابی افزایشی انجام شد؛ رکوردهای موجود حفظ شدند.\n" + "\n".join(
@@ -249,12 +293,19 @@ async def callback(event, admin, presentation=None, conversations=None):
                 page = min(max(0, int(value)), pages - 1)
                 rows = await admin.history(owner, limit=14, offset=page * 14)
                 text = copy.downloader_daily_history(rows, page=page, pages=pages)
-                nav = []
-                if page:
-                    nav.append(button(owner, "◀️ قبلی", "stats_history", page - 1))
-                if page + 1 < pages:
-                    nav.append(button(owner, "بعدی ▶️", "stats_history", page + 1))
-                buttons = ([nav] if nav else []) + buttons
+                buttons = [
+                    [
+                        button(
+                            owner, "◀️ قبلی", "stats_history" if page else "noop", max(0, page - 1)
+                        ),
+                        button(
+                            owner,
+                            "بعدی ▶️",
+                            "stats_history" if page + 1 < pages else "noop",
+                            page + 1,
+                        ),
+                    ]
+                ]
             await source_reply(event, text, buttons=buttons, presentation=presentation, edit=True)
             return
         elif action == "cache":
@@ -434,6 +485,8 @@ async def callback(event, admin, presentation=None, conversations=None):
         else:
             raise DownloadError("دکمه معتبر نیست.")
         await show(event, text or "چیزی ثبت نشده است.", buttons, presentation)
+    except errors.MessageNotModifiedError:
+        pass
     except (DownloadError, ValueError, UnicodeError, KeyError) as error:
         text = str(error) if isinstance(error, DownloadError) else "ورودی مدیریت معتبر نیست."
         await event.answer(text, alert=True)

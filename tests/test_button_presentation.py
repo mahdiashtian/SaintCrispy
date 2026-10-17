@@ -9,6 +9,7 @@ from test_download_settings import admin, event
 
 from bot.admin_keyboard import reply_event
 from bot.button_icons import BUTTON_EMOJI, button_label
+from bot.handlers import admin as admin_ui
 from bot.handlers import admin_reference as panel
 from bot.keyboards import admin_reply
 from bot.keyboards.admin import button
@@ -137,7 +138,7 @@ async def test_premium_admin_reply_labels_route_categories_back_input_and_cancel
 
 
 @pytest.mark.parametrize("reject_icons", [False, True])
-async def test_dynamic_premium_confirmation_routes_visible_label_and_expires_previous_token(
+async def test_dynamic_premium_confirmation_keeps_native_owner_and_token_payloads(
     reject_icons,
 ):
     storage = MemoryStateStorage()
@@ -148,19 +149,23 @@ async def test_dynamic_premium_confirmation_routes_visible_label_and_expires_pre
         actual.respond.side_effect = [errors.PremiumAccountRequiredError(None), None, None]
     adapted = reply_event(actual, conversations, renderer)
     await adapted.respond("Confirm", buttons=[[button(999, "✅ تأیید", "confirm", "old")]])
-    old = actual.respond.call_args.kwargs["buttons"].rows[0].buttons[0].text
+    old = actual.respond.call_args.kwargs["buttons"][0][0]
     await adapted.respond("Confirm", buttons=[[button(999, "✅ تأیید", "confirm", "new")]])
-    new = actual.respond.call_args.kwargs["buttons"].rows[0].buttons[0].text
-    assert old != new
+    new = actual.respond.call_args.kwargs["buttons"][0][0]
+    assert old.type.data != new.type.data
     conversations = ConversationService(storage)
-    await panel.handle_message(event(old), service, conversations, renderer)
-    await panel.handle_message(event(new, owner=7), service, conversations, renderer)
+    await panel.handle_message(event(old.text), service, conversations, renderer)
+    foreign = event(owner=7)
+    foreign.data = new.type.data
+    await admin_ui.callback(foreign, service, renderer, conversations)
     service.confirm.assert_not_awaited()
-    await dispatch(event(new), service, conversations, renderer)
+    actual = event()
+    actual.data = new.type.data
+    await admin_ui.callback(actual, service, renderer, conversations)
     service.confirm.assert_awaited_once_with(999, "new")
 
 
-async def test_dynamic_labels_that_only_differ_in_unicode_icons_remain_distinct():
+async def test_dynamic_actions_remain_distinct_when_their_plain_labels_match():
     renderer = presentation()
     conversations = ConversationService(MemoryStateStorage())
     actual = event()
@@ -168,12 +173,11 @@ async def test_dynamic_labels_that_only_differ_in_unicode_icons_remain_distinct(
         "Choose",
         buttons=[[button(999, "📥 مورد", "stats"), button(999, "✅ مورد", "daily")]],
     )
-    buttons = actual.respond.call_args.kwargs["buttons"].rows[0].buttons
-    assert len({item.text for item in buttons}) == 2
+    buttons = actual.respond.call_args.kwargs["buttons"][0]
+    assert len({item.text for item in buttons}) == 1
+    assert len({item.type.data for item in buttons}) == 2
     saved = await conversations.get_data(999, 999)
-    for item in buttons:
-        canonical = saved["admin_reply_labels"][item.text]
-        assert canonical in saved["admin_reply_actions"]
+    assert "admin_reply_actions" not in saved
 
 
 async def test_caller_supplied_icon_is_retained_without_its_unicode_duplicate():

@@ -29,8 +29,9 @@ async def show_trace(event, data, *, presentation=None, hint="", edit=False):
     if not data["profile"]:
         raise DownloadError("این کاربر دیگر ثبت نشده است.")
     while isinstance(event, (AdminReplyEvent, Invocation)):
+        if isinstance(event, Invocation):
+            edit = False
         event = event.event
-        edit = False
     markup = downloader_user_trace(data) + hint
     text, _ = html.parse(markup)
     buttons = navigation(event.sender_id, data["profile"]["user_id"], data)

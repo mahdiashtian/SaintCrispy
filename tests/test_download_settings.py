@@ -1,4 +1,4 @@
-"""Private reply-only menus, persisted payload ownership and live quota configuration."""
+"""Private category menus, native owner-bound controls and live quota configuration."""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -70,25 +70,26 @@ async def test_download_settings_enter_change_user_and_group_quotas_and_keep_rep
         assert await conversations.get_state(999, 999) is CS.ADMIN_DOWNLOAD_SETTINGS
 
 
-async def test_dynamic_reply_confirmation_survives_restart_and_stale_text_cannot_confirm_new_job():
+async def test_native_confirmation_survives_restart_and_typed_label_cannot_confirm():
     storage, service = MemoryStateStorage(), admin()
     conversations = ConversationService(storage)
     await conversations.set_state(999, 999, CS.ADMIN_PANEL)
     actual = event()
     adapted = reply_event(actual, conversations)
     await adapted.respond("Confirm", buttons=[[button(999, "✅ تأیید", "confirm", "old-token")]])
-    old = actual.respond.call_args.kwargs["buttons"].rows[0].buttons[0].text
+    old = actual.respond.call_args.kwargs["buttons"][0][0]
     await adapted.respond("New job", buttons=[[button(999, "✅ تأیید", "confirm", "new-token")]])
-    new = actual.respond.call_args.kwargs["buttons"].rows[0].buttons[0].text
-    assert new != old
+    new = actual.respond.call_args.kwargs["buttons"][0][0]
+    assert new.type.data != old.type.data
     restarted = ConversationService(storage)
     # Unknown text cannot manufacture an administrator action or consume a token.
-    await panel.handle_message(event(old), service, restarted)
+    await panel.handle_message(event(old.text), service, restarted)
+    await panel.handle_message(event(new.text), service, restarted)
     service.confirm.assert_not_awaited()
-    await send(event(new), service, restarted)
+    callback = event()
+    callback.data = new.type.data
+    await ui.callback(callback, service, conversations=restarted)
     service.confirm.assert_awaited_once_with(999, "new-token")
-    await panel.handle_message(event(new), service, restarted)
-    service.confirm.assert_awaited_once()
 
 
 async def test_typed_callback_payload_and_other_owner_keyboard_do_not_grant_admin_access():
@@ -103,16 +104,20 @@ async def test_typed_callback_payload_and_other_owner_keyboard_do_not_grant_admi
     service.confirm.assert_not_awaited()
     service.stats.assert_not_awaited()
     service.authorize.side_effect = DownloadError("Revoked")
-    await send(event("آمار"), service, conversations)
+    callback = event()
+    callback.data = b"adm:999:stats:0"
+    await ui.callback(callback, service, conversations=conversations)
     service.stats.assert_not_awaited()
+    assert callback.answer.call_args.kwargs["alert"]
 
 
-async def test_legacy_inline_admin_callbacks_are_disabled_in_the_registered_runtime():
+async def test_inline_admin_callbacks_edit_the_original_message_in_the_registered_runtime():
     actual, service = event(), admin()
     actual.data = b"adm:999:stats:0"
     await ui.callback(actual, service, conversations=ConversationService(MemoryStateStorage()))
-    service.stats.assert_not_awaited()
-    assert actual.answer.call_args.kwargs["alert"]
+    service.stats.assert_awaited_once_with(999)
+    actual.edit.assert_awaited_once()
+    actual.respond.assert_not_awaited()
 
 
 async def test_keyboard_navigation_clears_dynamic_actions_without_polluting_input_payload():

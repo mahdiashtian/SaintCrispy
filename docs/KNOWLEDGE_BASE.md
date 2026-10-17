@@ -5,6 +5,25 @@ failed approaches and decisions for all providers. Read it before investigating 
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
 
+## Couplyo native admin controls (October 17)
+
+The local source at `e3e0732` uses reply category/form menus but native inline
+cleanup, directory filters, watch switches and confirmation controls. Converting
+all inline buttons into reply text was the reason these sections looked and
+behaved differently. Preserve each keyboard type; inline actions edit their
+message and carry the private owner's ID. Recheck current roles on every callback
+and retain transactional single-use confirmation tokens. Cleanup now uses
+independent choice masks, live SQL counts and a separate confirmation step.
+See the [current panel interaction matrix](ADMINISTRATION.md#couplyo-keyboard-behavior).
+Verification uses workstation PostgreSQL/Redis and real Telethon TL objects;
+Telegram RPC effects are simulated, with no production deployment claimed.
+
+The full-suite check also exposed an outdated SoundCloud handler-test assertion
+that still expected the `www` alias after the documented canonical-host change.
+Update that fixture to `soundcloud.com`; do not revert alias normalization or
+repeat live extraction to repair this test-only mismatch. No provider runtime
+code or previous origin findings changed in this UI batch.
+
 ## Alternate provider links and SoundCloud mobile fix (October 17)
 
 Deeper same-day review: added Spotify native track URIs/legacy track widgets,

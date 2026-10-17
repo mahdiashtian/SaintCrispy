@@ -1,18 +1,11 @@
-"""Persist private reply-menu actions; Telegram text never supplies action payloads."""
-
-import secrets
-import time
-from copy import copy
+"""Preserve native inline controls and canonical private reply-menu labels."""
 
 from telethon import types
 
 from bot.button_icons import button_label
-from bot.keyboards.admin_reply import keyboard
 from core.locks import KeyedLocks
-from schemas.media import DownloadError
 
 locks = KeyedLocks()
-CONFIRMATIONS = {"confirm", "cleanup", "restore", "watchconfirm"}
 
 
 class AdminReplyEvent:
@@ -26,40 +19,7 @@ class AdminReplyEvent:
     async def respond(self, *args, **options):
         buttons = options.get("buttons")
         updates = {}
-        if isinstance(buttons, (list, tuple)):
-            rows, actions, styles, displayed = [], {}, {}, set()
-            for row in buttons:
-                labels = []
-                for button in row:
-                    data = button.type.data.decode("ascii")
-                    parts = data.split(":")
-                    if len(parts) != 4 or parts[:2] != ["adm", str(self.sender_id)]:
-                        raise DownloadError("دکمه مدیریت معتبر نیست.")
-                    label = button.text
-                    if parts[2] in CONFIRMATIONS:
-                        # A previous confirmation must not accept a different pending job.
-                        label += " · " + secrets.token_hex(3)
-                    while label in actions or button_label(label) in displayed:
-                        label += " · " + str(len(actions) + 1)
-                    displayed.add(button_label(label))
-                    labels.append(label)
-                    actions[label] = data
-                    styles[label] = button.style
-                rows.append(labels)
-            updates.update(
-                admin_reply_actions=actions,
-                admin_reply_expires=time.time() + 1200,
-            )
-            options["buttons"] = keyboard(rows)
-            for row in options["buttons"].rows:
-                for button in row.buttons:
-                    style = styles[button.text]
-                    if style and style.icon:
-                        button.style = (
-                            copy(button.style) if button.style else types.KeyboardButtonStyle()
-                        )
-                        button.style.icon = style.icon
-        elif isinstance(buttons, (types.ReplyKeyboardMarkup, types.ReplyKeyboardHide)):
+        if isinstance(buttons, (types.ReplyKeyboardMarkup, types.ReplyKeyboardHide)):
             data = await self.conversations.get_data(self.sender_id, self.chat_id)
             if data.get("admin_reply_actions"):
                 updates.update(
@@ -88,8 +48,13 @@ class AdminReplyEvent:
         return await self.event.respond(*args, **options)
 
     async def edit(self, *args, **options):
-        # Telegram cannot install a reply keyboard by editing an existing message.
-        return await self.respond(*args, **options)
+        if getattr(self.event, "data", None) is None or isinstance(
+            options.get("buttons"), (types.ReplyKeyboardMarkup, types.ReplyKeyboardHide)
+        ):
+            return await self.respond(*args, **options)
+        if self.presentation is not None and args:
+            return await self.presentation._send(self.event.edit, args[0], options)
+        return await self.event.edit(*args, **options)
 
 
 def reply_event(event, conversations, presentation=None):

@@ -14,6 +14,11 @@ The later [Telegram, copy and load verification](COUPLYO_TELEGRAM_VERIFICATION.m
 extends this implementation through revision 12. It records normalized source
 tables, immutable daily history and the precise scope of live testing.
 
+The October 17 [keyboard behavior correction](ADMINISTRATION.md#couplyo-keyboard-behavior)
+restores the source's native inline cleanup, filters, pagination, watch switches
+and confirmations while retaining reply category menus. It supersedes the
+October 16 reply-only UI change; owner and fresh-role checks still apply.
+
 ## Source-to-implementation map
 
 | Couplyo source | Downloader implementation and behavior |
