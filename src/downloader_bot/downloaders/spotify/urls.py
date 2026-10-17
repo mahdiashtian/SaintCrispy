@@ -12,12 +12,15 @@ TRACK_ID = re.compile(r"[A-Za-z0-9]{22}\Z", re.ASCII)
 VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}\Z", re.ASCII)
 SHORT_HOSTS = {"spotify.link", "spoti.fi"}
 PAGE_HOSTS = {"open.spotify.com", "play.spotify.com"}
+EMBED_HOSTS = {"embed.spotify.com"}
+TRACK_URI = re.compile(r"spotify:track:([A-Za-z0-9]{22})\Z", re.I)
 TRACK_PATH = re.compile(
     r"/(?:intl-[a-z]{2}(?:-[a-z]{2})?/|embed/)?track/([A-Za-z0-9]{22})/?\Z", re.I
 )
 LINK_PATTERN = re.compile(
-    r"(?<![\w.@/:-])(?:https?://)?(?:open\.spotify\.com|play\.spotify\.com|spotify\.link|spoti\.fi)"
-    r"(?=$|[/\s?#])(?:[/?#][^\s<>\"]*)?",
+    r"(?<![\w.@/:-])(?:spotify:track:[^\s<>\"]+|"
+    r"(?:https?://)?(?:open\.spotify\.com|play\.spotify\.com|embed\.spotify\.com|spotify\.link|spoti\.fi)"
+    r"(?=$|[/\s?#])(?:[/?#][^\s<>\"]*)?)",
     re.I,
 )
 
@@ -30,6 +33,8 @@ def https_parts(value):
             or parts.username
             or parts.password
             or parts.port not in (None, 443)
+            or "\\" in value
+            or any(character.isspace() or ord(character) < 32 for character in value)
         ):
             raise ValueError()
         return parts
@@ -38,12 +43,29 @@ def https_parts(value):
 
 
 def normalize_url(value):
-    parts = https_parts(value)
-    host = (parts.hostname or "").lower()
-    if host in PAGE_HOSTS and (match := TRACK_PATH.fullmatch(parts.path)):
-        return f"https://open.spotify.com/track/{match[1]}"
-    if host in SHORT_HOSTS and re.fullmatch(r"/[A-Za-z0-9_-]{3,100}/?", parts.path):
-        return urlunsplit(("https", host, parts.path.rstrip("/"), "", ""))
+    for _ in range(4):
+        if isinstance(value, str) and (match := TRACK_URI.fullmatch(value)):
+            return f"https://open.spotify.com/track/{match[1]}"
+        parts = https_parts(value)
+        host = (parts.hostname or "").lower()
+        if host in PAGE_HOSTS and (match := TRACK_PATH.fullmatch(parts.path)):
+            return f"https://open.spotify.com/track/{match[1]}"
+        if (host in PAGE_HOSTS and parts.path.rstrip("/") == "/embed") or (
+            host in EMBED_HOSTS and parts.path == "/"
+        ):
+            try:
+                values = parse_qs(parts.query, keep_blank_values=True, max_num_fields=64).get(
+                    "uri", []
+                )
+            except ValueError:
+                values = []
+            if len(values) != 1 or not values[0]:
+                break
+            value = values[0]
+            continue
+        if host in SHORT_HOSTS and re.fullmatch(r"/[A-Za-z0-9_-]{3,100}/?", parts.path):
+            return urlunsplit(("https", host, parts.path.rstrip("/"), "", ""))
+        break
     raise DownloadError(
         "فعلاً لینک خود آهنگ اسپاتیفای (/track/) رو بفرست؛ آلبوم، پلی‌لیست و پادکست پشتیبانی نمی‌شن.",
         code="spotify_unsupported_link",
@@ -60,13 +82,22 @@ def extract_url(text):
     if not (match := LINK_PATTERN.search(text)):
         return None
     value = match[0].rstrip(".,;!?)]}»")
+    if value.lower().startswith("spotify:"):
+        try:
+            return normalize_url(value)
+        except DownloadError:
+            return None
     if not re.match(r"https?://", value, re.I):
         value = "https://" + value
     value = re.sub(r"^http://", "https://", value, flags=re.I)
     # Keep recognized unsupported paths so the handler can explain the limitation.
     try:
         parts = https_parts(value)
-        return value if (parts.hostname or "").lower() in PAGE_HOSTS | SHORT_HOSTS else None
+        return (
+            value
+            if (parts.hostname or "").lower() in PAGE_HOSTS | SHORT_HOSTS | EMBED_HOSTS
+            else None
+        )
     except DownloadError:
         return None
 

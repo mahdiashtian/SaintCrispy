@@ -7,7 +7,14 @@ from urllib.parse import urlsplit, urlunsplit
 from schemas.media import DownloadError
 
 DEFAULT_RESOLVER = "https://www.tikwm.com/api/"
-PAGE_HOSTS = {"tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
+PAGE_HOSTS = {
+    "tiktok.com",
+    "www.tiktok.com",
+    "m.tiktok.com",
+    "vm.tiktok.com",
+    "vt.tiktok.com",
+    "www.tiktokv.com",
+}
 CDN_DOMAINS = (
     "tiktok.com",
     "tiktokcdn.com",

@@ -16,8 +16,9 @@ TikTok supports public video/photo posts and available soundtracks, with one
 asynchronous metadata request and immediate reuse of fresh selected sources.
 See [TikTok setup, speed measurements and access limits](docs/TIKTOK.md).
 
-Spotify accepts individual public track links, localized URLs and supported share
-redirects. It reads Spotify metadata without login, then obtains a conservatively
+Spotify accepts individual public track links, `spotify:track:` app URIs, localized
+URLs, track widgets and supported share redirects. It reads Spotify metadata
+without login, then obtains a conservatively
 matched YouTube recording as MP3 128 kbps. This is alternative-source audio, not
 Spotify's original stream, lossless audio or a thirty-second preview. Album,
 playlist and podcast downloads are not supported. See [Spotify research, setup

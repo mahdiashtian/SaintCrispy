@@ -1,6 +1,10 @@
 # Spotify tracks: matched audio and workstation verification
 
 October 16, 2026. This provider accepts individual public Spotify **track** URLs.
+October 17 input follow-up adds `spotify:track:` URIs and legacy track widgets;
+they resolve to the same canonical track. The fresh workstation metadata check
+failed on an error-shaped Spotify page, so it is not additional live download
+evidence. See [exact observations and retry conditions](URL_VARIANTS_20261017.md#fresh-anonymous-workstation-evidence).
 It does not decrypt or download Spotify's protected original audio. Metadata comes
 from the public Spotify embed page; audio comes from a checked YouTube match and
 a public MP3 converter. Menus and captions identify it as matched audio.

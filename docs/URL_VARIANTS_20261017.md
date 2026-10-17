@@ -36,9 +36,10 @@ router, then compare the owning provider's content identity.
 | XVideos | Existing xvideos/xvideos2/localized host allowlist, video dot/hyphen/numeric paths, embedframe and quickies |
 | XNXX | Existing xnxx/xnxx3 host allowlist, dot/hyphen/plain video paths, titleless links |
 
-The new runtime changes are in SoundCloud, YouTube, Instagram and TikTok. Spotify,
+The first pass's runtime changes were in SoundCloud, YouTube, Instagram and TikTok. Spotify,
 Pinterest, XVideos and XNXX already supported the audited forms and needed no
-extractor changes. This is an audit of supported individual-content links; it
+extractor changes at that point. The deeper follow-up below adds further inputs.
+This is an audit of supported individual-content links; it
 does not add collection, channel, playlist or arbitrary-domain support.
 
 SoundCloud widgets unwrap only into validated provider URLs. Numeric API targets
@@ -77,6 +78,67 @@ retried: a new public track and a verified mobile/desktop structure difference
 justified this investigation. Revisit those older failures only after changed
 origin behavior, authorized access or materially different connection evidence.
 
+## Deeper follow-up: app and player aliases
+
+The second review looked beyond combinations of the existing host allowlists.
+It found additional established inputs and followed them into real provider
+discovery/selection, rather than testing only the extracted ID:
+
+| Provider | Added input | Request behavior |
+| --- | --- | --- |
+| Spotify | `spotify:track:<id>`, old `embed.spotify.com/?uri=...`, `open.spotify.com/embed?uri=...` with a track URI or validated Spotify URL | Resolve the same 22-character ID and fetch the canonical track metadata page; no request to the old player host |
+| Pinterest | `assets.pinterest.com/ext/embed.html?id=<id>`, `in.pinterest.com`, `au.pinterest.com` | Resolve the numeric pin and use the provider's existing canonical API/page discovery |
+| TikTok | `www.tiktokv.com` share/embed/post aliases | Normalize to the same `www.tiktok.com` post before the existing metadata path |
+| XVideos | `static-hw.xvideos.com/swf/xv-player.swf?id_video=<id>` | Map to the ordinary video page; never fetch or execute a Flash file |
+| YouTube | Legacy `youtube.googleapis.com/v/<id>` | Preserve the video ID and use normal canonical extraction |
+
+The review also covered existing Instagram post/reel/story/share and XNXX
+mobile/old-path inputs. No additional verified single-item host/path was found
+requiring runtime changes there. XNXX mobile/video/xnxx3 variants have extra
+discovery-and-selection regressions. Collection or live-recording support is not
+implied by accepting another URL spelling for a single item.
+
+Duplicate identity parameters, excessive nested wrappers, malformed native URIs
+and unrelated targets are rejected before I/O. Spotify's native URI also passes
+the actual group handler/menu test with the original sender ownership. Hosts
+remain explicit; accepting an assets host as a wrapper does not allow arbitrary
+paths to be fetched from it.
+
+### Fresh anonymous workstation evidence
+
+- Pinterest's official embed HTML and `embed.js` returned HTTP 200; the script
+  reads the `id` query parameter. The embed input for pin `2885187256207927`
+  discovered 23 qualities. Its selected 234x416 MP4 completed the actual
+  `media_chunks` plus `validated_mp4` integrity path: **223,586 bytes to EOF**,
+  seven-second expected duration, 10.477 seconds for inspection/selection/transfer.
+- TikTok's old share input for post `6718335390845095173` discovered three choices
+  and completed the same real transfer/integrity path: **2,004,627 bytes to EOF**,
+  ten-second expected duration, 4.684 seconds overall.
+- The Spotify native track URI reached the correct canonical embed endpoint but
+  failed with `spotify_metadata_unavailable` after 1.510 seconds. A single
+  response-structure diagnostic confirmed HTTP 200 with `__NEXT_DATA__`, but
+  `pageProps` was an error-shaped page without `state.data.entity`. This is not a
+  successful metadata lookup or full download. The legacy player host separately
+  returned HTTP 403; the current query-widget shell returned HTTP 200, which does
+  not prove track access. Local normalization avoids requesting either widget
+  shell. No unchanged download retry, guessed metadata or alternative recording
+  was substituted. Revisit after usable origin metadata or changed connection
+  evidence; the existing deterministic metadata/matching regressions still pass.
+
+Each full-transfer case had a 45-second / 24-MiB bound and stayed below it. No
+cookies, Telegram connection/publication, production access or full-file disk
+storage was used. Earlier Instagram/XVideos/XNXX connection failures were not
+retried under unchanged conditions. Their input behavior was checked with
+deterministic regressions, not claimed as fresh successful origin downloads.
+
+Additional primary references: [Spotify URI specification](https://developer.spotify.com/documentation/web-api/concepts/spotify-uris-ids),
+[Spotify iframe API](https://developer.spotify.com/documentation/embeds/references/iframe-api),
+the [spotify-uri author's legacy embed formatter](https://github.com/TooTallNate/spotify-uri),
+[Pinterest's own embed script](https://assets.pinterest.com/js/embed.js),
+and the upstream [XVideos](https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/xvideos.py)
+and [XNXX](https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/xnxx.py)
+extractors. The TikTok/YouTube primary sources below establish their older aliases.
+
 ## Local regression validation
 
 The combined URL matrix, all eight provider downloader regressions, SoundCloud
@@ -86,6 +148,13 @@ failures or skips**. There was one existing curl-cffi warning about Windows'
 Proactor event loop using its selector-thread fallback. Ruff lint and formatting
 checks passed for the affected provider code and new tests. These are workstation
 results; no CI or production success is inferred from them.
+
+The deeper follow-up's final combined run passed **1,161 tests, zero failures or
+skips**, including provider architecture/isolation/security checks and the new
+app/widget discovery, selection and handler regressions. The same single Windows
+curl warning remained. Affected-code Ruff lint/format and Git whitespace checks
+passed. No dependencies, database migration or cross-provider implementation was
+added.
 
 ## Primary references
 

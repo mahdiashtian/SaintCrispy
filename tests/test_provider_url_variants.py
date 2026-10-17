@@ -88,7 +88,7 @@ for host in sorted(PIN_HOSTS):
     CASES.append(("pinterest", f"https://{host}/pin/{PIN}/?invite_code=sharing", PIN))
 for path in (f"pin/a-descriptive-title--{PIN}/", f"pin/{PIN}/sent/"):
     CASES.append(("pinterest", "https://www.pinterest.com/" + path, PIN))
-for host in sorted(XV_HOSTS):
+for host in sorted(XV_HOSTS - {"static-hw.xvideos.com"}):
     for path, identity in (
         ("video.abc123/title", "abc123"),
         ("video-abc123/title", "abc123"),

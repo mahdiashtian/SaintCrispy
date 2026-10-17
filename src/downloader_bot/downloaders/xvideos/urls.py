@@ -1,5 +1,5 @@
 import re
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlsplit, urlunsplit
 
 from schemas.media import DownloadError
 
@@ -7,7 +7,7 @@ PAGE_HOSTS = {
     prefix + domain
     for domain in ("xvideos.com", "xvideos2.com")
     for prefix in ("", "www.", "m.", "fr.", "de.", "it.")
-} | {"xvideos.es", "www.xvideos.es", "flashservice.xvideos.com"}
+} | {"xvideos.es", "www.xvideos.es", "flashservice.xvideos.com", "static-hw.xvideos.com"}
 
 
 LINK_PATTERN = re.compile(
@@ -50,6 +50,20 @@ def validate_page_url(url: str) -> str:
 def video_id(url: str) -> str:
     validate_page_url(url)
     parts = urlsplit(url)
+    if parts.hostname == "static-hw.xvideos.com":
+        try:
+            values = parse_qs(parts.query, keep_blank_values=True, max_num_fields=64).get(
+                "id_video", []
+            )
+        except ValueError:
+            values = []
+        if (
+            parts.path == "/swf/xv-player.swf"
+            and len(values) == 1
+            and re.fullmatch(r"[a-z0-9]+", values[0], re.I)
+        ):
+            return values[0].lower()
+        raise DownloadError("لینک صفحه یک ویدیو از XVideos را بفرست.")
     match = re.fullmatch(
         r"/(?:video[.-]([a-z0-9]+)|video(\d+)|embedframe/([a-z0-9]+))(?:/[^?#]*)?",
         parts.path,
@@ -66,8 +80,10 @@ def video_id(url: str) -> str:
 def normalize_video_url(url: str) -> str:
     identity = video_id(url)
     parts = urlsplit(url)
-    if parts.path.lower().startswith("/embedframe/") or parts.fragment.lower().startswith(
-        "quickies/a/"
+    if (
+        parts.hostname == "static-hw.xvideos.com"
+        or parts.path.lower().startswith("/embedframe/")
+        or parts.fragment.lower().startswith("quickies/a/")
     ):
         domain = (
             "xvideos2.com"

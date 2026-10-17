@@ -11,6 +11,12 @@ regressions; new supported paths remain implemented within their owning provider
 See the [dated URL coverage and exact live scope](URL_VARIANTS_20261017.md).
 This check did not publish to Telegram or measure production access.
 
+The deeper same-day input review additionally completed full Pinterest iframe
+and TikTok legacy-share transfers with integrity checks. Spotify's canonical
+track metadata check failed on an error-shaped HTTP-200 page; it is recorded as
+a failure, not another successful download. The dated URL report separates the
+new inputs, local regressions and exact origin measurements.
+
 ## October 16, 2026 Spotify addition
 
 [Spotify research and full-stream evidence](SPOTIFY.md) records three successful

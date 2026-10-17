@@ -48,8 +48,12 @@ PINTEREST_DOMAINS = (
 )
 PINTEREST_HOSTS = {
     prefix + "pinterest." + domain for domain in PINTEREST_DOMAINS for prefix in ("", "www.", "m.")
-} | {locale + ".pinterest.com" for locale in ("co", "id", "uk", "de", "fr", "es", "it", "jp", "br")}
-PAGE_HOSTS = PINTEREST_HOSTS | {"pin.it"}
+} | {
+    locale + ".pinterest.com"
+    for locale in ("co", "id", "uk", "de", "fr", "es", "it", "jp", "br", "in", "au")
+}
+EMBED_HOST = "assets.pinterest.com"
+PAGE_HOSTS = PINTEREST_HOSTS | {"pin.it", EMBED_HOST}
 
 
 LINK_PATTERN = re.compile(

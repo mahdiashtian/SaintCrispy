@@ -7,6 +7,19 @@ rather than rewriting historical failures as successes.
 
 ## Alternate provider links and SoundCloud mobile fix (October 17)
 
+Deeper same-day review: added Spotify native track URIs/legacy track widgets,
+Pinterest's official iframe and `in`/`au` locale hosts, TikTok's `www.tiktokv.com`
+input alias, XVideos' old SWF query-link mapping, and YouTube's Google API embed
+host. Provider-local normalization preserves the exact content ID and avoids
+requesting obsolete player shells. New regressions exercise inspection/selection
+and the Spotify group handler, not only URL parsing. Pinterest/TikTok alias inputs
+completed fresh full transfers with integrity checks (223,586 / 2,004,627 bytes).
+Spotify's canonical embed returned an error-shaped HTTP-200 page without the
+required track entity; that live lookup failed and must not be called a successful
+download. Its legacy shell was HTTP 403. Retry that origin failure only after
+usable metadata or changed connection evidence. See the
+[follow-up coverage and exact scopes](URL_VARIANTS_20261017.md#deeper-follow-up-app-and-player-aliases).
+
 The newly reported `m.soundcloud.com` track returned HTTP 200 with mobile assets
 but no desktop hydration. Its desktop counterpart contained usable metadata.
 Normalize SoundCloud web aliases before HTML requests, including after redirects;

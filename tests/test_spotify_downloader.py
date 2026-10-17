@@ -283,13 +283,21 @@ async def test_non_audio_converter_results_cannot_become_download_sources(respon
         assert error.value.code == "spotify_invalid_audio"
 
 
-async def test_handler_routes_to_spotify_and_creates_sender_owned_group_quality_buttons():
+@pytest.mark.parametrize(
+    "url",
+    [
+        PAGE,
+        f"spotify:track:{TRACK}",
+        f"https://embed.spotify.com/?uri=spotify:track:{TRACK}",
+    ],
+)
+async def test_handler_routes_to_spotify_and_creates_sender_owned_group_quality_buttons(url):
     provider = SimpleNamespace(inspect=AsyncMock(return_value=media()), catalog_key=content_id)
     router = DownloaderRouter({"spotify": provider})
-    assert router.site_for(PAGE) == "spotify" and router.catalog_key(PAGE) == "spotify:" + TRACK
+    assert router.site_for(url) == "spotify" and router.catalog_key(url) == "spotify:" + TRACK
     menus = MenuStore()
     event = SimpleNamespace(
-        raw_text=PAGE,
+        raw_text=url,
         sender_id=7,
         chat_id=-1007,
         id=42,

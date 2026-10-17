@@ -13,6 +13,7 @@ PAGE_HOSTS = {
     "youtube.com",
     "www.youtube-nocookie.com",
     "music.youtube.com",
+    "youtube.googleapis.com",
 }
 
 

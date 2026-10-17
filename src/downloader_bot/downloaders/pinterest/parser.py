@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
 from math import isfinite
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from schemas.media import DownloadError, Media, Quality
 
-from .urls import PINTEREST_HOSTS
+from .urls import EMBED_HOST, PAGE_HOSTS
 
 
 @dataclass(frozen=True)
@@ -126,7 +126,7 @@ def validate_page_url(url: str) -> str:
         parts = urlsplit(url)
         valid = (
             parts.scheme == "https"
-            and parts.hostname in PINTEREST_HOSTS | {"pin.it"}
+            and parts.hostname in PAGE_HOSTS
             and not parts.username
             and not parts.password
             and parts.port in (None, 443)
@@ -142,7 +142,20 @@ def validate_page_url(url: str) -> str:
 
 def pin_id(url: str) -> str:
     validate_page_url(url)
-    match = re.fullmatch(r"/pin/(?:[\w-]+--)?(\d{1,30})(?:/(?:sent/)?)?", urlsplit(url).path)
+    parts = urlsplit(url)
+    if parts.hostname == EMBED_HOST:
+        try:
+            values = parse_qs(parts.query, keep_blank_values=True, max_num_fields=64).get("id", [])
+        except ValueError:
+            values = []
+        if (
+            parts.path == "/ext/embed.html"
+            and len(values) == 1
+            and re.fullmatch(r"\d{1,30}", values[0])
+        ):
+            return values[0]
+        raise DownloadError("لینک یک پین Pinterest را بفرست.")
+    match = re.fullmatch(r"/pin/(?:[\w-]+--)?(\d{1,30})(?:/(?:sent/)?)?", parts.path)
     if not match:
         raise DownloadError(
             "لینک یک پین Pinterest را بفرست؛ دانلود برد و پروفایل پشتیبانی نشده است."
