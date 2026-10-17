@@ -1,12 +1,12 @@
 """State-routed private administration, adapted from the local Couplyo panel."""
 
-import io
 import re
 import time
 from types import SimpleNamespace
 
 from telethon import events, types, utils
 
+from bot.button_icons import button_label
 from bot.handlers.admin_render import source_reply
 from bot.keyboards import admin_reply as keys
 from bot.keyboards.admin import button, compact_id, confirmation
@@ -49,6 +49,7 @@ PARENTS = {value: CS.ADMIN_PANEL for value in CATEGORIES.values()} | {
     value: CS.ADMIN_CAT_CHANNELS_PANEL for value in SUBMENUS.values()
 }
 PARENTS |= {
+    CS.ADMIN_DATA_TOOLS_PANEL: CS.ADMIN_CAT_DATA_PANEL,
     CS.ADMIN_PROMO_PANEL: CS.ADMIN_CAT_CHANNELS_PANEL,
     CS.ADMIN_NUDGE_PANEL: CS.ADMIN_CAT_CHANNELS_PANEL,
     CS.ADMIN_WEEKLY_REPORT_PANEL: CS.ADMIN_CAT_CHANNELS_PANEL,
@@ -88,6 +89,7 @@ async def panel(event, admin, conversations, state=CS.ADMIN_PANEL, presentation=
             CS.ADMIN_GROUPS_PANEL: copy.ADMIN_GROUPS_PANEL,
             CS.ADMIN_CAT_CHANNELS_PANEL: copy.ADMIN_CAT_CHANNELS_PANEL,
             CS.ADMIN_CAT_DATA_PANEL: copy.ADMIN_CAT_DATA_PANEL,
+            CS.ADMIN_DATA_TOOLS_PANEL: "<b>ابزارهای داده</b> 🗂️\nخروجی CSV، ورود کاربران، وضعیت کش و خزش اعضا.",
             CS.ADMIN_JOIN_PANEL: copy.ADMIN_JOIN_PANEL,
             CS.ADMIN_ARCHIVE_PANEL: copy.ADMIN_ARCHIVE_PANEL,
             CS.ADMIN_STORAGE_PANEL: copy.ADMIN_STORAGE_PANEL,
@@ -142,7 +144,7 @@ async def ask(event, admin, conversations, action, parent, **data):
             "watch_group": "شناسه منفی گروه مورد رصد را بفرست.",
             "watch_channel": "آیدی کانال مقصد رصد را بفرست.",
             "promo_text": "متن پیام تبلیغی گروه‌ها را بفرست (حداکثر ۳۵۰۰ نویسه).",
-            "restore": "فایل JSON بک‌آپ داده‌های همین ربات را بفرست؛ پس از بررسی، تأیید جدا می‌گیری.",
+            "restore": "فایل JSON قدیمیِ داده‌های عمومی همین ربات را بفرست؛ پس از بررسی، تأیید جدا می‌گیری.\nبک‌آپ کامل با پسوند .dump را با pg_restore و ربات متوقف‌شده بازیابی کن.",
         }.get(action, "ورودی را بفرست.")
     )
     if action == "trace":
@@ -214,7 +216,7 @@ async def download_settings(event, admin, conversations):
         "سهمیهٔ کاربر بین همهٔ گروه‌ها و خصوصی مشترک است. انتخاب هر فرمت، حتی از لینک قبلی، "
         "سهمیهٔ دریافت را مصرف می‌کند. پس از پرشدن آن، لینک تازه هم تا پایان انتظار پذیرفته نمی‌شود.\n"
         "بازکردن منوی کیفیت، اولین دریافت را مسدود نمی‌کند. تنظیم اختصاصی گروه بر پیش‌فرض اولویت دارد.",
-        buttons=keys.menu(CS.ADMIN_DOWNLOAD_SETTINGS),
+        buttons=keys.download_settings(options),
         parse_mode=None,
     )
 
@@ -384,6 +386,10 @@ async def _handle_message(event, admin, conversations, presentation=None):
     if raw in data.get("admin_reply_labels", {}):
         raw = data["admin_reply_labels"][raw]
         event.raw_text = raw
+    if state is CS.ADMIN_DOWNLOAD_SETTINGS:
+        # Old keyboards and either checkbox state remain usable after a restart.
+        core = button_label(raw).removeprefix("روشن/خاموش ")
+        raw = next((label for label in keys.DOWNLOAD_SWITCHES if core == label), raw)
     command = raw.split(maxsplit=1)[0].split("@", 1)[0] if raw else ""
     if command in {"/start", "/admin"}:
         await admin.clear_prompts(event.sender_id)
@@ -402,7 +408,7 @@ async def _handle_message(event, admin, conversations, presentation=None):
             if len(encoded) != 4 or encoded[:2] != ["adm", str(event.sender_id)]:
                 raise DownloadError("دکمه مدیریت معتبر نیست.")
             await invoke(event, admin, encoded[2], encoded[3], presentation)
-        elif raw == b.CANCEL:
+        elif raw == b.CANCEL and state is CS.ADMIN_PANEL:
             await admin.clear_prompts(event.sender_id)
             await conversations.reset(event.sender_id, event.chat_id)
             await event.respond(
@@ -430,6 +436,9 @@ async def _handle_message(event, admin, conversations, presentation=None):
                 else PARENTS.get(state, CS.ADMIN_PANEL)
             )
             await panel(event, admin, conversations, parent, presentation)
+        elif raw == b.CANCEL:
+            # A stale reply keyboard must not abandon a nested operation.
+            await event.respond("برای برگشت به مرحلهٔ قبل، «بازگشت» را بزن.", buttons=keys.BACK_MENU)
         elif state is CS.ADMIN_INPUT:
             await handle_input(event, admin, conversations, data, presentation)
         elif raw in CATEGORIES and state is CS.ADMIN_PANEL:
@@ -607,7 +616,7 @@ async def menu_action(event, admin, conversations, state, raw, presentation):
             )
         else:
             return False
-    elif state is CS.ADMIN_CAT_DATA_PANEL:
+    elif state in {CS.ADMIN_CAT_DATA_PANEL, CS.ADMIN_DATA_TOOLS_PANEL}:
         reads = {
             b.STATS: "stats",
             b.DAILY: "daily_summary",
@@ -617,9 +626,13 @@ async def menu_action(event, admin, conversations, state, raw, presentation):
             b.EXPORT_USERS: "exportu",
             b.EXPORT_GROUPS: "exportg",
         }
-        if raw in reads:
+        if raw == b.DATA_TOOLS:
+            await panel(event, admin, conversations, CS.ADMIN_DATA_TOOLS_PANEL, presentation)
+        elif raw == b.CRAWL_STATUS:
+            await ask(event, admin, conversations, "crawl_status", state)
+        elif raw in reads:
             await invoke(event, admin, reads[raw], presentation=presentation)
-        elif raw in {b.LOOKUP, b.TRACE, b.IMPORT_USERS, b.IMPORT}:
+        elif raw in {b.LOOKUP, b.TRACE, b.USER_HISTORY, b.IMPORT_USERS, b.IMPORT}:
             await ask(
                 event,
                 admin,
@@ -627,20 +640,20 @@ async def menu_action(event, admin, conversations, state, raw, presentation):
                 {
                     b.LOOKUP: "lookup",
                     b.TRACE: "trace",
+                    b.USER_HISTORY: "trace",
                     b.IMPORT_USERS: "import_users",
                     b.IMPORT: "restore",
                 }[raw],
                 state,
             )
         elif raw == b.BACKUP:
-            result = await admin.maintenance.backup(event.sender_id)
-            stream = io.BytesIO(result.data)
-            stream.name = result.filename
-            await event.respond(
-                "بک‌آپ داده‌های عمومی همین ربات؛ بدون نشست، کوکی، کلید فایل یا عملیات در انتظار. بازیابی فقط داده‌های مفقود را اضافه می‌کند.",
-                file=stream,
-                parse_mode=None,
-            )
+            async with admin.maintenance.full_backup(event.sender_id) as path:
+                await event.respond(
+                    "💾 بک‌آپ کامل دیتابیس\nتمام جدول‌ها، داده‌ها، تنظیمات و تاریخچهٔ PostgreSQL در این فایل هستند.",
+                    file=str(path),
+                    force_document=True,
+                    parse_mode=None,
+                )
         elif raw == b.REFRESH_USERS:
             token = await admin.prepare(event.sender_id, "refresh_users", {})
             await event.respond(
@@ -861,11 +874,7 @@ async def handle_input(event, admin, conversations, data, presentation):
             )
         else:
             key = next(
-                (
-                    key
-                    for key, label in labels.items()
-                    if raw in {f"✅ {label}", f"☐ {label}", f"⬜ {label}"}
-                ),
+                (key for key, label in labels.items() if button_label(raw) == button_label(label)),
                 None,
             )
             if key is None:

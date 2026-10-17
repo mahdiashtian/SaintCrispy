@@ -99,6 +99,10 @@ async def test_fresh_file_and_cached_resend_have_identical_copy_and_premium_enti
     assert repository.record_delivery.await_count == 2
     for options in sent:
         assert options["reply_to"] == 42
+        add = options["buttons"][0][0]
+        assert add.text.removeprefix("➕ ") == "منو ببر تو گروهت"
+        assert add.style.icon or add.text.startswith("➕ ")
+        assert add.type.url == "https://t.me/ExampleBot?startgroup=start"
         assert options["parse_mode"] is None
         entities = options["formatting_entities"]
         expected = [101, 101, 102, 103] if site == "xvideos" else [101, 102, 103]

@@ -2,7 +2,17 @@ from itertools import groupby
 
 from telethon import Button
 
+from bot.deeplinks import normalize_bot_username
 from schemas.media import Quality
+
+
+def add_to_group_buttons(bot_username):
+    username = normalize_bot_username(bot_username)
+    return (
+        [[Button.url("➕ منو ببر تو گروهت", f"https://t.me/{username}?startgroup=start")]]
+        if username
+        else None
+    )
 
 
 def start_buttons(owner_id: int):

@@ -377,6 +377,9 @@ class Container:
             settings.main_admin_id,
             groups.cache,
         )
+        from services.database_backup import DatabaseBackup
+
+        admin.maintenance.database_backup = DatabaseBackup(settings.database_url)
         memberships = MembershipService(
             MembershipRepository(pool, bot.id),
             self.uow_factory,

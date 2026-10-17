@@ -56,7 +56,7 @@ async def reset_callback(event, admin, action, value):
             "پس از پاکسازی، ربات متوقف می‌شود. توکن جدید را در .env بگذار و python main.py را اجرا کن.\n\n"
             "حذف تمام داده‌ها و توقف ربات را تأیید می‌کنی؟",
             buttons=[
-                [button(event.sender_id, "❌ انصراف", "resetcancel", token)],
+                [button(event.sender_id, "🔙 بازگشت", "resetcancel", token)],
                 [
                     button(
                         event.sender_id, "🗑 بله، حذف تمام داده‌ها و توقف ربات", "resetconfirm", token

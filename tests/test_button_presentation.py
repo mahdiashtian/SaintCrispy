@@ -24,7 +24,7 @@ from services.conversation import ConversationService
 
 def presentation():
     result = BotPresentation()
-    result.button_emojis = {"⚙️": 101, "📥": 102, "✅": 103}
+    result.button_emojis = {"⚙️": 101, "📥": 102, "✅": 103, "⬜": 104}
     return result
 
 

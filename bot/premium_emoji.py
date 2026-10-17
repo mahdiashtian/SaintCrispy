@@ -242,10 +242,18 @@ class BotPresentation:
                         )
                         is not None
                     ]
+                    state = next(
+                        (value for value in ("✅", "⬜") if button.text.startswith(value + " ")),
+                        None,
+                    )
                     chosen = (
-                        matches[0]
-                        if matches
-                        else next((alt for alt in ("⚙️", "▶️", "📥") if alt in icons), None)
+                        available.get(emoji_key(state))
+                        if state
+                        else (
+                            matches[0]
+                            if matches
+                            else next((alt for alt in ("⚙️", "▶️", "📥") if alt in icons), None)
+                        )
                     )
                     style.icon = icons.get(chosen)
                 button.style = style

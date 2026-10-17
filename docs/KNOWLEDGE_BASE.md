@@ -5,6 +5,37 @@ failed approaches and decisions for all providers. Read it before investigating 
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
 
+## Couplyo navigation and complete database export (October 17)
+
+The private panel now uses Back for nested forms/results, keeps Cancel only at
+the root, removes repeated inline management-home links, and renders all six
+download switches with fixed text and checked/empty state icons. Sparse premium
+catalogs retain the visible Unicode state. Fresh/cache file delivery uses the
+reference add-group button. Full reference promo/reminder pools are separated
+and adapted to downloading, with real owner mentions and stable retry variants.
+
+Panel backup now exports the complete configured PostgreSQL database using
+native custom-format `pg_dump`, or the matching configured local Compose client
+when the host tool is absent. This supersedes the old panel public-JSON export;
+the legacy validated JSON importer remains for older files. A workstation
+integration restored the actual export into an empty disposable PostgreSQL 16
+database and verified every application table, two bot accounts, an extra schema,
+bytea data and sequence continuity. Timeout/failure/cancellation and upload
+cleanup are covered separately. No live Telegram send or production backup was
+performed. See [the dated UI and backup evidence](ADMIN_UI_20261017.md) for scope,
+tool requirements and recovery boundaries.
+
+Final workstation verification passed 307 affected tests with zero skips;
+the closing broader segment passed 1,500 tests. The 2,642-case collection was
+covered in ordered segments and affected reruns. Two initial reset assertions
+refused a simultaneous SQL test process on the same test database; all 29 reset
+cases passed when run alone. Use separate databases for concurrent suites,
+because schemas do not isolate database-wide coordinator leases. Newly copied
+message emoji now have explicit premium priorities/fallbacks. Full lint/format
+and isolated wheel packaging passed. Compose fallback has unit coverage only:
+the workstation Docker daemon was unavailable; retry its live export only with
+the configured service running.
+
 ## YouTube batch deadlines, failure coalescing and resolver latency (October 17)
 
 The public timeout is not proof of a YouTube outage. Workstation checks isolated

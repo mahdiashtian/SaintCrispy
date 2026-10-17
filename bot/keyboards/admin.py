@@ -67,7 +67,8 @@ def home(owner, root=False):
 
 
 def back(owner):
-    return [[button(owner, "🔙 مدیریت", "home")]]
+    # Reply menus already own navigation; read results need no extra home button.
+    return []
 
 
 def confirmation(owner, token):

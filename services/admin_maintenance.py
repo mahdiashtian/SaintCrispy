@@ -1,8 +1,8 @@
-"""Account-scoped logical backups and bounded, confirmed maintenance.
+"""Full database export, legacy JSON import and bounded, confirmed maintenance.
 
-Unlike executable PostgreSQL dumps received through Telegram, this format can
-only insert validated records into the listed public-data tables. Restoration
-is additive: existing records and live jobs are never replaced or replayed.
+Legacy JSON restoration only inserts validated public records. Full custom
+archives are exported through a separate native tool; their restoration remains
+an operator action with the bot stopped.
 """
 
 import asyncio
@@ -43,6 +43,19 @@ class AdminMaintenance:
         self.guard = default_guard
         self.cpu_slots = asyncio.Semaphore(2)
         self.database_reset = None
+        self.database_backup = None
+
+    @asynccontextmanager
+    async def full_backup(self, owner):
+        await self.admin.authorize(owner, root=True)
+        if self.database_backup is None:
+            raise DownloadError("بک‌آپ کامل در این اجرا آماده نیست؛ ربات را به‌روز و دوباره اجرا کن.")
+        async with self.database_backup.create() as path:
+            await self.admin.authorize(owner, root=True)
+            await self.admin.repository.audit(
+                owner, "backup_full_database", details={"format": "pg_dump", "scope": "database"}
+            )
+            yield path
 
     async def columns(self, connection, table):
         if table not in TABLES:
@@ -57,6 +70,7 @@ class AdminMaintenance:
         return tuple(dict(row) for row in rows)
 
     async def backup(self, owner):
+        """Legacy public JSON format, retained only for compatibility with old exports."""
         await self.admin.authorize(owner, root=True)
         tables, count = {}, 0
         async with self.admin.uow_factory() as uow:

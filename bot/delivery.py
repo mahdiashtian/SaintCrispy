@@ -12,6 +12,7 @@ from telethon import TelegramClient, errors, functions, helpers, types, utils
 from telethon.extensions import BinaryReader
 
 from bot.cards.preview import MAX_PREVIEW_INPUT, video_thumbnail
+from bot.keyboards.inline import add_to_group_buttons
 from bot.premium_emoji import BotPresentation
 from bot.progress import TransferProgress
 from bot.texts.downloads import FILE_EXPIRY_NOTICE, download_caption
@@ -151,6 +152,8 @@ class TelegramDelivery:
         message_id = request_message.get()
         if message_id and same_chat:
             options.setdefault("reply_to", message_id)
+        if same_chat:
+            options.setdefault("buttons", add_to_group_buttons(self.bot_username))
         if progress is not None:
             progress.phase = "waiting_telegram"
         with timed("publish"):

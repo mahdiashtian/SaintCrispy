@@ -23,14 +23,14 @@ October 16 reply-only UI change; owner and fresh-role checks still apply.
 
 | Couplyo source | Downloader implementation and behavior |
 | --- | --- |
-| `bot/handlers/admin.py`, reply keyboards and button texts | `bot/handlers/admin_reference.py`, `admin_maintenance.py`, `bot/keyboards/admin_reply.py`, `bot/texts/admin_buttons.py`: persistent category menus, back/cancel and SQL FSM prompts |
+| `bot/handlers/admin.py`, reply keyboards and button texts | `bot/handlers/admin_reference.py`, `admin_maintenance.py`, `bot/keyboards/admin_reply.py`, `bot/texts/admin_buttons.py`: persistent category menus, nested Back/root Cancel and SQL FSM prompts |
 | Dispatcher and onboarding | `bot/handlers/dispatcher.py`, `groups.py`, `membership.py`: raw self/member events, real group discovery, all human text/media speakers and private `/start` kept distinct |
 | Group storage/lifecycle repositories | `services/group.py`, `repositories/postgres/group.py`: first adder, first/re-add/remove/admin dates, stale evidence, migration and transactional audit |
 | Membership models and activity storage | `repositories/postgres/membership.py`: one bot/group/user row, exact event deduplication, state ordering, departure fences and activity counters |
 | `services/roster_crawl.py`, `repositories/postgres/roster_crawl.py`, `_crawl_one_group` in `bot/jobs.py` | `services/roster_crawl.py`, `repositories/postgres/roster_crawl.py`, `bot/roster_crawl.py`: durable paginated crawl, recovery and convergence |
 | Admin group/user directory and jobs | `services/admin.py`, `services/operations.py`, admin/outbox repositories and `bot/operations.py`: filtered pages, members, refresh, health, leave, nudge and confirmed messaging |
 | Storage/watch/archive and scheduled notices | `services/admin_channels.py`, `services/management.py`, `bot/management.py`: configured destinations, fresh authorization, opted-in schedules and durable effects |
-| Backup, import and cleanup | `services/admin_maintenance.py`, `core/maintenance.py`: bounded public-data backup/import, dry run, confirmation, worker pause, durable queue drain and cache invalidation |
+| Backup, import and cleanup | `services/database_backup.py`, `services/admin_maintenance.py`, `core/maintenance.py`: complete PostgreSQL custom archive, legacy public-data JSON import, confirmed cleanup, worker pause, durable queue drain and cache invalidation |
 
 Native asyncpg, frozen dataclasses, the existing additive migration ledger and
 SQL conversation store remain the backend. A second SQLAlchemy/Alembic stack is
@@ -43,8 +43,8 @@ downloader data and six-file provider boundaries.
 Set `MAIN_ADMIN_ID` to the installation owner's numeric Telegram ID, restart, and
 send `/admin` **in private**. This is a Telegram reply-keyboard panel; no HTTP
 port is opened. Its seven categories are administrators, messaging, groups,
-channels, data, cleanup and downloader settings. Back/cancel and new `/admin` or `/start` commands
-replace old prompts correctly. `/admin` stops subsequent handlers for that update
+channels, data, cleanup and downloader settings. Nested Back, root Cancel, and
+new `/admin` or `/start` commands replace old prompts correctly. `/admin` stops subsequent handlers for that update
 so a newly opened panel cannot immediately reset itself.
 
 Directories expose filters, stable pages, group details, real member records,
@@ -139,13 +139,25 @@ updates or hidden members Telegram never provides.
 
 ## Data operations and recovery boundaries
 
-The panel exports an allowlisted **public-data JSON backup**, not a complete
-PostgreSQL archive. It excludes credentials, access hashes, sessions, operational
-payloads and private settings. Import validates the complete bounded payload off
-the event loop, dry-runs it, then inserts only missing rows after confirmation;
-it does not grant administrators or replace existing rows. CSV remains a separate
-bounded directory operation. Use native `pg_dump` and a verified isolated restore
-for a full installation backup; see [the deployment runbook](OPERATIONS.md).
+The October 17 correction makes the panel backup a **complete PostgreSQL custom
+archive** (`.dump`), matching Couplyo's `pg_dump` export. It includes all database
+schemas/tables, all bot accounts, settings, file references and operational data;
+there is no account/table allowlist or the old 50,000-row/20-MiB JSON limit.
+Only the main administrator can export it. The private temporary archive exists
+only until the Telegram upload completes or fails; timeout/cancellation kills the
+child and removes the partial file. Native `pg_dump` is preferred. Its version
+must support the installed server. When it is absent, the configured local
+Compose PostgreSQL service supplies its matching tool. Remote connections never
+fall back to a different local database. Passwords stay out of command arguments
+and diagnostics.
+
+Legacy public-data JSON import still validates the complete bounded payload off
+the event loop and inserts only missing rows after confirmation; it does not
+grant administrators or replace existing rows. Full `.dump` restoration uses
+`pg_restore` with the bot stopped, following [the deployment runbook](OPERATIONS.md).
+The archive contains PostgreSQL data, not Redis persistence, local `.env`, cookies,
+or Telegram session files. CSV remains a separate bounded directory operation.
+See [the UI and backup verification](ADMIN_UI_20261017.md).
 
 Cleanup requires a dry run and single-use confirmation. It protects the root,
 delegated administrators and active memberships/groups. Maintenance waits for

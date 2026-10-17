@@ -8,6 +8,12 @@ default per-group requests/minute limits, plus the existing per-group override.
 They also expose independent user/group quota switches and optional gap switches
 with editable seconds. Main and delegated bot admins consume no download rate
 slots. See [the current request-limit policy](REQUEST_LIMITS.md).
+The [October 17 UI follow-up](ADMIN_UI_20261017.md) removes repeated inline
+management links, keeps Cancel only in the root reply menu, and uses a fixed
+label with a checked/empty state icon for each download switch. Data utilities
+remain available in their own submenu. Backup now exports the complete
+PostgreSQL database as a custom `.dump`, including every bot account and table;
+legacy JSON import remains available separately from native full restoration.
 Revision 13 adds persistent rolling user windows and adopts legacy timestamps.
 Read the [security review and verification scope](SECURITY_REVIEW.md).
 

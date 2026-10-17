@@ -92,20 +92,35 @@ class EffectDelivery:
                     delay = await self.rate.reserve()
                     if delay > 0:
                         raise RetryEffect(delay, "flood_wait")
-                title = (
-                    (group.title or str(group.chat_id))
-                    if effect.payload.get("with_name", True)
-                    else "گروهی که مدیریت می‌کنی"
-                )
-                text = (
-                    f"👥 ربات از {title} خارج شده؛ در صورت تمایل دوباره آن را اضافه کن."
-                    if owners
-                    else f"🛡 برای خواندن فهرست اعضای {title}، ربات را ادمین گروه کن."
-                )
-                await self.client(
-                    functions.messages.SendMessageRequest(
-                        peer, text, random_id=effect.random_id, no_webpage=True
+                from types import SimpleNamespace
+
+                from bot.handlers.admin_render import source_reply
+                from bot.texts.promos import need_admin, removed_nudge
+
+                markup = (
+                    removed_nudge(
+                        group,
+                        effect.target_id,
+                        effect.random_id,
+                        with_name=effect.payload.get("with_name", True),
                     )
+                    if owners
+                    else need_admin(group, effect.random_id)
+                )
+
+                async def send_nudge(text, **options):
+                    return await self.client(
+                        functions.messages.SendMessageRequest(
+                            peer,
+                            text,
+                            random_id=effect.random_id,
+                            no_webpage=True,
+                            entities=options.get("formatting_entities", []),
+                        )
+                    )
+
+                await source_reply(
+                    SimpleNamespace(respond=send_nudge), markup, presentation=self.presentation
                 )
                 return
             if effect.kind == "health":
@@ -200,7 +215,9 @@ class EffectDelivery:
                     from bot.texts.group_lifecycle import announcement
 
                     group = await self.groups.get(effect.target_id, fresh=True)
-                    markup = announcement(effect.payload["group_announcement"], asdict(group))
+                    markup = announcement(
+                        effect.payload["group_announcement"], asdict(group), seed=effect.random_id
+                    )
                 text = markup if markup is not None else effect.payload["text"]
 
                 async def send(text, **options):

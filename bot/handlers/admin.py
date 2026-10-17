@@ -206,7 +206,7 @@ async def _callback(event, admin, presentation=None, conversations=None):
                 buttons = [
                     [
                         button(owner, "✅ تأیید حذف", "cleanup", token),
-                        button(owner, "انصراف", "home"),
+                        button(owner, "🔙 بازگشت", "home"),
                     ]
                 ]
             elif action == "cleanup":
@@ -459,7 +459,7 @@ async def _callback(event, admin, presentation=None, conversations=None):
                 [
                     button(
                         owner,
-                        "دریافت فایل: " + ("روشن" if options["downloads_enabled"] else "خاموش"),
+                        ("✅" if options["downloads_enabled"] else "⬜") + " دریافت فایل",
                         "pause",
                         int(not options["downloads_enabled"]),
                     )
@@ -467,8 +467,7 @@ async def _callback(event, admin, presentation=None, conversations=None):
                 [
                     button(
                         owner,
-                        "اعلان گروه: "
-                        + ("روشن" if options["lifecycle_notifications"] else "خاموش"),
+                        ("✅" if options["lifecycle_notifications"] else "⬜") + " اعلان گروه",
                         "notifications",
                         int(not options["lifecycle_notifications"]),
                     )

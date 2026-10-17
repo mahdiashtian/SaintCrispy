@@ -2,7 +2,9 @@
 
 from telethon import types
 
+from bot.button_icons import button_label
 from bot.texts import admin_buttons as b
+from schemas.download_limits import DownloadLimits
 
 
 def keyboard(rows):
@@ -54,7 +56,6 @@ MENUS = {
         [b.NUDGE_ADMIN, b.NUDGE_OWNERS],
         [b.GROUP_IMPORT, b.GROUP_MEMBERS],
         [b.GROUP_INFO],
-        [b.CRAWL_STATUS],
         [b.GROUP_LEAVE],
         [b.BACK],
     ],
@@ -70,11 +71,16 @@ MENUS = {
         [b.DAILY, b.HISTORY],
         [b.USERS],
         [b.REFRESH_USERS],
-        [b.LOOKUP],
+        [b.LOOKUP, b.USER_HISTORY],
         [b.TRACE],
         [b.BACKUP, b.IMPORT],
+        [b.DATA_TOOLS],
+        [b.BACK],
+    ],
+    "ADMIN_DATA_TOOLS_PANEL": [
         [b.EXPORT_USERS, b.EXPORT_GROUPS],
         [b.IMPORT_USERS, b.CACHE],
+        [b.CRAWL_STATUS],
         [b.BACK],
     ],
     "ADMIN_CAT_CLEANUP_PANEL": [[b.FILTER_CLEANUP], [b.PURGE_USERS], [b.RESET_DATABASE], [b.BACK]],
@@ -109,12 +115,39 @@ def menu(state):
     return keyboard(MENUS[state.value if hasattr(state, "value") else state])
 
 
-BACK_MENU = keyboard([[b.BACK, b.CANCEL]])
-EXCLUSIONS = keyboard([[b.SKIP], [b.BACK, b.CANCEL]])
+BACK_MENU = keyboard([[b.BACK]])
+EXCLUSIONS = keyboard([[b.SKIP], [b.BACK]])
+
+
+DOWNLOAD_SWITCHES = {
+    b.USER_QUOTA_TOGGLE: "user_quota_enabled",
+    b.GROUP_QUOTA_TOGGLE: "group_quota_enabled",
+    b.USER_GAP_TOGGLE: "user_gap_enabled",
+    b.GROUP_GAP_TOGGLE: "group_gap_enabled",
+    b.DOWNLOAD_TOGGLE: "downloads_enabled",
+    b.NOTIFICATIONS_TOGGLE: "lifecycle_notifications",
+}
+
+
+def download_settings(options):
+    values = {**DownloadLimits().settings(), **options}
+    return keyboard(
+        [
+            [
+                f"{'✅' if values.get(DOWNLOAD_SWITCHES[label], True) else '⬜'} {label}"
+                if label in DOWNLOAD_SWITCHES
+                else label
+                for label in row
+            ]
+            for row in MENUS["ADMIN_DOWNLOAD_SETTINGS"]
+        ]
+    )
 
 
 def toggles(labels, enabled):
-    values = [f"{'✅' if key in enabled else '⬜'} {label}" for key, label in labels.items()]
+    values = [
+        f"{'✅' if key in enabled else '⬜'} {button_label(label)}" for key, label in labels.items()
+    ]
     return keyboard(
         [values[index : index + 2] for index in range(0, len(values), 2)]
         + [[b.ALL_ON, b.ALL_OFF], [b.BACK]]

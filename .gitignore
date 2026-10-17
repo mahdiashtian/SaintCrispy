@@ -54,6 +54,7 @@ logs/
 *.tar
 *.tar.gz
 *.dump
+*.rdb
 *.sql.gz
 
 # Editor and operating-system files.
