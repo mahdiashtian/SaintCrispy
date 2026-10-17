@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from telethon import errors, functions, types
 
-from bot.button_icons import EMOJI_PACK_PREFERENCES, PREMIUM_EMOJI_PACKS
+from bot.button_icons import BUTTON_EMOJI, EMOJI_PACK_PREFERENCES, PREMIUM_EMOJI_PACKS, button_label
 from services.observability import error_fields
 
 log = logging.getLogger("telegram.presentation")
@@ -182,7 +182,7 @@ class BotPresentation:
         ]
 
     def buttons(self, buttons, *, plain=False):
-        """Keep callback data, reply labels and existing colors exactly intact."""
+        """Use one icon per button while preserving actions and existing colors."""
         buttons = copy.deepcopy(buttons)
         icons = {} if plain or self.disabled else {**self.button_emojis, **self.emojis}
 
@@ -200,14 +200,24 @@ class BotPresentation:
                 if plain or self.disabled:
                     style.icon = None
                 elif not style.icon:
-                    matches = [alt for alt in icons if emoji_key(alt) in emoji_key(button.text)]
+                    matches = [
+                        alt
+                        for match in BUTTON_EMOJI.finditer(button.text)
+                        for alt in icons
+                        if emoji_key(alt) == emoji_key(match.group())
+                    ]
                     chosen = (
-                        max(matches, key=len)
+                        matches[0]
                         if matches
                         else next((alt for alt in ("⚙️", "▶️", "📥") if alt in icons), None)
                     )
                     style.icon = icons.get(chosen)
                 button.style = style
+                if style.icon:
+                    label = button_label(button.text)
+                    if label == button.text and BUTTON_EMOJI.search(label):
+                        style.icon = None
+                    button.text = label
 
         decorate(buttons)
         return buttons
@@ -215,6 +225,7 @@ class BotPresentation:
     async def _send(self, sender, text: str, options):
         was_disabled = self.disabled
         options = dict(options)
+        original_buttons = options.get("buttons")
         if "buttons" in options:
             options["buttons"] = self.buttons(options["buttons"])
         if "formatting_entities" in options:
@@ -248,7 +259,7 @@ class BotPresentation:
             self.disabled = True
             log.warning({"event": "custom_emoji_fallback", **error_fields(error)})
             if "buttons" in options:
-                options["buttons"] = self.buttons(options["buttons"], plain=True)
+                options["buttons"] = self.buttons(original_buttons, plain=True)
             plain_entities = [
                 item for item in entities if not isinstance(item, types.MessageEntityCustomEmoji)
             ]

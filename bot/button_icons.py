@@ -1,5 +1,28 @@
 """Curated custom-emoji packs and semantic priorities for downloader messages."""
 
+import re
+
+# Match complete decorations, including joined emoji, flags and keycap sequences.
+_EMOJI_BASE = (
+    r"[\u00a9\u00ae\u203c\u2049\u2122\u2139\u2194-\u2199\u21a9-\u21aa"
+    r"\u231a-\u231b\u2328\u23cf\u23e9-\u23f3\u23f8-\u23fa\u24c2"
+    r"\u25aa-\u25ab\u25b6\u25c0\u25fb-\u25fe\u2600-\u27bf\u2934-\u2935"
+    r"\u2b05-\u2b07\u2b1b-\u2b1c\u2b50\u2b55\u3030\u303d\u3297\u3299"
+    r"\U0001f000-\U0001faff]"
+)
+_EMOJI_PART = _EMOJI_BASE + r"[\ufe0e\ufe0f\U0001f3fb-\U0001f3ff\U000e0020-\U000e007f]*"
+BUTTON_EMOJI = re.compile(
+    r"[0-9#*]\ufe0f?\u20e3|" + _EMOJI_PART + r"(?:\u200d" + _EMOJI_PART + r")*"
+)
+
+
+def button_label(text: str) -> str:
+    """Use the dedicated icon slot without duplicating Unicode decorations in the label."""
+    label = BUTTON_EMOJI.sub("", text).strip()
+    # Telegram requires text; an emoji-only navigation button keeps its one Unicode icon.
+    return label or text
+
+
 PREMIUM_EMOJI_PACKS = (
     "Emoji_fan103_by_TgEmodziBot",
     "idton",

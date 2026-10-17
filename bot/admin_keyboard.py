@@ -6,6 +6,7 @@ from copy import copy
 
 from telethon import types
 
+from bot.button_icons import button_label
 from bot.keyboards.admin_reply import keyboard
 from core.locks import KeyedLocks
 from schemas.media import DownloadError
@@ -24,8 +25,9 @@ class AdminReplyEvent:
 
     async def respond(self, *args, **options):
         buttons = options.get("buttons")
+        updates = {}
         if isinstance(buttons, (list, tuple)):
-            rows, actions, styles = [], {}, {}
+            rows, actions, styles, displayed = [], {}, {}, set()
             for row in buttons:
                 labels = []
                 for button in row:
@@ -37,15 +39,14 @@ class AdminReplyEvent:
                     if parts[2] in CONFIRMATIONS:
                         # A previous confirmation must not accept a different pending job.
                         label += " · " + secrets.token_hex(3)
-                    while label in actions:
+                    while label in actions or button_label(label) in displayed:
                         label += " · " + str(len(actions) + 1)
+                    displayed.add(button_label(label))
                     labels.append(label)
                     actions[label] = data
                     styles[label] = button.style
                 rows.append(labels)
-            await self.conversations.update_data(
-                self.sender_id,
-                self.chat_id,
+            updates.update(
                 admin_reply_actions=actions,
                 admin_reply_expires=time.time() + 1200,
             )
@@ -61,12 +62,23 @@ class AdminReplyEvent:
         elif isinstance(buttons, (types.ReplyKeyboardMarkup, types.ReplyKeyboardHide)):
             data = await self.conversations.get_data(self.sender_id, self.chat_id)
             if data.get("admin_reply_actions"):
-                await self.conversations.update_data(
-                    self.sender_id,
-                    self.chat_id,
+                updates.update(
                     admin_reply_actions={},
                     admin_reply_expires=0,
                 )
+        markup = options.get("buttons")
+        if self.presentation is not None and isinstance(
+            markup, (types.ReplyKeyboardMarkup, types.ReplyKeyboardHide)
+        ):
+            aliases = {}
+            for row in getattr(markup, "rows", ()):
+                for button in row.buttons:
+                    label = button_label(button.text)
+                    if label != button.text:
+                        aliases[label] = button.text
+            updates["admin_reply_labels"] = aliases
+        if updates:
+            await self.conversations.update_data(self.sender_id, self.chat_id, **updates)
         if self.presentation is not None and args:
 
             async def send(text, **prepared):

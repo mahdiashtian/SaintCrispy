@@ -359,6 +359,9 @@ async def _handle_message(event, admin, conversations, presentation=None):
     state, data = await conversations.get(event.sender_id, event.chat_id)
     if not state.value.startswith("ADMIN_"):
         return
+    if raw in data.get("admin_reply_labels", {}):
+        raw = data["admin_reply_labels"][raw]
+        event.raw_text = raw
     command = raw.split(maxsplit=1)[0].split("@", 1)[0] if raw else ""
     if command in {"/start", "/admin"}:
         await admin.clear_prompts(event.sender_id)

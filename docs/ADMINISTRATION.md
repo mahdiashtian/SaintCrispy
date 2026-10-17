@@ -42,6 +42,13 @@ roles do not change installation privileges.
 
 Buttons are bound to their owner and private chat. Role/ban checks read SQL on
 every privileged operation; a cached profile cannot authorize a revoked manager.
+Buttons with a premium icon use plain text labels, without a second Unicode
+decoration. Emoji-only navigation keeps one Unicode icon so its text stays
+nonempty. If Telegram rejects premium icons, the original labels are restored.
+Private reply menus persist visible-label aliases alongside their action map in
+the existing owner/chat conversation record. This keeps category navigation,
+forms and single-use confirmations working after restart; callback payloads and
+authorization checks are unchanged.
 The configured root cannot be revoked or banned through the panel. Prompts are
 SQL records tied to owner and outgoing reply message; unrelated replies continue
 through normal routing. Administrative text containing a provider link is consumed

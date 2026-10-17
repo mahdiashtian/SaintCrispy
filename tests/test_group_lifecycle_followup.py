@@ -104,7 +104,7 @@ def test_group_promotion_is_quiet_about_crawl_and_lazy_copy_does_not_guess_deliv
 
 
 @pytest.mark.parametrize("reply", [False, True])
-async def test_premium_icon_slot_keeps_button_actions_labels_and_color(reply):
+async def test_premium_icon_slot_keeps_button_actions_and_color_without_duplicate_emoji(reply):
     presentation = BotPresentation()
     presentation.emojis = {"📥": 101, "⚙️": 102}
     button = (
@@ -121,7 +121,7 @@ async def test_premium_icon_slot_keeps_button_actions_labels_and_color(reply):
     result = sender.call_args.kwargs["buttons"]
     actual = result.rows[0].buttons[0] if reply else result[0][0]
     assert actual.style.icon == 101 and actual.style.bg_danger
-    assert actual.text == button.text and actual.type.to_dict() == button.type.to_dict()
+    assert actual.text == "دریافت" and actual.type.to_dict() == button.type.to_dict()
     assert button.to_dict() == original
 
 
