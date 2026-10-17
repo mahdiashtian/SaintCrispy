@@ -66,7 +66,7 @@ Each of the six provider files owns its URL rules, parsing, extraction and handl
 The metadata HTTP session and anonymous converter browser are owned by Spotify;
 YouTube/other provider cookies, credentials, runtime settings and sessions are not
 reused. Only generic models, locks, Telegram handling and transfer infrastructure
-remain shared. Direct YouTube links keep their existing main-owner restriction.
+remain shared. Direct YouTube links are also available to everyone as of October 17.
 
 ```dotenv
 SPOTIFY_METADATA_TIMEOUT_SECONDS=8

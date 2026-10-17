@@ -134,12 +134,12 @@ class GroupRepository:
         kind = "discovered" if observed and row["is_active"] is None else change.kind
         if change.kind == "added" and row["is_active"] is False:
             kind = "readded"
-        if change.kind == "standing_refreshed" and newer:
+        if change.kind in {"standing_refreshed", "permissions_changed"} and newer:
             if active is False and row["is_active"] is True:
                 kind = "removed"
             elif active is True and row["is_active"] is False:
                 kind = "readded"
-            elif admin is True and row["is_admin"] is False:
+            elif admin is True and row["is_admin"] is not True:
                 kind = "promoted"
             elif admin is False and row["is_admin"] is True:
                 kind = "demoted"

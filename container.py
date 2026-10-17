@@ -18,6 +18,7 @@ from bot.management import ManagementHooks
 from bot.operations import EffectDelivery, OperationalWorkers
 from bot.premium_emoji import BotPresentation
 from bot.roster_crawl import RosterCrawler
+from bot.roster_progress import RosterProgress
 from bot.session import catch_up_bot, connect_bot, create_session, sign_in_bot
 from bot.state.manager import ConversationManager
 from bot.state.menus import PersistentMenuStore
@@ -420,6 +421,9 @@ class Container:
                     max_passes=settings.roster_crawl_max_passes,
                     max_requests=settings.roster_crawl_max_requests,
                     delay=settings.roster_crawl_delay_seconds,
+                    progress=RosterProgress(
+                        client, roster, settings.main_admin_id, presentation=presentation, rate=rate
+                    ),
                 )
             )
         admin.maintenance.guard = partial(

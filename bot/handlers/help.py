@@ -30,7 +30,7 @@ async def help_view(
             topic,
             interval=interval,
             group_limit=group_limit,
-            youtube_enabled=bool(access and access.allows("youtube", owner_id)),
+            youtube_enabled=(access is None or access.allows("youtube", owner_id)),
             user_limit=user_limit,
         )
     )

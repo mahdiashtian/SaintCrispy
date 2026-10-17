@@ -4,7 +4,7 @@ from bot.deeplinks import bot_handle
 
 
 def start_text(
-    bot_username: str | None, interval: int = 60, *, youtube_enabled=False, user_limit=None
+    bot_username: str | None, interval: int = 60, *, youtube_enabled=True, user_limit=None
 ) -> str:
     handle = bot_handle(bot_username)
     youtube = "▶️ YouTube\n" if youtube_enabled else ""
@@ -46,7 +46,7 @@ def help_text(interval: int = 60, group_limit: int = 5, *, user_limit=None) -> s
     )
 
 
-def sites_text(*, youtube_enabled=False) -> str:
+def sites_text(*, youtube_enabled=True) -> str:
     youtube = "▶️ YouTube: ویدیو، شورت و فایل صوتی\n" if youtube_enabled else ""
     return (
         "🌐 لینک چی رو می‌تونم بگیرم؟\n\n"

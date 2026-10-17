@@ -6,7 +6,7 @@ from datetime import datetime
 from core.jalali import to_persian_digits as pd
 from core.jalali import to_shamsi
 
-LAZY = "🐢 <i>به‌صورت لیزی شناسایی شد، رویدادش از تلگرام نرسیده بود.</i>"
+LAZY = "🐢 <i>در بررسی وضعیت فعلی شناسایی شد؛ رویداد مستقیم این تغییر ثبت نشده بود.</i>"
 
 
 def record(group):
@@ -66,7 +66,7 @@ def admin_event(data):
 
 def announcement(kind, group):
     if kind == "admin":
-        return "ادمین شدم، ممنون ✅\nاعضای گروه را بررسی می‌کنم.\n\nراهنمای اعضا: /help"
+        return "ادمین شدم، ممنون ✅\n\nراهنمای اعضا: /help"
     if kind == "demoted":
         owner = group.get("owner_id")
         mention = f'<a href="tg://user?id={owner}">مالک گروه</a> ' if owner else ""

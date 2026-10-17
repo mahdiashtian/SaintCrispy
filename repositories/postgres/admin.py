@@ -143,13 +143,15 @@ class AdminRepository:
             )
         return AdminUser(**dict(row)) if row else None
 
-    async def user_trace(self, user_id):
+    async def user_trace(self, user_id, *, page=0, limit=10):
         rows = await self.connection.fetch(
             """SELECT site,content_id,quality,delivery_count,last_method,last_delivered_at
             FROM user_media_history WHERE telegram_account_id=$1 AND user_id=$2
-            ORDER BY last_delivered_at DESC LIMIT 10""",
+            ORDER BY last_delivered_at DESC,site,content_id,quality LIMIT $3 OFFSET $4""",
             self.bot_id,
             user_id,
+            limit,
+            page * 10,
         )
         return tuple(dict(row) for row in rows)
 
@@ -171,8 +173,12 @@ class AdminRepository:
         return {
             "profile": dict(profile) if profile else None,
             "groups": [dict(row) for row in rows],
-            "downloads": await self.user_trace(user_id),
+            **await self.download_page(user_id),
         }
+
+    async def download_page(self, user_id, page=0):
+        rows = await self.user_trace(user_id, page=page, limit=11)
+        return {"downloads": rows[:10], "download_page": page, "has_next": len(rows) > 10}
 
     async def members(self, chat_id, cursor=0, limit=20):
         rows = await self.connection.fetch(

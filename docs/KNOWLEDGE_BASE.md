@@ -1,9 +1,35 @@
 # Downloader knowledge base
 
-Last updated: October 16, 2026. This is the shared record of verified findings,
+Last updated: October 17, 2026. This is the shared record of verified findings,
 failed approaches and decisions for all providers. Read it before investigating a
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
+
+## Public YouTube, download history and group follow-up (October 17)
+
+The operator removed the temporary owner-only YouTube policy. Public inspection,
+quality selection and cached delivery now follow the same admission/ownership
+rules as other providers. Start/sites/help include YouTube even without a configured
+main administrator. No provider extraction, session or cookie behavior changed.
+This supersedes the historical October 15 availability restriction below, not its
+origin-access observations.
+
+Download history has ten-row private owner-scoped inline pages, with missing
+directions omitted. Edits preserve the displayed profile/groups/hint and their
+UTF-16 entities. Current SQL authorization is checked on every page. Group admin
+announcements omit the member-check promise; the crawl still runs. Its private
+owner report is edited in place with a SQL-persisted message anchor.
+
+Code inspection reproduced a misleading lifecycle explanation: `UpdateChannel`
+triggered a live permission check but was labeled as though Telegram sent no
+event. It now produces a direct permission transition, with bounded settling for
+delayed rights. Modern basic-group participant/roster update forms are also
+handled. The original reported production event cannot be reconstructed without
+its safe raw-update trace. See [dated findings and validation](GROUP_FOLLOWUP_20261017.md).
+
+Premium button icons now use Telegram's native keyboard style icon field and
+the loaded catalog; callback bytes, reply labels and colors remain intact.
+Unsupported custom icons/entities retry once with the readable Unicode fallback.
 
 ## Registration outage and source security follow-up (October 16)
 

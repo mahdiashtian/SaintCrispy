@@ -30,6 +30,7 @@ class RosterCrawler:
         max_requests=400,
         delay=1,
         ambiguous_limit=5,
+        progress=None,
     ):
         self.client, self.service, self.groups, self.tracker, self.bot_id = (
             client,
@@ -46,6 +47,7 @@ class RosterCrawler:
             ambiguous_limit,
         )
         self.tasks = []
+        self.progress = progress
 
     async def _request(self, request):
         async with asyncio.timeout(30):
@@ -169,6 +171,8 @@ class RosterCrawler:
                     await self.service.pause(crawl, "not_admin", 300)
                     return
                 crawl = current
+                if self.progress:
+                    await self.progress.update()
                 if pass_ended:
                     if crawl.pass_new_count == 0:
                         return await self.service.finish(crawl, "converged", converged=True)
@@ -269,8 +273,12 @@ class RosterCrawler:
         while True:
             try:
                 crawl = await self.service.claim()
+                if self.progress:
+                    await self.progress.update()
                 if crawl:
                     await self.run(crawl)
+                    if self.progress:
+                        await self.progress.update()
                     continue
             except Exception as error:
                 log.error({"event": "roster_worker_failed", **error_fields(error)})

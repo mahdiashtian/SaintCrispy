@@ -99,6 +99,9 @@ The raw lifecycle route is independent of the positive-human-sender guard:
 
 - `UpdateChatParticipantAdd/Delete/Admin` covers the bot's basic-group membership
   and promotions/demotions using the chat version.
+- Modern `UpdateChatParticipant` and complete `UpdateChatParticipants` responses
+  also cover basic-group role changes. QTS and chat-version cursors are separate;
+  incomplete/forbidden rosters cannot establish removal.
 - `UpdateChannelParticipant` covers the bot's supergroup member/admin/creator/
   restricted/left/banned states using the update's timestamp and `qts`. Other
   members' updates do not change the bot's standing. A muted member is still an
@@ -109,6 +112,17 @@ The raw lifecycle route is independent of the positive-human-sender guard:
 - `UpdateChannel` can trigger a bounded current-self permission probe. Unknown
   entity, access or network errors are logged as unknown, without marking the
   group removed or demoting the bot. A definite response can refresh standing.
+  This path records a direct permission signal and briefly settles a MEMBER
+  response so delayed promotion visibility does not require a later message.
+  Probe evidence retains the request's start time for ordering.
+
+Promotion still queues the resumable crawl atomically. The group receives a short
+acknowledgment without the member-check promise. The installation owner receives
+a Couplyo-style private progress message with recent groups and counters, edited
+in place using a SQL-persisted message anchor. Pauses remain pending, unknown
+totals remain unknown, and reporting failures do not interrupt crawling. See the
+[October 17 follow-up](GROUP_FOLLOWUP_20261017.md) for the reported lazy-notice bug
+and the boundary between workstation checks and production evidence.
 
 An update hash identifies replay of the same raw event; raw payloads and access
 hashes are not logged or copied into the audit. Separate Telegram update forms

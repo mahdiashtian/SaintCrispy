@@ -2,6 +2,7 @@
 
 import secrets
 import time
+from copy import copy
 
 from telethon import types
 
@@ -14,8 +15,9 @@ CONFIRMATIONS = {"confirm", "cleanup", "restore", "watchconfirm"}
 
 
 class AdminReplyEvent:
-    def __init__(self, event, conversations):
+    def __init__(self, event, conversations, presentation=None):
         self.event, self.conversations = event, conversations
+        self.presentation = presentation
 
     def __getattr__(self, key):
         return getattr(self.event, key)
@@ -23,7 +25,7 @@ class AdminReplyEvent:
     async def respond(self, *args, **options):
         buttons = options.get("buttons")
         if isinstance(buttons, (list, tuple)):
-            rows, actions = [], {}
+            rows, actions, styles = [], {}, {}
             for row in buttons:
                 labels = []
                 for button in row:
@@ -39,6 +41,7 @@ class AdminReplyEvent:
                         label += " · " + str(len(actions) + 1)
                     labels.append(label)
                     actions[label] = data
+                    styles[label] = button.style
                 rows.append(labels)
             await self.conversations.update_data(
                 self.sender_id,
@@ -47,6 +50,14 @@ class AdminReplyEvent:
                 admin_reply_expires=time.time() + 1200,
             )
             options["buttons"] = keyboard(rows)
+            for row in options["buttons"].rows:
+                for button in row.buttons:
+                    style = styles[button.text]
+                    if style and style.icon:
+                        button.style = (
+                            copy(button.style) if button.style else types.KeyboardButtonStyle()
+                        )
+                        button.style.icon = style.icon
         elif isinstance(buttons, (types.ReplyKeyboardMarkup, types.ReplyKeyboardHide)):
             data = await self.conversations.get_data(self.sender_id, self.chat_id)
             if data.get("admin_reply_actions"):
@@ -56,6 +67,12 @@ class AdminReplyEvent:
                     admin_reply_actions={},
                     admin_reply_expires=0,
                 )
+        if self.presentation is not None and args:
+
+            async def send(text, **prepared):
+                return await self.event.respond(text, *args[1:], **prepared)
+
+            return await self.presentation._send(send, args[0], options)
         return await self.event.respond(*args, **options)
 
     async def edit(self, *args, **options):
@@ -63,5 +80,9 @@ class AdminReplyEvent:
         return await self.respond(*args, **options)
 
 
-def reply_event(event, conversations):
-    return event if isinstance(event, AdminReplyEvent) else AdminReplyEvent(event, conversations)
+def reply_event(event, conversations, presentation=None):
+    if isinstance(event, AdminReplyEvent):
+        if presentation is not None:
+            event.presentation = presentation
+        return event
+    return AdminReplyEvent(event, conversations, presentation)

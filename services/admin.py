@@ -147,6 +147,17 @@ class AdminService:
         await self.authorize(owner)
         return await self.repository.public_trace(identity)
 
+    async def download_page(self, owner, identity, page=0):
+        await self.authorize(owner)
+        if (
+            type(identity) is not int
+            or identity <= 0
+            or type(page) is not int
+            or not 0 <= page <= 1000000
+        ):
+            raise DownloadError("صفحهٔ دریافت‌ها معتبر نیست.")
+        return await self.repository.download_page(identity, page)
+
     async def group(self, owner, identity):
         await self.authorize(owner)
         return await self.groups.get(identity, fresh=True)

@@ -1,6 +1,7 @@
 """Generic Telegram presentation; provider handlers keep their own routing."""
 
 import asyncio
+import copy
 import logging
 import re
 import time
@@ -43,6 +44,7 @@ def emoji_key(value: str) -> str:
 class BotPresentation:
     def __init__(self):
         self.emojis: dict[str, int] = {}
+        self.button_emojis: dict[str, int] = {}
         self.disabled = False
         self.pack_emojis: dict[str, dict[str, int]] = {}
         self.sources: dict[str, str] = {}
@@ -87,9 +89,9 @@ class BotPresentation:
         for name, emojis in self.pack_emojis.items():
             for alt, document_id in emojis.items():
                 key = emoji_key(alt)
-                if key not in relevant:
-                    continue
-                priorities = tuple(dict.fromkeys(n.lower() for n in (*explicit, *relevant[key])))
+                priorities = tuple(
+                    dict.fromkeys(n.lower() for n in (*explicit, *relevant.get(key, ())))
+                )
                 rank = (
                     priorities.index(name.lower())
                     if name.lower() in priorities
@@ -100,7 +102,11 @@ class BotPresentation:
                     candidates[key] = candidate
         selected = {alt: identity for _, identity, alt, _ in candidates.values()}
         self.sources = {alt: name for _, _, alt, name in candidates.values()}
-        self.emojis = selected
+        self.button_emojis = selected
+        self.emojis = {
+            alt: identity for alt, identity in selected.items() if emoji_key(alt) in relevant
+        }
+        self.sources = {alt: name for alt, name in self.sources.items() if alt in self.emojis}
         self._patterns.clear()
         log.info(
             {
@@ -175,15 +181,57 @@ class BotPresentation:
             for match in list(self._pattern(self.emojis).finditer(text))[:50]
         ]
 
+    def buttons(self, buttons, *, plain=False):
+        """Keep callback data, reply labels and existing colors exactly intact."""
+        buttons = copy.deepcopy(buttons)
+        icons = {} if plain or self.disabled else {**self.button_emojis, **self.emojis}
+
+        def decorate(button):
+            if isinstance(button, (list, tuple)):
+                for item in button:
+                    decorate(item)
+            elif hasattr(button, "rows"):
+                for row in button.rows:
+                    decorate(row.buttons)
+            elif hasattr(button, "button"):
+                decorate(button.button)
+            elif hasattr(button, "style") and hasattr(button, "text"):
+                style = copy.copy(button.style) if button.style else types.KeyboardButtonStyle()
+                if plain or self.disabled:
+                    style.icon = None
+                elif not style.icon:
+                    matches = [alt for alt in icons if emoji_key(alt) in emoji_key(button.text)]
+                    chosen = (
+                        max(matches, key=len)
+                        if matches
+                        else next((alt for alt in ("⚙️", "▶️", "📥") if alt in icons), None)
+                    )
+                    style.icon = icons.get(chosen)
+                button.style = style
+
+        decorate(buttons)
+        return buttons
+
     async def _send(self, sender, text: str, options):
+        was_disabled = self.disabled
+        options = dict(options)
+        if "buttons" in options:
+            options["buttons"] = self.buttons(options["buttons"])
         if "formatting_entities" in options:
-            return await sender(text, **options)
-        text, entities = self.prepare(text)
-        if not entities:
-            return await sender(text, **options)
+            entities = options.pop("formatting_entities")
+        else:
+            text, entities = self.prepare(text)
+        if self.disabled:
+            entities = [
+                item for item in entities if not isinstance(item, types.MessageEntityCustomEmoji)
+            ]
         try:
-            return await sender(text, formatting_entities=entities, **options)
+            return await sender(
+                text, **({"formatting_entities": entities} if entities else {}), **options
+            )
         except errors.RPCError as error:
+            if self.disabled and not was_disabled:
+                raise
             if type(error).__name__ not in {
                 "CustomEmojiInvalidError",
                 "EntityBoundsInvalidError",
@@ -199,7 +247,16 @@ class BotPresentation:
                 raise
             self.disabled = True
             log.warning({"event": "custom_emoji_fallback", **error_fields(error)})
-            return await sender(text, **options)
+            if "buttons" in options:
+                options["buttons"] = self.buttons(options["buttons"], plain=True)
+            plain_entities = [
+                item for item in entities if not isinstance(item, types.MessageEntityCustomEmoji)
+            ]
+            return await sender(
+                text,
+                **({"formatting_entities": plain_entities} if plain_entities else {}),
+                **options,
+            )
 
     async def respond(self, event, text: str, **options):
         options.setdefault("parse_mode", None)

@@ -25,8 +25,8 @@ Git. Executable code, English documentation and generated schema are committed.
 Set the numeric `MAIN_ADMIN_ID` in `.env`, restart Python, then send `/admin` to
 the bot **in private**. No web server, additional public port or administrator
 password is introduced. An empty root ID leaves main-administrator controls unavailable; existing delegated roles still require fresh SQL authorization.
-The existing main-admin-only YouTube restriction remains independent of delegated
-administration. Group administrators do not gain installation privileges.
+YouTube is available to everyone; delegated administration and group administrator
+roles do not change installation privileges.
 
 | Operation | Main administrator | Delegated administrator |
 | --- | --- | --- |

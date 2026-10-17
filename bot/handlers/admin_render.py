@@ -27,16 +27,29 @@ async def source_reply(event, markup, *, buttons=None, presentation=None, edit=F
                 item for item in formatting if not isinstance(item, types.MessageEntityCustomEmoji)
             ]
         try:
-            result = await sender(chunk, formatting_entities=formatting, **prepared)
+            if (
+                callable(getattr(presentation, "_send", None))
+                and getattr(event, "presentation", None) is not presentation
+            ):
+                result = await presentation._send(
+                    sender, chunk, {"formatting_entities": formatting, **prepared}
+                )
+            else:
+                result = await sender(chunk, formatting_entities=formatting, **prepared)
         except errors.RPCError as error:
-            if not custom or type(error).__name__ not in {
-                "CustomEmojiInvalidError",
-                "EntityBoundsInvalidError",
-                "EntityTypeInvalidError",
-                "PremiumAccountRequiredError",
-                "EntitiesTooLongError",
-                "DocumentInvalidError",
-            }:
+            if (
+                (presentation is not None and presentation.disabled)
+                or not custom
+                or type(error).__name__
+                not in {
+                    "CustomEmojiInvalidError",
+                    "EntityBoundsInvalidError",
+                    "EntityTypeInvalidError",
+                    "PremiumAccountRequiredError",
+                    "EntitiesTooLongError",
+                    "DocumentInvalidError",
+                }
+            ):
                 raise
             presentation.disabled = True
             result = await sender(

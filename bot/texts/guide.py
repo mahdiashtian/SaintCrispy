@@ -11,7 +11,7 @@ TOPICS = (
 BACK = "⬅️ برگشت به فهرست"
 
 
-def topic_text(topic, *, interval=60, group_limit=5, youtube_enabled=False, user_limit=None):
+def topic_text(topic, *, interval=60, group_limit=5, youtube_enabled=True, user_limit=None):
     from bot.texts.messages import sites_text
 
     return {

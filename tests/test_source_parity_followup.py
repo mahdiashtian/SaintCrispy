@@ -127,7 +127,8 @@ async def test_group_audience_and_active_member_exclusion_match_source(app, scop
     job = {
         "kind": "broadcast",
         "cursor": None,
-        "created_at": datetime.now(UTC),
+        # Production jobs use the SQL clock; the test database may run on another host.
+        "created_at": await app.pool.fetchval("SELECT clock_timestamp()"),
         "payload": {"audience": "groups", "group_audience": scope},
     }
     assert set(await repo.targets(job)) == expected

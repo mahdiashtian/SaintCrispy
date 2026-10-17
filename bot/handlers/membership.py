@@ -112,8 +112,12 @@ class MembershipTracker:
         user_id = getattr(update, "user_id", None)
         if user_id == self.bot_id:
             return
-        if isinstance(update, types.UpdateChannelParticipant):
-            chat_id = utils.get_peer_id(types.PeerChannel(update.channel_id))
+        if isinstance(update, (types.UpdateChannelParticipant, types.UpdateChatParticipant)):
+            chat_id = (
+                -update.chat_id
+                if isinstance(update, types.UpdateChatParticipant)
+                else utils.get_peer_id(types.PeerChannel(update.channel_id))
+            )
             active, _, _ = participant_standing(update.new_participant)
             previous, _, _ = participant_standing(update.prev_participant)
             if active is None:
@@ -146,7 +150,9 @@ class MembershipTracker:
                 user.username,
                 user.first_name,
                 user.last_name,
-                "participant" if isinstance(update, types.UpdateChannelParticipant) else "basic",
+                "participant"
+                if isinstance(update, (types.UpdateChannelParticipant, types.UpdateChatParticipant))
+                else "basic",
             )
         )
 

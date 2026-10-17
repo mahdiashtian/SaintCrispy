@@ -23,6 +23,8 @@ from schemas.group import GroupChange, GroupStanding, Standing
 log = logging.getLogger("activity")
 GROUP_UPDATES = (
     types.UpdateChannelParticipant,
+    types.UpdateChatParticipant,
+    types.UpdateChatParticipants,
     types.UpdateChatParticipantAdd,
     types.UpdateChatParticipantDelete,
     types.UpdateChatParticipantAdmin,
@@ -171,12 +173,45 @@ class GroupTracker:
             chat_id = utils.get_peer_id(update.message.peer_id)
         elif isinstance(update, types.UpdateChannelParticipant):
             chat_id = utils.get_peer_id(types.PeerChannel(update.channel_id))
+        elif isinstance(update, types.UpdateChatParticipants):
+            chat_id = -update.participants.chat_id
         else:
             chat_id = -update.chat_id
         async with self._locks.hold(str(chat_id)):
             await self._handle_update(update)
 
     async def _handle_update(self, update):
+        if isinstance(update, types.UpdateChatParticipants):
+            roster = update.participants
+            if not isinstance(roster, types.ChatParticipants):
+                return
+            participant = next(
+                (item for item in roster.participants if item.user_id == self.bot_id), None
+            )
+            active, admin, can_send = participant_standing(participant)
+            entity = await self._entity(-roster.chat_id, update)
+            await self.service.record(
+                GroupChange(
+                    -roster.chat_id,
+                    "permissions_changed",
+                    hashlib.sha256(bytes(update)).hexdigest(),
+                    event_time(None),
+                    "group",
+                    active=active,
+                    admin=admin,
+                    can_send=can_send,
+                    title=getattr(entity, "title", None),
+                    stream="basic",
+                    sequence=roster.version,
+                    priority=2,
+                )
+            )
+            self._seen.pop(-roster.chat_id, None)
+            self._checked.pop(-roster.chat_id, None)
+            if admin and entity is not None:
+                await self.remember(entity, -roster.chat_id)
+                await self.snapshot(entity, -roster.chat_id)
+            return
         if isinstance(update, types.UpdateChannel):
             await self.refresh(update)
             return
@@ -224,8 +259,13 @@ class GroupTracker:
         else:
             if update.user_id != self.bot_id:
                 return
-            if isinstance(update, types.UpdateChannelParticipant):
-                chat_id = utils.get_peer_id(types.PeerChannel(update.channel_id))
+            if isinstance(update, (types.UpdateChannelParticipant, types.UpdateChatParticipant)):
+                basic = isinstance(update, types.UpdateChatParticipant)
+                chat_id = (
+                    -update.chat_id
+                    if basic
+                    else utils.get_peer_id(types.PeerChannel(update.channel_id))
+                )
                 active, admin, can_send = participant_standing(update.new_participant)
                 previous, was_admin, _ = participant_standing(update.prev_participant)
                 if active is None:
@@ -270,6 +310,7 @@ class GroupTracker:
                     types.UpdateChatParticipantAdd,
                     types.UpdateChatParticipantDelete,
                     types.UpdateChatParticipantAdmin,
+                    types.UpdateChatParticipant,
                 ),
             ):
                 kind = "group"
@@ -313,6 +354,15 @@ class GroupTracker:
             )
         )
         self._seen.pop(chat_id, None)
+        self._checked.pop(chat_id, None)
+        log.info(
+            {
+                "event": "group_raw_lifecycle",
+                "chat_id": chat_id,
+                "update_type": type(update).__name__,
+                "kind": verb,
+            }
+        )
         if verb in {"added", "promoted"} and entity is not None:
             await self.remember(entity, chat_id)
             await self.snapshot(entity, chat_id)
@@ -322,11 +372,21 @@ class GroupTracker:
         chat_id = utils.get_peer_id(types.PeerChannel(update.channel_id))
         async with asyncio.timeout(7):
             async with self._locks.hold(str(chat_id)):
+                started = datetime.now(UTC)
                 entity = await self._entity(chat_id, update)
-                await self._refresh_entity(entity, chat_id)
+                verdict = await self.settled(entity, chat_id) if entity is not None else None
+                await self._refresh_entity(
+                    entity,
+                    chat_id,
+                    verdict=verdict,
+                    change_kind="permissions_changed",
+                    observed_at=started,
+                )
 
-    async def _refresh_entity(self, entity, chat_id, *, verdict=None):
-        started = datetime.now(UTC)
+    async def _refresh_entity(
+        self, entity, chat_id, *, verdict=None, change_kind="standing_refreshed", observed_at=None
+    ):
+        started = observed_at or datetime.now(UTC)
         when = started
         kind = group_kind(entity)
         if not kind:
@@ -340,7 +400,7 @@ class GroupTracker:
         result = await self.service.record(
             GroupChange(
                 chat_id,
-                "standing_refreshed",
+                change_kind,
                 f"probe:{started.isoformat()}",
                 when,
                 kind,

@@ -348,5 +348,5 @@ async def test_start_uses_actual_username_and_does_not_invent_provider_bots():
     assert "@ActualBot" in text
     assert text.count("@") == 2
     assert all(name in text for name in ("SoundCloud", "Instagram", "Pinterest", "XVideos", "XNXX"))
-    assert "YouTube" not in text
+    assert "YouTube" in text
     assert options["reply_to"] == 77

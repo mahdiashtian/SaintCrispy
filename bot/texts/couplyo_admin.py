@@ -69,11 +69,20 @@ def downloader_user_trace(data, *, with_history=True):
         )
     if total > len(groups):
         lines.append(f"… و {pd(total - len(groups))} گروهِ دیگر")
-    lines += ["➖➖➖➖➖➖➖➖➖➖", "<b>ده دریافت اخیر</b> 📥"]
+    return "\n".join(lines) + "\n" + download_history(data)
+
+
+def download_history(data):
+    lines = ["➖➖➖➖➖➖➖➖➖➖", "<b>ده دریافت اخیر</b> 📥"]
+    page = data.get("download_page", 0)
+    if page:
+        lines.append(f"صفحهٔ {pd(page + 1)}")
     for row in data["downloads"]:
         lines.append(
             f"• {html.escape(row['site'])} · <code>{html.escape(row['content_id'])}</code> · {html.escape(row['quality'])} · {pd(row['delivery_count'])} بار"
         )
+    if not data["downloads"]:
+        lines.append("هنوز دریافتی ثبت نشده است.")
     return "\n".join(lines)
 
 

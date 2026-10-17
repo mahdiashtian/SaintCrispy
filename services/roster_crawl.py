@@ -18,6 +18,15 @@ class RosterCrawlService:
     async def summary(self):
         return await self.repository.summary()
 
+    async def recent(self):
+        return await self.repository.recent()
+
+    async def report_state(self, value=None):
+        async with self.uow_factory() as uow:
+            if value is not None:
+                await uow.admin.set_setting("roster_progress_message", value)
+            return await uow.admin.setting("roster_progress_message", {})
+
     async def claim(self):
         async with self.uow_factory() as uow:
             await uow.roster_crawls.seed_missing()

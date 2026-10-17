@@ -168,6 +168,12 @@ def register_handlers(
         events.CallbackQuery(pattern=rb"^help:([0-9]+):([a-z_]+)$"),
     )
     if admin is not None:
+        from .download_history import handle_download_page
+
+        client.add_event_handler(
+            partial(handle_download_page, admin=admin, presentation=presentation),
+            events.CallbackQuery(pattern=rb"^dls:[0-9]+:[0-9]+:[0-9]+$"),
+        )
         client.add_event_handler(
             partial(
                 admin_handlers.open_panel,

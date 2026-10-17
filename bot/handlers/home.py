@@ -33,7 +33,7 @@ async def handle_home(
             "منوی اصلی فقط در پیوی باز می‌شه؛ برای راهنمای گروه /help رو بفرست.", alert=True
         )
         return
-    youtube_enabled = bool(access and access.allows("youtube", event.sender_id))
+    youtube_enabled = access is None or access.allows("youtube", event.sender_id)
     buttons = [[Button.inline("برگشت", f"home:{owner_id}:main")]]
     with user_request(event.sender_id, event.chat_id):
         log.info({"event": "home_action", "action": action})

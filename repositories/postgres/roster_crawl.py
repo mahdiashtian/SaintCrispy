@@ -314,3 +314,13 @@ class RosterCrawlRepository:
             self.bot_id,
         )
         return dict(row)
+
+    async def recent(self):
+        rows = await self.connection.fetch(
+            """SELECT g.title,c.chat_id,c.status,c.stopped_because,c.seen_unique,c.claimed_total,
+            c.skipped_accounts,c.flood_waits FROM group_roster_crawls c JOIN bot_groups g
+            USING(telegram_account_id,chat_id) WHERE c.telegram_account_id=$1
+            ORDER BY c.updated_at DESC,c.chat_id LIMIT 5""",
+            self.bot_id,
+        )
+        return tuple(dict(row) for row in rows)

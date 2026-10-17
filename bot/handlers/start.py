@@ -40,7 +40,7 @@ async def handle_start(
         text = start_text(
             bot_username,
             interval,
-            youtube_enabled=bool(access and access.allows("youtube", event.sender_id)),
+            youtube_enabled=(access is None or access.allows("youtube", event.sender_id)),
             user_limit=limits["user_limit"] if limits else None,
         )
         if management is not None:

@@ -47,7 +47,7 @@ async def open_panel(event, admin, presentation=None, conversations=None):
             async with locks.hold(str(event.sender_id)):
                 await admin.clear_prompts(event.sender_id)
                 await panel(
-                    reply_event(event, conversations),
+                    reply_event(event, conversations, presentation),
                     admin,
                     conversations,
                     presentation=presentation,
@@ -287,13 +287,11 @@ async def callback(event, admin, presentation=None, conversations=None):
             text = user_text(user)
             buttons = [[button(owner, "📜 فایل‌های دریافت‌شده", "trace", user.user_id)]] + buttons
         elif action == "trace":
-            from bot.handlers.admin_render import source_reply
-            from bot.texts.couplyo_admin import downloader_user_trace
+            from bot.handlers.download_history import show_trace
 
-            await source_reply(
+            await show_trace(
                 event,
-                downloader_user_trace(await admin.public_trace(owner, int(value))),
-                buttons=buttons,
+                await admin.public_trace(owner, int(value)),
                 presentation=presentation,
                 edit=True,
             )
@@ -447,7 +445,7 @@ async def input_reply(event, admin, presentation=None, conversations=None):
     if conversations is not None:
         from bot.admin_keyboard import reply_event
 
-        event = reply_event(event, conversations)
+        event = reply_event(event, conversations, presentation)
     raw = (getattr(event, "raw_text", "") or "").strip()
     command = raw.split(maxsplit=1)[0].split("@", 1)[0] if raw else ""
     if command == "/help" or raw.removeprefix("📖").strip() == "راهنما":

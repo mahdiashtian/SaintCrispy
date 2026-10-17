@@ -342,7 +342,9 @@ async def handle_message(event, admin, conversations, presentation=None):
     if not private(event) or conversations is None:
         return
     async with locks.hold(str(event.sender_id)):
-        await _handle_message(reply_event(event, conversations), admin, conversations, presentation)
+        await _handle_message(
+            reply_event(event, conversations, presentation), admin, conversations, presentation
+        )
 
 
 async def _handle_message(event, admin, conversations, presentation=None):
@@ -673,6 +675,13 @@ async def handle_input(event, admin, conversations, data, presentation):
         if not user:
             raise DownloadError(copy.ADMIN_USER_LOOKUP_INVALID)
         result = await admin.public_trace(owner, user.user_id)
+        if action == "trace":
+            from .download_history import show_trace
+
+            await show_trace(
+                event, result, presentation=presentation, hint=copy.ADMIN_LOOKUP_AGAIN_HINT
+            )
+            return
         await source_reply(
             event,
             copy.downloader_user_trace(result, with_history=action == "trace")

@@ -128,10 +128,10 @@ async def test_help_topic_is_owned_and_unknown_or_repeated_topic_is_safe():
     await handle_help_topic(repeated)
 
 
-async def test_sites_topic_preserves_main_owner_only_youtube_visibility():
+async def test_sites_topic_shows_youtube_to_every_user():
     actual = event(data=b"help:7:sites")
     await handle_help_topic(actual, access=ProviderAccess(999))
-    assert "YouTube" not in actual.edit.call_args.args[0]
+    assert "YouTube" in actual.edit.call_args.args[0]
     await handle_help_topic(actual, access=ProviderAccess(7))
     assert "YouTube" in actual.edit.call_args.args[0]
 
