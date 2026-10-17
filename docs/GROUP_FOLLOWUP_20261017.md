@@ -1,5 +1,39 @@
 # Group, history and availability follow-up — October 17, 2026
 
+## User retention parity with Couplyo
+
+The operator explicitly required user retention after demotion, matching the
+supplied local Couplyo source. Reinspected source commit
+`e3e073276b489b72b798a3aecc5b3dd3c9361e8b`:
+
+- `services/group.py:GroupService.set_admin(False)` changes admin standing without
+  removing the group or users. `set_active(False)` soft-deactivates a group after
+  the bot leaves/is removed; the group and human records remain.
+- `bot/handlers/onboarding.py:_on_bot_demoted` calls `set_admin(False)`;
+  `_deactivate_group_reliably` calls `set_active(False)` and retires the crawl/watch.
+- `services/membership.py:MembershipService.leave` and
+  `repositories/postgres/membership.py:deactivate` mark only that user's group
+  membership inactive, explicitly preserving the global user row.
+
+The downloader already follows these retention semantics. Bot demotion preserves
+active group membership and pauses the crawl; bot removal marks the group inactive
+and cancels its crawl. Neither changes/deletes its user or membership records.
+An actual human departure marks only that membership inactive. Re-promotion's
+`DELETE FROM roster_crawl_seen` removes temporary per-run counting entries;
+`bot_users`, `group_memberships`, `membership_events` and `user_media_history`
+remain intact. No application behavior or schema change was necessary.
+
+The new real SQL regressions snapshot all four durable tables across demotion,
+removal and re-promotion. They also check that one-group and multi-group human
+departures keep global profiles, private-start consent, admin roles and delivery
+history. Tests use synthetic identities in an isolated local database, simulated
+Telegram, and no production access.
+
+Validation: all 84 affected retention, promotion-trigger, group and architecture
+tests passed with real local PostgreSQL 16/Redis and zero skips. Ruff and format
+checks passed for 359 Python files. This verifies workstation data retention;
+the production database was neither accessed nor modified.
+
 ## Promotion-only automatic runs
 
 The later operator report contained a completed crawl message sent on startup.

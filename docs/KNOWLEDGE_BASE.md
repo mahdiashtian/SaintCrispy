@@ -7,6 +7,15 @@ rather than rewriting historical failures as successes.
 
 ## Public YouTube, download history and group follow-up (October 17)
 
+User-retention audit: reread the actual local Couplyo source at `e3e0732`, including
+`GroupService.set_admin/set_active`, onboarding demotion/deactivation and
+`MembershipService.leave`. The downloader already preserves global users,
+memberships and download history on bot demotion/removal; a departing human only
+deactivates that group's membership. Re-promotion resets temporary per-run seen
+tracking without removing human data. Real PostgreSQL regressions now snapshot
+these tables across lifecycle changes. No runtime change was needed. See
+[retention evidence](GROUP_FOLLOWUP_20261017.md#user-retention-parity-with-couplyo).
+
 Later October 17 correction: the operator reported a completed crawl message on
 startup and requested promotion-only automatic runs plus numeric IDs in report
 rows. Idle polling had both seeded missing jobs for existing admins and replayed

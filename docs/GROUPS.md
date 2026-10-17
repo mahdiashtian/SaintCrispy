@@ -158,6 +158,14 @@ once. Existing new-group standing is not erased by an older migration event.
 Delayed old-group updates cannot reactivate the retired identity. Old callbacks
 remain bound to their original chat and are not redirected into another chat.
 
+Lifecycle changes preserve human data, matching Couplyo. Demotion only clears bot
+admin standing and pauses crawling; the bot's continued presence keeps the group
+active. Bot removal soft-deactivates the group and cancels crawling. Both preserve
+all stored users, membership rows, activity and delivery history. A real human
+departure marks only that group's membership inactive and preserves the global
+user and their other groups. A new crawl clears temporary per-run counting rows,
+not the stored roster or users. Explicit administrator cleanup is a separate flow.
+
 ## Administration and membership extension (revision 10)
 
 [Administration design](ADMINISTRATION.md) adds separate observed human memberships, replay-safe message counters, owner/admin snapshots, typed peer recovery, SQL-backed health/leave jobs, group quota overrides and transactional lifecycle notifications. An actual departed state changes `removed_at`; replayed removals do not reset the date. A provisional add settles through up to three 1.5-second checks, while stale demotion is checked against fresh admin evidence. UNKNOWN remains non-destructive.

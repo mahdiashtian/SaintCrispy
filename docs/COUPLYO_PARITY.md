@@ -79,7 +79,7 @@ queued effects that are no longer eligible.
 | --- | --- |
 | Confirmed bot add/join/request approval | Verified group, active standing, known human inviter, preserved first-add attribution, audit; enqueue roster if administrator |
 | Confirmed bot removal/left/banned | Inactive standing, actual removal time, cleared administrator date, suspended crawl, watch retirement and audit |
-| Promotion/demotion | Administrator flag/date and separate send permission; enqueue/resume or pause crawl; audit without erasing membership history |
+| Promotion/demotion | Administrator flag/date and separate send permission; start a fresh run or pause crawl; preserve users and membership/history rows |
 | Ambiguous probe, inaccessible channel, transient RPC | UNKNOWN/error and bounded retry; no fabricated removal or demotion |
 | Real human group text or media message | Profile and bot/group/user membership, last activity and one exact counter increment; no private-start flag and no message body in the activity ledger |
 | Human join/leave service or raw update | Ordered, deduplicated membership transition; rights-only member updates are not fake joins |
