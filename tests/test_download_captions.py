@@ -101,7 +101,8 @@ async def test_fresh_file_and_cached_resend_have_identical_copy_and_premium_enti
         assert options["reply_to"] == 42
         assert options["parse_mode"] is None
         entities = options["formatting_entities"]
-        assert [e.document_id for e in entities] == [101, 102, 103]
+        expected = [101, 101, 102, 103] if site == "xvideos" else [101, 102, 103]
+        assert [e.document_id for e in entities] == expected
         encoded = options["caption"].encode("utf-16-le")
         assert (
             encoded[entities[0].offset * 2 : (entities[0].offset + entities[0].length) * 2].decode(

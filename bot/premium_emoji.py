@@ -10,7 +10,13 @@ from urllib.parse import urlsplit
 
 from telethon import errors, functions, types
 
-from bot.button_icons import BUTTON_EMOJI, EMOJI_PACK_PREFERENCES, PREMIUM_EMOJI_PACKS, button_label
+from bot.button_icons import (
+    BUTTON_EMOJI,
+    EMOJI_FALLBACKS,
+    EMOJI_PACK_PREFERENCES,
+    PREMIUM_EMOJI_PACKS,
+    button_label,
+)
 from services.observability import error_fields
 
 log = logging.getLogger("telegram.presentation")
@@ -39,6 +45,25 @@ def pack_names(configured: str) -> tuple[str, ...]:
 
 def emoji_key(value: str) -> str:
     return value.replace("\ufe0e", "").replace("\ufe0f", "")
+
+
+def semantic_aliases(icons):
+    available = {emoji_key(alt): alt for alt in icons}
+    resolved = {}
+    for source, candidates in EMOJI_FALLBACKS.items():
+        if emoji_key(source) in available:
+            continue
+        target = next(
+            (
+                available[emoji_key(candidate)]
+                for candidate in candidates
+                if emoji_key(candidate) in available
+            ),
+            None,
+        )
+        if target is not None:
+            resolved[source] = target
+    return resolved
 
 
 class BotPresentation:
@@ -114,6 +139,8 @@ class BotPresentation:
                 "requested_packs": len(names),
                 "loaded_packs": len(self.pack_emojis),
                 "selected_emojis": len(selected),
+                "body_emojis": len(self.emojis),
+                "semantic_aliases": len(semantic_aliases(self.emojis)),
             }
         )
 
@@ -158,13 +185,16 @@ class BotPresentation:
         if self.disabled or not self.emojis:
             return text, []
         aliases = {}
-        for alt in self.emojis:
-            aliases[alt] = alt
-            key = emoji_key(alt)
-            aliases[key] = alt
+        for source, target in {
+            **{alt: alt for alt in self.emojis},
+            **semantic_aliases(self.emojis),
+        }.items():
+            aliases[source] = target
+            key = emoji_key(source)
+            aliases[key] = target
             if len(key) == 1:
-                aliases[key + "\ufe0f"] = alt
-                aliases[key + "\ufe0e"] = alt
+                aliases[key + "\ufe0f"] = target
+                aliases[key + "\ufe0e"] = target
         # Telegram requires the displayed Unicode emoji to match the document's actual alt.
         text = self._pattern(aliases).sub(lambda match: aliases[match.group()], text)
         return text, self.entities(text)
@@ -185,6 +215,9 @@ class BotPresentation:
         """Use one icon per button while preserving actions and existing colors."""
         buttons = copy.deepcopy(buttons)
         icons = {} if plain or self.disabled else {**self.button_emojis, **self.emojis}
+        aliases = semantic_aliases(icons)
+        available = {emoji_key(alt): alt for alt in icons}
+        fallbacks = {emoji_key(source): target for source, target in aliases.items()}
 
         def decorate(button):
             if isinstance(button, (list, tuple)):
@@ -201,10 +234,13 @@ class BotPresentation:
                     style.icon = None
                 elif not style.icon:
                     matches = [
-                        alt
+                        target
                         for match in BUTTON_EMOJI.finditer(button.text)
-                        for alt in icons
-                        if emoji_key(alt) == emoji_key(match.group())
+                        if (
+                            target := available.get(emoji_key(match.group()))
+                            or fallbacks.get(emoji_key(match.group()))
+                        )
+                        is not None
                     ]
                     chosen = (
                         matches[0]

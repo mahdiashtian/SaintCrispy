@@ -41,7 +41,7 @@ def presentation():
         ("▶︎ پخش", "پخش"),
         ("MP3 · 128 kbps", "MP3 · 128 kbps"),
         ("1080p · 60 fps", "1080p · 60 fps"),
-        ("⬅️", "⬅️"),
+        ("⬅️", "بازگشت"),
     ],
 )
 def test_labels_remove_complete_decorations_without_changing_quality_values(original, expected):
@@ -73,11 +73,11 @@ def test_all_static_admin_and_public_buttons_have_one_icon_and_keep_original_act
             bytes(actual)
 
 
-@pytest.mark.parametrize("text", ["⬅️", "➡️", "✅"])
-def test_emoji_only_buttons_remain_nonempty_and_do_not_get_a_second_icon(text):
+@pytest.mark.parametrize("text,label", [("⬅️", "بازگشت"), ("➡️", "بعدی"), ("✅", "تأیید")])
+def test_navigation_uses_readable_text_and_one_premium_icon(text, label):
     original = Button.inline(text, b"same", icon=999)
     rendered = presentation().buttons([[original]])[0][0]
-    assert rendered.text == text and rendered.style.icon is None
+    assert rendered.text == label and rendered.style.icon == 999
     assert rendered.type.data == b"same"
     bytes(rendered)
 

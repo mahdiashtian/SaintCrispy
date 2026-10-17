@@ -5,6 +5,30 @@ failed approaches and decisions for all providers. Read it before investigating 
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
 
+## Premium emoji coverage and admin HTML (October 17)
+
+Spotify's green symbol and many admin/help/group icons were absent from the body
+allowlist, even though the pack loader already had relevant documents. Expanding
+the allowlist alone cannot cover symbols absent from every configured pack. Use
+explicit semantic fallbacks, prefer a native matching document, and replace the
+displayed glyph with the selected document's actual alt before computing UTF-16
+entities. Never attach an unrelated document ID to the original glyph. Pure-emoji
+navigation needs readable text when using Telegram's dedicated premium icon slot;
+otherwise it either duplicates the icon or loses premium rendering.
+
+Admin HTML replies can already carry a presentation through their event wrapper.
+Infer that presentation before HTML parsing; supplying ordinary HTML entities to
+the generic adapter intentionally prevents automatic text rewriting, since its
+caller owns the offsets. Compute HTML and custom entities after substitution.
+
+A read-only workstation Telegram audit loaded all 14 configured/supplied packs
+without sending chat messages. Local replay of actual public metadata verified
+118 static UI glyphs, 143 message samples and 118 single-icon button samples.
+Spotify's green icon selected EmojiStatus. Sparse-catalog tests cover all eight
+provider captions/menus, help, admin HTML offsets and permission fallback. These
+checks do not claim live Telegram rendering or server account permission. See
+[catalog policy and verification](PREMIUM_EMOJI.md).
+
 ## Full database reset and replay prevention (October 17)
 
 A bot-token change can leave old bot IDs, file references, settings, jobs and

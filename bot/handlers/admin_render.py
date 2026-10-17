@@ -8,6 +8,8 @@ from telethon.helpers import add_surrogate, del_surrogate
 
 
 async def source_reply(event, markup, *, buttons=None, presentation=None, edit=False, **options):
+    if presentation is None:
+        presentation = getattr(event, "presentation", None)
     if presentation is not None:
         markup, _ = presentation.prepare(markup)
     text, entities = html.parse(markup)
