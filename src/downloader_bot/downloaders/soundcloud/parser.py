@@ -5,20 +5,11 @@ from urllib.parse import urlsplit
 
 from schemas.media import DownloadError, Quality
 
-from .urls import PAGE_HOSTS
+from .urls import normalize_url
 
 
 def validate_page_url(url: str) -> str:
-    parts = urlsplit(url)
-    if (
-        parts.scheme != "https"
-        or parts.hostname not in PAGE_HOSTS
-        or parts.username
-        or parts.password
-        or parts.port not in (None, 443)
-    ):
-        raise DownloadError("لینک معتبر HTTPS از SoundCloud بفرست.")
-    return url
+    return normalize_url(url)
 
 
 def read_hydration(page: str) -> list[dict]:

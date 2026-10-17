@@ -5,6 +5,29 @@ failed approaches and decisions for all providers. Read it before investigating 
 provider. Update it when new evidence changes a conclusion; preserve dated results
 rather than rewriting historical failures as successes.
 
+## Alternate provider links and SoundCloud mobile fix (October 17)
+
+The newly reported `m.soundcloud.com` track returned HTTP 200 with mobile assets
+but no desktop hydration. Its desktop counterpart contained usable metadata.
+Normalize SoundCloud web aliases before HTML requests, including after redirects;
+use one bounded homepage bootstrap lookup when a supplied page lacks a public ID.
+The exact public track `1595188473` now passes anonymous inspection/resolution and
+a complete 294-second AAC/HLS stream through the application's integrity path
+(3,625,826 bytes, 28.83 seconds on this workstation). This does not change the
+earlier DRM-only track findings.
+
+All eight providers have an alternate-link routing/identity test matrix. YouTube
+legacy/wrapped links, Instagram post embeds, TikTok share/older embed paths and
+SoundCloud widget/numeric-API inputs gained provider-local support. Existing
+Spotify/Pinterest/XVideos/XNXX aliases needed no runtime changes. Nested targets
+and bootstrap assets retain strict origin validation. See the
+[dated coverage, primary references and measurement scope](URL_VARIANTS_20261017.md).
+Other providers were checked with unit regressions, not fresh live transfers.
+When probing from a managed worktree with the original checkout's editable
+virtualenv, set `PYTHONPATH` to the worktree root and `src` so the probe tests the
+changed code. Revisit old origin failures only under the retry conditions in the
+dated evidence.
+
 ## Public YouTube, download history and group follow-up (October 17)
 
 User-retention audit: reread the actual local Couplyo source at `e3e0732`, including

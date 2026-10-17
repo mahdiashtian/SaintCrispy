@@ -2,6 +2,15 @@
 
 Verification separates parser/unit behavior, database/concurrency behavior, full origin streams, and Telegram registration. A green unit suite cannot establish unrestricted access from every server IP.
 
+## October 17, 2026 alternate URL audit
+
+The reported mobile SoundCloud track now passes inspection/resolution and a
+complete 294-second HLS transfer through the application's integrity checks on
+the workstation. All eight providers have alternate-link routing/identity
+regressions; new supported paths remain implemented within their owning providers.
+See the [dated URL coverage and exact live scope](URL_VARIANTS_20261017.md).
+This check did not publish to Telegram or measure production access.
+
 ## October 16, 2026 Spotify addition
 
 [Spotify research and full-stream evidence](SPOTIFY.md) records three successful

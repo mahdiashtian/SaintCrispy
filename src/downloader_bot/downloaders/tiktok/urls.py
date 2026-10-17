@@ -22,7 +22,7 @@ CDN_DOMAINS = (
     "tikwm.com",
 )
 POST_PATH = re.compile(r"/@[\w.\-]{1,128}/(video|photo)/([0-9]{10,25})/?$", re.ASCII)
-EMBED_PATH = re.compile(r"/(?:embed/v2|player/v1)/([0-9]{10,25})/?$")
+EMBED_PATH = re.compile(r"/(?:embed(?:/v2)?|player/v1|share/video)/([0-9]{10,25})/?$")
 SHARE_PATH = re.compile(r"/(?:t/)?[A-Za-z0-9_-]{3,100}/?$")
 LINK_PATTERN = re.compile(
     r"(?<![\w.@/:-])(?:https?://)?(?:"
@@ -40,6 +40,8 @@ def _parts(url):
             or parts.username
             or parts.password
             or parts.port not in (None, 443)
+            or "\\" in url
+            or any(character.isspace() or ord(character) < 32 for character in url)
         ):
             raise ValueError()
         return parts

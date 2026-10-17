@@ -22,6 +22,8 @@ def validate_page_url(url: str) -> None:
             and not parsed.port
             and not parsed.username
             and not parsed.password
+            and "\\" not in url
+            and not any(character.isspace() or ord(character) < 32 for character in url)
         )
     except ValueError:
         valid = False
@@ -33,7 +35,8 @@ def content_path(url: str) -> tuple[str, str]:
     validate_page_url(url)
     path = urlsplit(url).path
     if match := re.fullmatch(
-        r"/(?!share/)(?:[\w.]+/)?(?:p|reels?|tv)/([A-Za-z0-9_-]{1,64})/?", path
+        r"/(?!share/)(?:[\w.]+/)?(?:p|reels?|tv)/([A-Za-z0-9_-]{1,64})(?:/embed(?:/captioned)?)?/?",
+        path,
     ):
         return "post", match[1]
     if match := re.fullmatch(r"/share/(?:reel/|p/)?([A-Za-z0-9_-]{1,64})/?", path):

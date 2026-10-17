@@ -2,6 +2,7 @@ import asyncio
 import json
 import re
 import time
+from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -9,6 +10,16 @@ import httpx
 from schemas.media import DownloadError, SiteHTTPError
 
 from .parser import read_hydration, validate_page_url
+
+
+class ScriptSources(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.sources = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "script" and (value := dict(attrs).get("src")):
+            self.sources.append(value)
 
 
 class SoundCloudClient:
@@ -31,7 +42,7 @@ class SoundCloudClient:
         # Validate every redirect before requesting it, including short links.
         for _ in range(6):
             self._check_cooldown()
-            validate_page_url(url)
+            url = validate_page_url(url)
             response = await self.http.get(url, follow_redirects=False)
             self._check_status(response, allow_redirect=True)
             if response.is_redirect and "location" in response.headers:
@@ -46,32 +57,52 @@ class SoundCloudClient:
         async with self._client_id_lock:
             if self.client_id and self.client_id != invalid_id:
                 return self.client_id
-            if page is None:
-                page, _ = await self.page("https://soundcloud.com/")
-            for item in read_hydration(page):
-                if item.get("hydratable") != "apiClient":
-                    continue
-                data = item.get("data")
-                value = data.get("id") if isinstance(data, dict) else None
-                if (
-                    isinstance(value, str)
-                    and value != invalid_id
-                    and re.fullmatch(r"[0-9a-zA-Z]{32}", value)
-                ):
-                    self.client_id = value
-                    return value
-            scripts = re.findall(r'<script[^>]+src="([^"]+)"', page)
-            for url in reversed(scripts[-8:]):
-                if urlsplit(url).hostname != "a-v2.sndcdn.com":
-                    continue
-                response = await self.http.get(url)
-                if response.status_code == 404:
-                    continue
-                self._check_status(response)
-                match = re.search(r'client_id\s*:\s*"([0-9a-zA-Z]{32})"', response.text)
-                if match and match[1] != invalid_id:
-                    self.client_id = match[1]
-                    return self.client_id
+            provided = page is not None
+            visited = set()
+            for attempt in range(2 if provided else 1):
+                if page is None or attempt:
+                    page, _ = await self.page("https://soundcloud.com/")
+                for item in read_hydration(page):
+                    if item.get("hydratable") != "apiClient":
+                        continue
+                    data = item.get("data")
+                    value = data.get("id") if isinstance(data, dict) else None
+                    if (
+                        isinstance(value, str)
+                        and value != invalid_id
+                        and re.fullmatch(r"[0-9a-zA-Z]{32}", value)
+                    ):
+                        self.client_id = value
+                        return value
+                scripts = ScriptSources()
+                scripts.feed(page)
+                for source in reversed(scripts.sources[-8:]):
+                    try:
+                        url = urljoin("https://soundcloud.com/", source)
+                        parts = urlsplit(url)
+                        trusted = (
+                            parts.scheme == "https"
+                            and parts.hostname == "a-v2.sndcdn.com"
+                            and not parts.username
+                            and not parts.password
+                            and parts.port in (None, 443)
+                        )
+                    except ValueError:
+                        continue
+                    if not trusted or url in visited:
+                        continue
+                    visited.add(url)
+                    self._check_cooldown()
+                    response = await self.http.get(url, follow_redirects=False)
+                    if response.status_code == 404 or response.is_redirect:
+                        continue
+                    self._check_status(response)
+                    match = re.search(
+                        r"""["']?client_id["']?\s*[:=]\s*["']([0-9a-zA-Z]{32})["']""", response.text
+                    )
+                    if match and match[1] != invalid_id:
+                        self.client_id = match[1]
+                        return self.client_id
         raise DownloadError(
             "شناسه عمومی پخش SoundCloud پیدا نشد؛ ساختار سایت نیاز به بررسی دارد.",
             code="soundcloud_client_id_unavailable",

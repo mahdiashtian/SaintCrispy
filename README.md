@@ -7,6 +7,11 @@ YouTube is available to all users in private chats and groups. Available
 media, qualities and account requirements depend on the source website. The bot
 interface is currently Persian; developer documentation and code comments are English.
 
+Supported alternate inputs include provider-owned mobile, share and embed forms.
+SoundCloud mobile permalinks use the desktop metadata endpoint; supported widgets
+resolve their validated track target. See the [per-provider URL coverage and
+verification scope](docs/URL_VARIANTS_20261017.md).
+
 TikTok supports public video/photo posts and available soundtracks, with one
 asynchronous metadata request and immediate reuse of fresh selected sources.
 See [TikTok setup, speed measurements and access limits](docs/TIKTOK.md).

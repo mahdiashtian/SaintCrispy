@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
 from itertools import islice
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from schemas.media import DownloadError, Media, Quality, Source
 
@@ -17,18 +17,46 @@ HTTP_CHUNK_SIZE = 8 * 1024 * 1024
 
 def video_id(url: str) -> str:
     try:
-        parsed = urlsplit(url)
-        if parsed.scheme != "https" or parsed.hostname not in HOSTS or parsed.port is not None:
-            raise ValueError
-        if parsed.username or parsed.password:
+        for _ in range(4):
+            parsed = urlsplit(url)
+            if (
+                parsed.scheme != "https"
+                or parsed.hostname not in HOSTS
+                or parsed.port is not None
+                or parsed.username
+                or parsed.password
+                or "\\" in url
+                or any(character.isspace() or ord(character) < 32 for character in url)
+            ):
+                raise ValueError
+            query = parse_qs(parsed.query, max_num_fields=128)
+            if parsed.path in {"/attribution_link", "/redirect", "/oembed"}:
+                key = {"/attribution_link": "u", "/redirect": "q", "/oembed": "url"}[parsed.path]
+                targets = query.get(key, [])
+                if len(targets) != 1:
+                    raise ValueError
+                url = urljoin("https://www.youtube.com/", targets[0])
+                continue
+            if parsed.path == "/" and parsed.fragment.startswith("/watch?"):
+                url = urljoin("https://www.youtube.com/", parsed.fragment)
+                continue
+            break
+        else:
             raise ValueError
         parts = parsed.path.strip("/").split("/")
         if parsed.hostname in {"youtu.be", "www.youtu.be"} and len(parts) == 1:
             identity = parts[0]
-        elif parsed.path == "/watch":
-            values = parse_qs(parsed.query).get("v", [])
+        elif parsed.path.rstrip("/") in {
+            "",
+            "/watch",
+            "/watch_popup",
+            "/watch.php",
+            "/movie",
+            "/movie_popup",
+        }:
+            values = query.get("v", [])
             identity = values[0] if len(values) == 1 else ""
-        elif len(parts) == 2 and parts[0] in {"shorts", "embed", "live", "v"}:
+        elif len(parts) == 2 and parts[0] in {"shorts", "embed", "live", "v", "e"}:
             identity = parts[1]
         else:
             raise ValueError

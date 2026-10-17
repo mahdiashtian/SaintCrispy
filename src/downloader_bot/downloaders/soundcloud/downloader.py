@@ -1,6 +1,7 @@
 import asyncio
 import time
 from dataclasses import replace
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
@@ -15,7 +16,7 @@ from .parser import (
     unavailable_error,
     validate_page_url,
 )
-from .urls import cache_alias
+from .urls import API_HOSTS, TRACK_PATH, cache_alias
 
 
 class SoundCloudDownloader(Downloader):
@@ -56,22 +57,36 @@ class SoundCloudDownloader(Downloader):
             raise
 
     async def _inspect(self, url: str, client: SoundCloudClient, account_id: str) -> Media:
-        page, final_url = await client.page(url)
-        await client.public_client_id(page)
+        url = validate_page_url(url)
         from_page = False
-        try:
-            track = read_track(page)
-        except DownloadError:
-            track = await client.api(
-                "https://api-v2.soundcloud.com/resolve", params={"url": final_url}
+        if urlsplit(url).hostname in API_HOSTS:
+            final_url = urlsplit(url)._replace(query="").geturl()
+            values = parse_qs(urlsplit(url).query, max_num_fields=64).get("secret_token", [])
+            if len(values) > 1:
+                raise DownloadError("لینک SoundCloud معتبر نیست.")
+            track = await self._fresh_track(
+                client,
+                TRACK_PATH.fullmatch(urlsplit(url).path)[1],
+                params={"secret_token": values[0]} if values else None,
             )
-            if track.get("kind") != "track":
-                raise DownloadError("فعلاً لینک یک آهنگ را بفرست؛ لینک مجموعه پشتیبانی نشده است.")
         else:
-            if client.headers:
-                track = await self._fresh_track(client, str(track["id"]))
+            page, final_url = await client.page(url)
+            await client.public_client_id(page)
+            try:
+                track = read_track(page)
+            except DownloadError:
+                track = await client.api(
+                    "https://api-v2.soundcloud.com/resolve", params={"url": final_url}
+                )
+                if track.get("kind") != "track":
+                    raise DownloadError(
+                        "فعلاً لینک یک آهنگ را بفرست؛ لینک مجموعه پشتیبانی نشده است."
+                    )
             else:
-                from_page = True
+                if client.headers:
+                    track = await self._fresh_track(client, str(track["id"]))
+                else:
+                    from_page = True
         failure = None
         try:
             available = await self._qualities(client, track)
@@ -142,8 +157,11 @@ class SoundCloudDownloader(Downloader):
         return available
 
     @staticmethod
-    async def _fresh_track(client: SoundCloudClient, identity: str) -> dict:
-        track = await client.api(f"https://api-v2.soundcloud.com/tracks/{identity}")
+    async def _fresh_track(client: SoundCloudClient, identity: str, *, params=None) -> dict:
+        track = await client.api(
+            f"https://api-v2.soundcloud.com/tracks/{identity}",
+            **({"params": params} if params else {}),
+        )
         if str(track.get("id")) != identity:
             raise DownloadError(
                 "شناسه پاسخ SoundCloud با آهنگ درخواستی یکسان نیست.",
